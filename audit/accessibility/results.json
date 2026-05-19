@@ -1,0 +1,1370 @@
+{
+  "generatedAt": "2026-05-19T21:26:42.511Z",
+  "routes": [
+    {
+      "name": "Login",
+      "path": "/login",
+      "authenticated": false,
+      "importance": "major"
+    },
+    {
+      "name": "My Week",
+      "path": "/my-week",
+      "authenticated": true,
+      "importance": "primary"
+    },
+    {
+      "name": "Docs",
+      "path": "/docs",
+      "authenticated": true,
+      "importance": "primary"
+    },
+    {
+      "name": "Issues",
+      "path": "/issues",
+      "authenticated": true,
+      "importance": "primary"
+    },
+    {
+      "name": "Programs",
+      "path": "/programs",
+      "authenticated": true,
+      "importance": "major"
+    },
+    {
+      "name": "Projects",
+      "path": "/projects",
+      "authenticated": true,
+      "importance": "major"
+    },
+    {
+      "name": "Team Allocation",
+      "path": "/team/allocation",
+      "authenticated": true,
+      "importance": "major"
+    },
+    {
+      "name": "Team Directory",
+      "path": "/team/directory",
+      "authenticated": true,
+      "importance": "major"
+    },
+    {
+      "name": "Team Status",
+      "path": "/team/status",
+      "authenticated": true,
+      "importance": "major"
+    },
+    {
+      "name": "Settings",
+      "path": "/settings",
+      "authenticated": true,
+      "importance": "major"
+    }
+  ],
+  "lighthouse": {
+    "Login": {
+      "score": 98,
+      "failingAudits": [
+        {
+          "id": "landmark-one-main",
+          "title": "Document does not have a main landmark.",
+          "scoreDisplayMode": "binary",
+          "description": "One main landmark helps screen reader users navigate a web page. [Learn more about landmarks](https://dequeuniversity.com/rules/axe/4.11/landmark-one-main).",
+          "details": {
+            "type": "table",
+            "headings": [
+              {
+                "key": "node",
+                "valueType": "node",
+                "subItemsHeading": {
+                  "key": "relatedNode",
+                  "valueType": "node"
+                },
+                "label": "Failing Elements"
+              }
+            ],
+            "items": [
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-0-HTML",
+                  "path": "1,HTML",
+                  "selector": "html",
+                  "boundingRect": {
+                    "top": 0,
+                    "bottom": 1000,
+                    "left": 0,
+                    "right": 1440,
+                    "width": 1440,
+                    "height": 1000
+                  },
+                  "snippet": "<html lang=\"en\">",
+                  "nodeLabel": "html",
+                  "explanation": "Fix all of the following:\n  Document does not have a main landmark"
+                }
+              }
+            ],
+            "debugData": {
+              "type": "debugdata",
+              "impact": "moderate",
+              "tags": [
+                "cat.semantics",
+                "best-practice"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "My Week": {
+      "score": 95,
+      "failingAudits": [
+        {
+          "id": "color-contrast",
+          "title": "Background and foreground colors do not have a sufficient contrast ratio.",
+          "scoreDisplayMode": "binary",
+          "description": "Low-contrast text is difficult or impossible for many users to read. [Learn how to provide sufficient color contrast](https://dequeuniversity.com/rules/axe/4.11/color-contrast).",
+          "details": {
+            "type": "table",
+            "headings": [
+              {
+                "key": "node",
+                "valueType": "node",
+                "subItemsHeading": {
+                  "key": "relatedNode",
+                  "valueType": "node"
+                },
+                "label": "Failing Elements"
+              }
+            ],
+            "items": [
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-0-SPAN",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,0,DIV,0,DIV,1,SPAN",
+                  "selector": "div.flex > div.flex > div.flex > span.text-xs",
+                  "boundingRect": {
+                    "top": 60,
+                    "bottom": 80,
+                    "left": 163,
+                    "right": 218,
+                    "width": 55,
+                    "height": 20
+                  },
+                  "snippet": "<span class=\"text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded\">",
+                  "nodeLabel": "Current",
+                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.55 (foreground color: #005ea2, background color: #0a1d2b, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+                },
+                "subItems": {
+                  "type": "subitems",
+                  "items": [
+                    {
+                      "relatedNode": {
+                        "type": "node",
+                        "lhId": "1-1-DIV",
+                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
+                        "selector": "body > div#root > div.flex",
+                        "boundingRect": {
+                          "top": 0,
+                          "bottom": 1000,
+                          "left": 0,
+                          "right": 1440,
+                          "width": 1440,
+                          "height": 1000
+                        },
+                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
+                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-2-SPAN",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,5,BUTTON,0,DIV,0,SPAN",
+                  "selector": "div.space-y-1.5 > button.flex > div.w-20 > span.text-xs",
+                  "boundingRect": {
+                    "top": 730,
+                    "bottom": 745,
+                    "left": 401,
+                    "right": 422,
+                    "width": 21,
+                    "height": 15
+                  },
+                  "snippet": "<span class=\"text-xs font-medium text-accent\">",
+                  "nodeLabel": "Tue",
+                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.82 (foreground color: #005ea2, background color: #0c1114, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+                },
+                "subItems": {
+                  "type": "subitems",
+                  "items": [
+                    {
+                      "relatedNode": {
+                        "type": "node",
+                        "lhId": "1-3-BUTTON",
+                        "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,5,BUTTON",
+                        "selector": "div.max-w-3xl > section.mb-6 > div.space-y-1.5 > button.flex",
+                        "boundingRect": {
+                          "top": 713,
+                          "bottom": 759,
+                          "left": 384,
+                          "right": 1104,
+                          "width": 720,
+                          "height": 46
+                        },
+                        "snippet": "<button class=\"flex items-center gap-3 rounded-lg border px-4 py-2.5 border-accent/30 bg-…\">",
+                        "nodeLabel": "Tue5/19\n+ Write update"
+                      }
+                    },
+                    {
+                      "relatedNode": {
+                        "type": "node",
+                        "lhId": "1-1-DIV",
+                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
+                        "selector": "body > div#root > div.flex",
+                        "boundingRect": {
+                          "top": 0,
+                          "bottom": 1000,
+                          "left": 0,
+                          "right": 1440,
+                          "width": 1440,
+                          "height": 1000
+                        },
+                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
+                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-4-SPAN",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,6,DIV,0,DIV,0,SPAN",
+                  "selector": "div.space-y-1.5 > div.flex > div.w-20 > span.text-xs",
+                  "boundingRect": {
+                    "top": 782,
+                    "bottom": 797,
+                    "left": 401,
+                    "right": 427,
+                    "width": 26,
+                    "height": 15
+                  },
+                  "snippet": "<span class=\"text-xs font-medium text-muted\">",
+                  "nodeLabel": "Wed",
+                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 1.84 (foreground color: #3f3f3f, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+                },
+                "subItems": {
+                  "type": "subitems",
+                  "items": [
+                    {
+                      "relatedNode": {
+                        "type": "node",
+                        "lhId": "1-1-DIV",
+                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
+                        "selector": "body > div#root > div.flex",
+                        "boundingRect": {
+                          "top": 0,
+                          "bottom": 1000,
+                          "left": 0,
+                          "right": 1440,
+                          "width": 1440,
+                          "height": 1000
+                        },
+                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
+                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-5-SPAN",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,6,DIV,0,DIV,1,SPAN",
+                  "selector": "div.space-y-1.5 > div.flex > div.w-20 > span.text-xs",
+                  "boundingRect": {
+                    "top": 782,
+                    "bottom": 797,
+                    "left": 431,
+                    "right": 457,
+                    "width": 26,
+                    "height": 15
+                  },
+                  "snippet": "<span class=\"text-xs text-muted ml-1\">",
+                  "nodeLabel": "5/20",
+                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 1.84 (foreground color: #3f3f3f, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+                },
+                "subItems": {
+                  "type": "subitems",
+                  "items": [
+                    {
+                      "relatedNode": {
+                        "type": "node",
+                        "lhId": "1-1-DIV",
+                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
+                        "selector": "body > div#root > div.flex",
+                        "boundingRect": {
+                          "top": 0,
+                          "bottom": 1000,
+                          "left": 0,
+                          "right": 1440,
+                          "width": 1440,
+                          "height": 1000
+                        },
+                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
+                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-6-SPAN",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,6,DIV,1,DIV,0,SPAN",
+                  "selector": "div.space-y-1.5 > div.flex > div.flex-1 > span.text-xs",
+                  "boundingRect": {
+                    "top": 782,
+                    "bottom": 797,
+                    "left": 493,
+                    "right": 551,
+                    "width": 58,
+                    "height": 15
+                  },
+                  "snippet": "<span class=\"text-xs text-muted italic\">",
+                  "nodeLabel": "Upcoming",
+                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 1.84 (foreground color: #3f3f3f, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+                },
+                "subItems": {
+                  "type": "subitems",
+                  "items": [
+                    {
+                      "relatedNode": {
+                        "type": "node",
+                        "lhId": "1-1-DIV",
+                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
+                        "selector": "body > div#root > div.flex",
+                        "boundingRect": {
+                          "top": 0,
+                          "bottom": 1000,
+                          "left": 0,
+                          "right": 1440,
+                          "width": 1440,
+                          "height": 1000
+                        },
+                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
+                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "debugData": {
+              "type": "debugdata",
+              "impact": "serious",
+              "tags": [
+                "cat.color",
+                "wcag2aa",
+                "wcag143",
+                "TTv5",
+                "TT13.c",
+                "EN-301-549",
+                "EN-9.1.4.3",
+                "ACT",
+                "RGAAv4",
+                "RGAA-3.2.1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Docs": {
+      "score": 100,
+      "failingAudits": []
+    },
+    "Issues": {
+      "score": 100,
+      "failingAudits": []
+    },
+    "Programs": {
+      "score": 100,
+      "failingAudits": []
+    },
+    "Projects": {
+      "score": 100,
+      "failingAudits": []
+    },
+    "Team Allocation": {
+      "score": 96,
+      "failingAudits": [
+        {
+          "id": "color-contrast",
+          "title": "Background and foreground colors do not have a sufficient contrast ratio.",
+          "scoreDisplayMode": "binary",
+          "description": "Low-contrast text is difficult or impossible for many users to read. [Learn how to provide sufficient color contrast](https://dequeuniversity.com/rules/axe/4.11/color-contrast).",
+          "details": {
+            "type": "table",
+            "headings": [
+              {
+                "key": "node",
+                "valueType": "node",
+                "subItemsHeading": {
+                  "key": "relatedNode",
+                  "valueType": "node"
+                },
+                "label": "Failing Elements"
+              }
+            ],
+            "items": [
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-0-SPAN",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,1,DIV,0,DIV,0,DIV,0,SPAN",
+                  "selector": "div.flex > div.flex > div.group > span.text-xs",
+                  "boundingRect": {
+                    "top": 84,
+                    "bottom": 100,
+                    "left": 519,
+                    "right": 566,
+                    "width": 48,
+                    "height": 16
+                  },
+                  "snippet": "<span class=\"text-xs font-medium text-accent\">",
+                  "nodeLabel": "Week 13",
+                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.89 (foreground color: #005ea2, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+                },
+                "subItems": {
+                  "type": "subitems",
+                  "items": [
+                    {
+                      "relatedNode": {
+                        "type": "node",
+                        "lhId": "1-1-DIV",
+                        "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,1,DIV,0,DIV,0,DIV",
+                        "selector": "div.inline-flex > div.flex > div.flex > div.group",
+                        "boundingRect": {
+                          "top": 80,
+                          "bottom": 120,
+                          "left": 453,
+                          "right": 633,
+                          "width": 180,
+                          "height": 40
+                        },
+                        "snippet": "<div class=\"group flex h-10 w-[180px] flex-col items-center justify-center border-b bo…\">",
+                        "nodeLabel": "Week 13\nMay 14-20"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "debugData": {
+              "type": "debugdata",
+              "impact": "serious",
+              "tags": [
+                "cat.color",
+                "wcag2aa",
+                "wcag143",
+                "TTv5",
+                "TT13.c",
+                "EN-301-549",
+                "EN-9.1.4.3",
+                "ACT",
+                "RGAAv4",
+                "RGAA-3.2.1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Team Directory": {
+      "score": 100,
+      "failingAudits": []
+    },
+    "Team Status": {
+      "score": 96,
+      "failingAudits": [
+        {
+          "id": "color-contrast",
+          "title": "Background and foreground colors do not have a sufficient contrast ratio.",
+          "scoreDisplayMode": "binary",
+          "description": "Low-contrast text is difficult or impossible for many users to read. [Learn how to provide sufficient color contrast](https://dequeuniversity.com/rules/axe/4.11/color-contrast).",
+          "details": {
+            "type": "table",
+            "headings": [
+              {
+                "key": "node",
+                "valueType": "node",
+                "subItemsHeading": {
+                  "key": "relatedNode",
+                  "valueType": "node"
+                },
+                "label": "Failing Elements"
+              }
+            ],
+            "items": [
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-0-SPAN",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,1,DIV,0,DIV,1,DIV,6,DIV,0,DIV,0,SPAN",
+                  "selector": "div.flex > div.flex > div.flex > span.text-xs",
+                  "boundingRect": {
+                    "top": 115,
+                    "bottom": 131,
+                    "left": 1139,
+                    "right": 1186,
+                    "width": 48,
+                    "height": 16
+                  },
+                  "snippet": "<span class=\"text-xs font-medium text-accent\">",
+                  "nodeLabel": "Week 13",
+                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.89 (foreground color: #005ea2, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+                },
+                "subItems": {
+                  "type": "subitems",
+                  "items": [
+                    {
+                      "relatedNode": {
+                        "type": "node",
+                        "lhId": "1-1-DIV",
+                        "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,1,DIV,0,DIV,1,DIV,6,DIV,0,DIV",
+                        "selector": "div.inline-flex > div.flex > div.flex > div.flex",
+                        "boundingRect": {
+                          "top": 111,
+                          "bottom": 151,
+                          "left": 1113,
+                          "right": 1213,
+                          "width": 100,
+                          "height": 40
+                        },
+                        "snippet": "<div class=\"flex h-10 w-[100px] flex-col items-center justify-center border-b border-r…\">",
+                        "nodeLabel": "Week 13\nMay 14-20"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "debugData": {
+              "type": "debugdata",
+              "impact": "serious",
+              "tags": [
+                "cat.color",
+                "wcag2aa",
+                "wcag143",
+                "TTv5",
+                "TT13.c",
+                "EN-301-549",
+                "EN-9.1.4.3",
+                "ACT",
+                "RGAAv4",
+                "RGAA-3.2.1"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Settings": {
+      "score": 94,
+      "failingAudits": [
+        {
+          "id": "select-name",
+          "title": "Select elements do not have associated label elements.",
+          "scoreDisplayMode": "binary",
+          "description": "Form elements without effective labels can create frustrating experiences for screen reader users. [Learn more about the `select` element](https://dequeuniversity.com/rules/axe/4.11/select-name).",
+          "details": {
+            "type": "table",
+            "headings": [
+              {
+                "key": "node",
+                "valueType": "node",
+                "subItemsHeading": {
+                  "key": "relatedNode",
+                  "valueType": "node"
+                },
+                "label": "Failing Elements"
+              }
+            ],
+            "items": [
+              {
+                "node": {
+                  "type": "node",
+                  "lhId": "1-0-SELECT",
+                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,2,MAIN,0,DIV,1,DIV,0,TABLE,1,TBODY,0,TR,2,TD,0,SELECT",
+                  "selector": "tbody.divide-y > tr > td.px-4 > select.px-2",
+                  "boundingRect": {
+                    "top": 256,
+                    "bottom": 285,
+                    "left": 893,
+                    "right": 987,
+                    "width": 94,
+                    "height": 29
+                  },
+                  "snippet": "<select class=\"px-2 py-1 rounded text-sm bg-background border border-border\">",
+                  "nodeLabel": "Admin\nMember",
+                  "explanation": "Fix any of the following:\n  Element does not have an implicit (wrapped) <label>\n  Element does not have an explicit <label>\n  aria-label attribute does not exist or is empty\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\n  Element has no title attribute\n  Element's default semantics were not overridden with role=\"none\" or role=\"presentation\""
+                }
+              }
+            ],
+            "debugData": {
+              "type": "debugdata",
+              "impact": "critical",
+              "tags": [
+                "cat.forms",
+                "wcag2a",
+                "wcag412",
+                "section508",
+                "section508.22.n",
+                "TTv5",
+                "TT5.c",
+                "EN-301-549",
+                "EN-9.4.1.2",
+                "ACT",
+                "RGAAv4",
+                "RGAA-11.1.1"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "axe": {
+    "Login": {
+      "countsByImpact": {},
+      "violations": []
+    },
+    "My Week": {
+      "countsByImpact": {
+        "serious": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".bg-accent\\/20.py-0\\.5.px-1\\.5"
+              ],
+              "html": "<span class=\"text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded\">Current</span>",
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.55 (foreground color: #005ea2, background color: #0a1d2b, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    "Docs": {
+      "countsByImpact": {},
+      "violations": []
+    },
+    "Issues": {
+      "countsByImpact": {},
+      "violations": []
+    },
+    "Programs": {
+      "countsByImpact": {},
+      "violations": []
+    },
+    "Projects": {
+      "countsByImpact": {},
+      "violations": []
+    },
+    "Team Allocation": {
+      "countsByImpact": {
+        "serious": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".text-accent.font-medium.text-xs"
+              ],
+              "html": "<span class=\"text-xs font-medium text-accent\">Week 13</span>",
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.89 (foreground color: #005ea2, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    "Team Directory": {
+      "countsByImpact": {},
+      "violations": []
+    },
+    "Team Status": {
+      "countsByImpact": {
+        "serious": 1
+      },
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".text-accent.font-medium.text-xs"
+              ],
+              "html": "<span class=\"text-xs font-medium text-accent\">Week 13</span>",
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.89 (foreground color: #005ea2, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    "Settings": {
+      "countsByImpact": {
+        "critical": 1
+      },
+      "violations": [
+        {
+          "id": "select-name",
+          "impact": "critical",
+          "description": "Ensure select element has an accessible name",
+          "help": "Select element must have an accessible name",
+          "nodes": [
+            {
+              "target": [
+                "tr:nth-child(1) > td:nth-child(3) > select"
+              ],
+              "html": "<select class=\"px-2 py-1 rounded text-sm bg-background border border-border\"><option value=\"admin\">Admin</option><option value=\"member\">Member</option></select>",
+              "failureSummary": "Fix any of the following:\n  Element does not have an implicit (wrapped) <label>\n  Element does not have an explicit <label>\n  aria-label attribute does not exist or is empty\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\n  Element has no title attribute\n  Element's default semantics were not overridden with role=\"none\" or role=\"presentation\""
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "keyboard": [
+    {
+      "route": "Login",
+      "focusableCount": 3,
+      "reachedCount": 3,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "input Password",
+        "button Sign in",
+        "input Email address"
+      ]
+    },
+    {
+      "route": "My Week",
+      "focusableCount": 25,
+      "reachedCount": 25,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "button Previous week",
+        "button Next week",
+        "a Ship Core RedesignShip Core",
+        "button Create retro",
+        "button Due today+ Create plan for this week",
+        "button + Create retro for this week",
+        "button Thu5/14+ Write update",
+        "button Fri5/15+ Write update",
+        "button Sat5/16+ Write update",
+        "button Sun5/17+ Write update",
+        "button Mon5/18+ Write update",
+        "button Tue5/19+ Write update",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button Collapse sidebar",
+        "button My Work",
+        "button Overview"
+      ]
+    },
+    {
+      "route": "Docs",
+      "focusableCount": 37,
+      "reachedCount": 37,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "input Search...",
+        "button Sort by",
+        "button List view",
+        "button Tree view",
+        "button New Document",
+        "button All",
+        "button Workspace",
+        "button Private",
+        "button Expand",
+        "a Welcome to Ship",
+        "button Delete document",
+        "button Add sub-document",
+        "a Project Overview",
+        "button Delete document",
+        "button Add sub-document",
+        "a Architecture Guide",
+        "button Delete document",
+        "button Add sub-document",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button New document",
+        "button Collapse sidebar",
+        "button Expand",
+        "a Welcome to Ship",
+        "button Document actions",
+        "a Project Overview",
+        "button Document actions",
+        "a Architecture Guide",
+        "button Document actions"
+      ]
+    },
+    {
+      "route": "Issues",
+      "focusableCount": 169,
+      "reachedCount": 168,
+      "completeness": "Full",
+      "missed": [
+        "tr #15Add team workload viewTodoStatus: TodoInternalShip CoreWeek 14HighDev User"
+      ],
+      "order": [
+        "button Filter issues by program",
+        "button Filter issues by project",
+        "button Filter issues by week",
+        "button Sort by",
+        "button List view",
+        "button Kanban view",
+        "button Customize columns",
+        "button New Issue",
+        "button All",
+        "button Needs Triage",
+        "button Active",
+        "button Backlog",
+        "button Done",
+        "button Cancelled",
+        "table Issues list",
+        "button Select item ac71f54b-ae9c-4115-8f2e-541a80355de9",
+        "button Select item 9d823334-65da-41f0-9d84-057f67c4aaae",
+        "button Select item 250afd80-1777-4df0-94d9-fefe6e9045cc",
+        "button Select item b3ce4e79-0cde-4320-9dcc-a506f4446b4d",
+        "button Select item 101aac0e-8261-4887-8d78-88860628861a",
+        "button Select item ab42a44d-c57f-474b-a23c-71df2bbd5221",
+        "button Select item 0e192d1f-d37e-467d-87c9-4bcc39bbd7d1",
+        "button Select item 277e33e3-43eb-4f2b-a086-8a12f0ad9528",
+        "button Select item e00b2e72-3960-43f5-8f6e-78e81c395639",
+        "button Select item 1d0440ff-3f88-44dc-bdf9-b7c8c5fbc561",
+        "button Select item cb5265bb-d8bc-4c54-8ad3-d222e7a15678",
+        "button Select item b141ff95-0be2-409f-bd11-86b0ab8716f1",
+        "button Select item 63636485-21a2-477c-9e0f-5400b0c93d5a",
+        "button Select item e1ddf800-2589-4c63-8520-f1dd4ef7f067",
+        "button Select item 771dbdfa-895a-431e-b9b1-d3913de8724c",
+        "button Select item e8c21e8c-5374-4f26-a9e3-4862f1b92fc4",
+        "button Select item 691bc2d1-c719-4efa-8b45-2fa682a4dccf",
+        "button Select item d878313e-af6c-4bb5-b6d6-c6ab38d57ee3",
+        "button Select item 6aaae52e-52a7-446b-b409-29f22aa4b335",
+        "button Select item c56b4594-1992-45bf-b47f-98a90ecb178e",
+        "button Select item bac31da9-4c61-4569-860f-cccc53cb849a",
+        "button Select item 690c24d0-1975-47b0-bbe4-e8e1d1ee07ac",
+        "button Select item 855a4c08-a10e-4a63-af88-21675411b52f",
+        "button Select item dc844a23-fbca-4f14-9488-27f24f09f076",
+        "button Select item 1fea92e1-cc5a-4709-9740-e804b7227b0d",
+        "button Select item ca09a218-dc23-48e4-b2c8-23e232a6f53a",
+        "button Select item 0abec412-6196-4b60-b3a4-6ffbb83954ec",
+        "button Select item f689fc85-ba70-4b73-8f3c-6090f796018d",
+        "button Select item 40a2c2a2-12d4-4ec1-bd6d-fbc963626998",
+        "button Select item 5782d002-0060-42cc-afc5-d61c2f88765d",
+        "button Select item 32d959a3-79dd-4fa6-9a16-6154c7b38191",
+        "button Select item 1f1e74e3-59ef-4afc-8263-0b85986caadc",
+        "button Select item 57d92855-347d-4396-b6e6-51f01f65c825",
+        "button Select item 4dcc0078-883f-4204-a5c0-f3bd48bcd6e7",
+        "button Select item 02c264b8-1ce4-4f78-8040-1a3f1e889335",
+        "button Select item f9b66d65-133d-43e6-bda9-81baaaaae8c5",
+        "button Select item 75d3120e-b7b5-4413-9604-a0c97b2e9ff1",
+        "button Select item 07f071ca-d204-48eb-9390-ead0be933de7",
+        "button Select item 8962d488-c539-4509-938d-4be6a54ad566",
+        "button Select item c643c5c6-203a-4c62-a96c-624be501a29d",
+        "button Select item 7a50b2f1-6d1e-4d91-acc7-f3c920f87df8",
+        "button Select item 179db1dc-6ead-4eae-876a-5dab1c62ee3d",
+        "button Select item 41ed5cd3-241c-4152-9c69-5c480b571a1a",
+        "button Select item 48ad23b3-48d2-4082-8b9f-16b32814bb43",
+        "button Select item e7d306c1-8982-4a97-9bcb-913925f127bb",
+        "button Select item 88d3a79f-92ae-4e71-9010-ec8695d6d542",
+        "button Select item 2b69b678-2af9-4f1e-868e-301f273b434e",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button New issue",
+        "button Collapse sidebar",
+        "a Infrastructure documentation",
+        "button Actions for Infrastructure documentation",
+        "a Design System documentation",
+        "button Actions for Design System documentation",
+        "a API Platform documentation",
+        "button Actions for API Platform documentation",
+        "a Authentication documentation",
+        "button Actions for Authentication documentation",
+        "a Add team workload view",
+        "button Actions for Add team workload view",
+        "a Implement search feature",
+        "button Actions for Implement search feature",
+        "a Build issue assignment flow",
+        "button Actions for Build issue assignment flow",
+        "a Implement sprint management",
+        "button Actions for Implement sprint management",
+        "a User authentication setup",
+        "button Actions for User authentication setup",
+        "a Database schema design",
+        "button Actions for Database schema design",
+        "a Initial project setup",
+        "button Actions for Initial project setup",
+        "a API work for current week",
+        "button Actions for API work for current week",
+        "a Status Overview test issue 2",
+        "button Actions for Status Overview test issue 2",
+        "a Status Overview test issue 1",
+        "button Actions for Status Overview test issue 1",
+        "a Rejected spam submission",
+        "button Actions for Rejected spam submission",
+        "a Accepted user suggestion",
+        "button Actions for Accepted user suggestion",
+        "a Bug report from customer",
+        "button Actions for Bug report from customer",
+        "a External feature request from user",
+        "button Actions for External feature request from user",
+        "a Infrastructure configuration",
+        "button Actions for Infrastructure configuration",
+        "a Infrastructure initial setup",
+        "button Actions for Infrastructure initial setup",
+        "a Design System configuration",
+        "button Actions for Design System configuration",
+        "a Design System initial setup",
+        "button Actions for Design System initial setup",
+        "a API Platform configuration",
+        "button Actions for API Platform configuration",
+        "a API Platform initial setup",
+        "button Actions for API Platform initial setup",
+        "a Authentication configuration",
+        "button Actions for Authentication configuration",
+        "a Authentication initial setup",
+        "button Actions for Authentication initial setup",
+        "a Create Slack integration",
+        "button Actions for Create Slack integration",
+        "a Implement webhooks",
+        "button Actions for Implement webhooks",
+        "a Build analytics dashboard",
+        "button Actions for Build analytics dashboard",
+        "a Build settings page",
+        "button Actions for Build settings page",
+        "a Refactor notification system",
+        "button Actions for Refactor notification system",
+        "a Review dashboard design",
+        "button Actions for Review dashboard design",
+        "a Implement burndown chart",
+        "button Actions for Implement burndown chart",
+        "a Add sprint velocity metrics",
+        "button Actions for Add sprint velocity metrics",
+        "a CI/CD pipeline configuration",
+        "button Actions for CI/CD pipeline configuration",
+        "a Infrastructure improvements",
+        "button Actions for Infrastructure improvements",
+        "a Design System improvements",
+        "button Actions for Design System improvements",
+        "a API Platform improvements",
+        "button Actions for API Platform improvements",
+        "a Authentication improvements",
+        "button Actions for Authentication improvements",
+        "a Implement file versioning",
+        "button Actions for Implement file versioning",
+        "a Add calendar view",
+        "button Actions for Add calendar view",
+        "a Build export to PDF",
+        "button Actions for Build export to PDF",
+        "a Add keyboard shortcuts",
+        "button Actions for Add keyboard shortcuts",
+        "a Create mobile app",
+        "button Actions for Create mobile app",
+        "a Add dark mode support",
+        "button Actions for Add dark mode support",
+        "a Add email notifications",
+        "button Actions for Add email notifications",
+        "a Update API documentation",
+        "button Actions for Update API documentation"
+      ]
+    },
+    {
+      "route": "Programs",
+      "focusableCount": 30,
+      "reachedCount": 30,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "button Sort by",
+        "button Customize columns",
+        "button New Program",
+        "table Programs list",
+        "button Select item 24141cd9-41ef-47b9-a3ce-d85ec61e366d",
+        "button Select item a7319976-4f7c-41dd-9ae6-7969f1669dc8",
+        "button Select item 1e3fcb02-70cb-49b4-9123-7db801bcf0ab",
+        "button Select item b4cf197c-6198-4bb2-901d-646a84f7b247",
+        "button Select item 4b16f759-f53a-41a8-806d-ff695357d4a0",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button Collapse sidebar",
+        "button IInfrastructure",
+        "button Actions for Infrastructure",
+        "button DDesign System",
+        "button Actions for Design System",
+        "button AAPI Platform",
+        "button Actions for API Platform",
+        "button AAuthentication",
+        "button Actions for Authentication",
+        "button SShip Core",
+        "button Actions for Ship Core"
+      ]
+    },
+    {
+      "route": "Projects",
+      "focusableCount": 38,
+      "reachedCount": 38,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "button Filter projects by program",
+        "button Sort by",
+        "button Customize columns",
+        "button New Project",
+        "button All4",
+        "button Active1",
+        "button Planned0",
+        "button Completed0",
+        "button Archived0",
+        "table Projects list",
+        "button Select item 8c8f5fcf-75d8-4b8c-a04f-3f5c0870e64d",
+        "button Select item 24c080ec-df6d-450c-84ce-21d3c3ba95da",
+        "button Select item a0c86359-01c8-434c-836e-2e1ddae63098",
+        "button Select item 5e62393f-1294-4dbd-8904-d54ee241c7bf",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button New project",
+        "button Collapse sidebar",
+        "button Expand",
+        "a Ship Core Redesign",
+        "button Actions for Ship Core Redesign",
+        "button Expand",
+        "a Auth System v2",
+        "button Actions for Auth System v2",
+        "button Expand",
+        "a API Gateway",
+        "button Actions for API Gateway",
+        "button Expand",
+        "a Component Library",
+        "button Actions for Component Library"
+      ]
+    },
+    {
+      "route": "Team Allocation",
+      "focusableCount": 45,
+      "reachedCount": 45,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "input Filter by name...",
+        "button Show past weeks",
+        "input",
+        "button SShip Core1",
+        "button ?Unassigned1",
+        "button SShip Core Redesign",
+        "button Change project assignment",
+        "button +",
+        "button",
+        "button +",
+        "button +",
+        "button",
+        "button +",
+        "button +",
+        "button",
+        "button +",
+        "button +",
+        "button",
+        "button +",
+        "button +",
+        "button",
+        "button +",
+        "button +",
+        "button",
+        "button +",
+        "button +",
+        "button",
+        "button +",
+        "button +",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button Collapse sidebar",
+        "button Allocation",
+        "button Directory",
+        "button Status Overview",
+        "button Reviews",
+        "button Org Chart"
+      ]
+    },
+    {
+      "route": "Team Directory",
+      "focusableCount": 18,
+      "reachedCount": 18,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "button Manage",
+        "input",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button Collapse sidebar",
+        "button Allocation",
+        "button Directory",
+        "button Status Overview",
+        "button Reviews",
+        "button Org Chart"
+      ]
+    },
+    {
+      "route": "Team Status",
+      "focusableCount": 21,
+      "reachedCount": 21,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "input",
+        "button SShip Core1",
+        "button NNo Program1",
+        "button Weekly Plan (late) (Ship Core Redesign)",
+        "button Weekly Retro (late) (Ship Core Redesign)",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button Collapse sidebar",
+        "button Allocation",
+        "button Directory",
+        "button Status Overview",
+        "button Reviews",
+        "button Org Chart"
+      ]
+    },
+    {
+      "route": "Settings",
+      "focusableCount": 19,
+      "reachedCount": 19,
+      "completeness": "Full",
+      "missed": [],
+      "order": [
+        "button Members",
+        "button Pending Invites",
+        "button API Tokens",
+        "button Audit Logs",
+        "a Conversions",
+        "input",
+        "select AdminMember",
+        "button Archive",
+        "a Skip to main content",
+        "button 33 overdue accountability items need attention.33View items",
+        "button T",
+        "button Dashboard",
+        "button Docs",
+        "button Programs",
+        "button Projects",
+        "button Teams (standup due)",
+        "button Settings",
+        "button D",
+        "button Collapse sidebar"
+      ]
+    }
+  ],
+  "screenReaderProxy": [
+    {
+      "route": "Login",
+      "h1Count": 1,
+      "mainCount": 0,
+      "navCount": 0,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "My Week",
+      "h1Count": 1,
+      "mainCount": 1,
+      "navCount": 1,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "Docs",
+      "h1Count": 1,
+      "mainCount": 1,
+      "navCount": 1,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "Issues",
+      "h1Count": 1,
+      "mainCount": 1,
+      "navCount": 1,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "Programs",
+      "h1Count": 1,
+      "mainCount": 1,
+      "navCount": 1,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "Projects",
+      "h1Count": 1,
+      "mainCount": 1,
+      "navCount": 1,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "Team Allocation",
+      "h1Count": 1,
+      "mainCount": 1,
+      "navCount": 1,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "Team Directory",
+      "h1Count": 1,
+      "mainCount": 1,
+      "navCount": 1,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "Team Status",
+      "h1Count": 1,
+      "mainCount": 1,
+      "navCount": 1,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    },
+    {
+      "route": "Settings",
+      "h1Count": 1,
+      "mainCount": 2,
+      "navCount": 2,
+      "unnamedButtons": 0,
+      "unnamedLinks": 0,
+      "unnamedInputs": 0,
+      "status": "Pass",
+      "notes": []
+    }
+  ]
+}
