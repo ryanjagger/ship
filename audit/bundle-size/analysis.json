@@ -1,0 +1,3924 @@
+{
+  "generatedAt": "2026-05-19T02:36:25.704Z",
+  "method": "Vite sourcemap build with generated source-map treemap; byte attribution approximates minified generated spans between sourcemap mappings. Chunk byte totals were normalized against the non-sourcemap production build in web/dist.",
+  "topOwners": [
+    {
+      "name": "app source",
+      "bytes": 712800,
+      "size": "696.1 KiB"
+    },
+    {
+      "name": "emoji-picker-react",
+      "bytes": 266678,
+      "size": "260.4 KiB"
+    },
+    {
+      "name": "highlight.js",
+      "bytes": 170565,
+      "size": "166.6 KiB"
+    },
+    {
+      "name": "react-dom",
+      "bytes": 132149,
+      "size": "129.1 KiB"
+    },
+    {
+      "name": "prosemirror-view",
+      "bytes": 96250,
+      "size": "94.0 KiB"
+    },
+    {
+      "name": "@uswds/uswds",
+      "bytes": 94594,
+      "size": "92.4 KiB"
+    },
+    {
+      "name": "yjs",
+      "bytes": 67251,
+      "size": "65.7 KiB"
+    },
+    {
+      "name": "@tiptap/core",
+      "bytes": 66271,
+      "size": "64.7 KiB"
+    },
+    {
+      "name": "prosemirror-model",
+      "bytes": 44587,
+      "size": "43.5 KiB"
+    },
+    {
+      "name": "@tanstack/query-core",
+      "bytes": 40860,
+      "size": "39.9 KiB"
+    },
+    {
+      "name": "@dnd-kit/core",
+      "bytes": 39973,
+      "size": "39.0 KiB"
+    },
+    {
+      "name": "react-router",
+      "bytes": 36964,
+      "size": "36.1 KiB"
+    },
+    {
+      "name": "prosemirror-tables",
+      "bytes": 35312,
+      "size": "34.5 KiB"
+    },
+    {
+      "name": "prosemirror-transform",
+      "bytes": 30689,
+      "size": "30.0 KiB"
+    },
+    {
+      "name": "lib0",
+      "bytes": 25238,
+      "size": "24.6 KiB"
+    },
+    {
+      "name": "@tiptap/extension-code-block-lowlight",
+      "bytes": 23407,
+      "size": "22.9 KiB"
+    },
+    {
+      "name": "@popperjs/core",
+      "bytes": 20328,
+      "size": "19.9 KiB"
+    },
+    {
+      "name": "tailwind-merge",
+      "bytes": 20056,
+      "size": "19.6 KiB"
+    },
+    {
+      "name": "diff-match-patch",
+      "bytes": 19155,
+      "size": "18.7 KiB"
+    },
+    {
+      "name": "y-prosemirror",
+      "bytes": 19007,
+      "size": "18.6 KiB"
+    },
+    {
+      "name": "linkifyjs",
+      "bytes": 18401,
+      "size": "18.0 KiB"
+    },
+    {
+      "name": "@tiptap/react",
+      "bytes": 17638,
+      "size": "17.2 KiB"
+    },
+    {
+      "name": "tippy.js",
+      "bytes": 16087,
+      "size": "15.7 KiB"
+    },
+    {
+      "name": "prosemirror-state",
+      "bytes": 11897,
+      "size": "11.6 KiB"
+    },
+    {
+      "name": "cmdk",
+      "bytes": 11895,
+      "size": "11.6 KiB"
+    },
+    {
+      "name": "prosemirror-commands",
+      "bytes": 9074,
+      "size": "8.9 KiB"
+    },
+    {
+      "name": "@floating-ui/core",
+      "bytes": 8172,
+      "size": "8.0 KiB"
+    },
+    {
+      "name": "@radix-ui/react-tooltip",
+      "bytes": 7455,
+      "size": "7.3 KiB"
+    },
+    {
+      "name": "react",
+      "bytes": 7432,
+      "size": "7.3 KiB"
+    },
+    {
+      "name": "@floating-ui/dom",
+      "bytes": 7332,
+      "size": "7.2 KiB"
+    },
+    {
+      "name": "@dnd-kit/sortable",
+      "bytes": 6542,
+      "size": "6.4 KiB"
+    },
+    {
+      "name": "react-remove-scroll",
+      "bytes": 5821,
+      "size": "5.7 KiB"
+    },
+    {
+      "name": "prosemirror-history",
+      "bytes": 5764,
+      "size": "5.6 KiB"
+    },
+    {
+      "name": "@tiptap/extension-link",
+      "bytes": 5563,
+      "size": "5.4 KiB"
+    },
+    {
+      "name": "@tiptap/extension-table",
+      "bytes": 5211,
+      "size": "5.1 KiB"
+    },
+    {
+      "name": "@radix-ui/react-dialog",
+      "bytes": 5084,
+      "size": "5.0 KiB"
+    },
+    {
+      "name": "flairup",
+      "bytes": 4753,
+      "size": "4.6 KiB"
+    },
+    {
+      "name": "@radix-ui/react-popover",
+      "bytes": 4516,
+      "size": "4.4 KiB"
+    },
+    {
+      "name": "y-websocket",
+      "bytes": 4515,
+      "size": "4.4 KiB"
+    },
+    {
+      "name": "@radix-ui/react-popper",
+      "bytes": 4251,
+      "size": "4.2 KiB"
+    },
+    {
+      "name": "@floating-ui/utils",
+      "bytes": 4066,
+      "size": "4.0 KiB"
+    },
+    {
+      "name": "@tiptap/extension-bubble-menu",
+      "bytes": 3985,
+      "size": "3.9 KiB"
+    },
+    {
+      "name": "scheduler",
+      "bytes": 3926,
+      "size": "3.8 KiB"
+    },
+    {
+      "name": "@tiptap/suggestion",
+      "bytes": 3678,
+      "size": "3.6 KiB"
+    },
+    {
+      "name": "prosemirror-gapcursor",
+      "bytes": 3571,
+      "size": "3.5 KiB"
+    },
+    {
+      "name": "@tiptap/extension-mention",
+      "bytes": 3494,
+      "size": "3.4 KiB"
+    },
+    {
+      "name": "@radix-ui/react-dismissable-layer",
+      "bytes": 3461,
+      "size": "3.4 KiB"
+    },
+    {
+      "name": "rope-sequence",
+      "bytes": 3412,
+      "size": "3.3 KiB"
+    },
+    {
+      "name": "@radix-ui/react-slot",
+      "bytes": 3292,
+      "size": "3.2 KiB"
+    },
+    {
+      "name": "@radix-ui/react-focus-scope",
+      "bytes": 3192,
+      "size": "3.1 KiB"
+    },
+    {
+      "name": "@dnd-kit/utilities",
+      "bytes": 3189,
+      "size": "3.1 KiB"
+    },
+    {
+      "name": "prosemirror-dropcursor",
+      "bytes": 3038,
+      "size": "3.0 KiB"
+    },
+    {
+      "name": "@floating-ui/react-dom",
+      "bytes": 3017,
+      "size": "2.9 KiB"
+    },
+    {
+      "name": "y-protocols",
+      "bytes": 2949,
+      "size": "2.9 KiB"
+    },
+    {
+      "name": "@tanstack/react-query",
+      "bytes": 2741,
+      "size": "2.7 KiB"
+    },
+    {
+      "name": "@tiptap/extension-code-block",
+      "bytes": 2701,
+      "size": "2.6 KiB"
+    },
+    {
+      "name": "prosemirror-schema-list",
+      "bytes": 2663,
+      "size": "2.6 KiB"
+    },
+    {
+      "name": "lowlight",
+      "bytes": 2643,
+      "size": "2.6 KiB"
+    },
+    {
+      "name": "@tiptap/extension-task-item",
+      "bytes": 2443,
+      "size": "2.4 KiB"
+    },
+    {
+      "name": "react-remove-scroll-bar",
+      "bytes": 2171,
+      "size": "2.1 KiB"
+    },
+    {
+      "name": "@tiptap/extension-collaboration",
+      "bytes": 2060,
+      "size": "2.0 KiB"
+    },
+    {
+      "name": "@radix-ui/react-presence",
+      "bytes": 2052,
+      "size": "2.0 KiB"
+    },
+    {
+      "name": "@tiptap/extension-collaboration-cursor",
+      "bytes": 1778,
+      "size": "1.7 KiB"
+    },
+    {
+      "name": "@tanstack/react-query-persist-client",
+      "bytes": 1749,
+      "size": "1.7 KiB"
+    },
+    {
+      "name": "y-indexeddb",
+      "bytes": 1732,
+      "size": "1.7 KiB"
+    },
+    {
+      "name": "w3c-keyname",
+      "bytes": 1509,
+      "size": "1.5 KiB"
+    },
+    {
+      "name": "aria-hidden",
+      "bytes": 1487,
+      "size": "1.5 KiB"
+    },
+    {
+      "name": "@tiptap/extension-ordered-list",
+      "bytes": 1460,
+      "size": "1.4 KiB"
+    },
+    {
+      "name": "orderedmap",
+      "bytes": 1446,
+      "size": "1.4 KiB"
+    },
+    {
+      "name": "@tiptap/starter-kit",
+      "bytes": 1386,
+      "size": "1.4 KiB"
+    },
+    {
+      "name": "@radix-ui/react-context",
+      "bytes": 1372,
+      "size": "1.3 KiB"
+    },
+    {
+      "name": "prosemirror-keymap",
+      "bytes": 1228,
+      "size": "1.2 KiB"
+    },
+    {
+      "name": "use-sidecar",
+      "bytes": 1159,
+      "size": "1.1 KiB"
+    },
+    {
+      "name": "@tiptap/extension-bold",
+      "bytes": 1081,
+      "size": "1.1 KiB"
+    },
+    {
+      "name": "@tiptap/extension-horizontal-rule",
+      "bytes": 1067,
+      "size": "1.0 KiB"
+    },
+    {
+      "name": "@tiptap/extension-bullet-list",
+      "bytes": 1046,
+      "size": "1.0 KiB"
+    },
+    {
+      "name": "@tiptap/extension-italic",
+      "bytes": 1014,
+      "size": "1.0 KiB"
+    },
+    {
+      "name": "@tiptap/extension-heading",
+      "bytes": 983,
+      "size": "1.0 KiB"
+    },
+    {
+      "name": "@radix-ui/react-use-controllable-state",
+      "bytes": 958,
+      "size": "0.9 KiB"
+    },
+    {
+      "name": "@tiptap/extension-placeholder",
+      "bytes": 932,
+      "size": "0.9 KiB"
+    },
+    {
+      "name": "@tiptap/extension-hard-break",
+      "bytes": 910,
+      "size": "0.9 KiB"
+    },
+    {
+      "name": "@radix-ui/react-primitive",
+      "bytes": 779,
+      "size": "0.8 KiB"
+    },
+    {
+      "name": "@tiptap/extension-strike",
+      "bytes": 777,
+      "size": "0.8 KiB"
+    },
+    {
+      "name": "tslib",
+      "bytes": 747,
+      "size": "0.7 KiB"
+    },
+    {
+      "name": "@tanstack/query-persist-client-core",
+      "bytes": 736,
+      "size": "0.7 KiB"
+    },
+    {
+      "name": "react-style-singleton",
+      "bytes": 724,
+      "size": "0.7 KiB"
+    },
+    {
+      "name": "idb-keyval",
+      "bytes": 658,
+      "size": "0.6 KiB"
+    },
+    {
+      "name": "@tiptap/extension-code",
+      "bytes": 646,
+      "size": "0.6 KiB"
+    },
+    {
+      "name": "use-callback-ref",
+      "bytes": 632,
+      "size": "0.6 KiB"
+    },
+    {
+      "name": "@tiptap/extension-blockquote",
+      "bytes": 605,
+      "size": "0.6 KiB"
+    },
+    {
+      "name": "@radix-ui/react-focus-guards",
+      "bytes": 552,
+      "size": "0.5 KiB"
+    },
+    {
+      "name": "@dnd-kit/accessibility",
+      "bytes": 549,
+      "size": "0.5 KiB"
+    },
+    {
+      "name": "@tiptap/extension-task-list",
+      "bytes": 536,
+      "size": "0.5 KiB"
+    },
+    {
+      "name": "@tiptap/extension-list-item",
+      "bytes": 493,
+      "size": "0.5 KiB"
+    },
+    {
+      "name": "@tiptap/extension-history",
+      "bytes": 482,
+      "size": "0.5 KiB"
+    },
+    {
+      "name": "@radix-ui/react-use-size",
+      "bytes": 450,
+      "size": "0.4 KiB"
+    },
+    {
+      "name": "@tiptap/extension-table-header",
+      "bytes": 432,
+      "size": "0.4 KiB"
+    },
+    {
+      "name": "@tiptap/extension-table-cell",
+      "bytes": 423,
+      "size": "0.4 KiB"
+    },
+    {
+      "name": "@tiptap/extension-paragraph",
+      "bytes": 391,
+      "size": "0.4 KiB"
+    },
+    {
+      "name": "clsx",
+      "bytes": 362,
+      "size": "0.4 KiB"
+    },
+    {
+      "name": "@radix-ui/react-compose-refs",
+      "bytes": 341,
+      "size": "0.3 KiB"
+    },
+    {
+      "name": "@radix-ui/react-visually-hidden",
+      "bytes": 291,
+      "size": "0.3 KiB"
+    },
+    {
+      "name": "@radix-ui/react-arrow",
+      "bytes": 278,
+      "size": "0.3 KiB"
+    },
+    {
+      "name": "@radix-ui/react-portal",
+      "bytes": 274,
+      "size": "0.3 KiB"
+    },
+    {
+      "name": "@tiptap/extension-gapcursor",
+      "bytes": 246,
+      "size": "0.2 KiB"
+    },
+    {
+      "name": "@radix-ui/react-use-escape-keydown",
+      "bytes": 240,
+      "size": "0.2 KiB"
+    },
+    {
+      "name": "@tiptap/extension-table-row",
+      "bytes": 239,
+      "size": "0.2 KiB"
+    },
+    {
+      "name": "@radix-ui/react-id",
+      "bytes": 159,
+      "size": "0.2 KiB"
+    },
+    {
+      "name": "@radix-ui/react-use-callback-ref",
+      "bytes": 155,
+      "size": "0.2 KiB"
+    },
+    {
+      "name": "@tiptap/extension-dropcursor",
+      "bytes": 155,
+      "size": "0.2 KiB"
+    },
+    {
+      "name": "@radix-ui/primitive",
+      "bytes": 144,
+      "size": "0.1 KiB"
+    },
+    {
+      "name": "@ship/shared",
+      "bytes": 97,
+      "size": "0.1 KiB"
+    },
+    {
+      "name": "get-nonce",
+      "bytes": 76,
+      "size": "0.1 KiB"
+    },
+    {
+      "name": "@radix-ui/react-use-layout-effect",
+      "bytes": 70,
+      "size": "0.1 KiB"
+    },
+    {
+      "name": "@tiptap/extension-document",
+      "bytes": 56,
+      "size": "0.1 KiB"
+    },
+    {
+      "name": "@tiptap/extension-text",
+      "bytes": 44,
+      "size": "0.0 KiB"
+    },
+    {
+      "name": "@tanstack/react-query-devtools",
+      "bytes": 31,
+      "size": "0.0 KiB"
+    }
+  ],
+  "chunks": [
+    {
+      "file": "assets/index-C2vAyoQ1.js",
+      "bytes": 2073698,
+      "gzip": 589485,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 642171
+        },
+        {
+          "name": "emoji-picker-react",
+          "bytes": 266678
+        },
+        {
+          "name": "highlight.js",
+          "bytes": 170565
+        },
+        {
+          "name": "react-dom",
+          "bytes": 132149
+        },
+        {
+          "name": "prosemirror-view",
+          "bytes": 96250
+        },
+        {
+          "name": "yjs",
+          "bytes": 67251
+        },
+        {
+          "name": "@tiptap/core",
+          "bytes": 66271
+        },
+        {
+          "name": "prosemirror-model",
+          "bytes": 44587
+        },
+        {
+          "name": "@tanstack/query-core",
+          "bytes": 40860
+        },
+        {
+          "name": "@dnd-kit/core",
+          "bytes": 39973
+        },
+        {
+          "name": "react-router",
+          "bytes": 36964
+        },
+        {
+          "name": "prosemirror-tables",
+          "bytes": 35312
+        },
+        {
+          "name": "prosemirror-transform",
+          "bytes": 30689
+        },
+        {
+          "name": "lib0",
+          "bytes": 25238
+        },
+        {
+          "name": "@tiptap/extension-code-block-lowlight",
+          "bytes": 23407
+        },
+        {
+          "name": "@popperjs/core",
+          "bytes": 20328
+        },
+        {
+          "name": "tailwind-merge",
+          "bytes": 20056
+        },
+        {
+          "name": "diff-match-patch",
+          "bytes": 19155
+        },
+        {
+          "name": "y-prosemirror",
+          "bytes": 19007
+        },
+        {
+          "name": "linkifyjs",
+          "bytes": 18401
+        },
+        {
+          "name": "@tiptap/react",
+          "bytes": 17638
+        },
+        {
+          "name": "tippy.js",
+          "bytes": 16087
+        },
+        {
+          "name": "prosemirror-state",
+          "bytes": 11897
+        },
+        {
+          "name": "cmdk",
+          "bytes": 11895
+        },
+        {
+          "name": "prosemirror-commands",
+          "bytes": 9074
+        },
+        {
+          "name": "@floating-ui/core",
+          "bytes": 8172
+        },
+        {
+          "name": "@radix-ui/react-tooltip",
+          "bytes": 7455
+        },
+        {
+          "name": "react",
+          "bytes": 7432
+        },
+        {
+          "name": "@floating-ui/dom",
+          "bytes": 7332
+        },
+        {
+          "name": "@dnd-kit/sortable",
+          "bytes": 6542
+        },
+        {
+          "name": "react-remove-scroll",
+          "bytes": 5821
+        },
+        {
+          "name": "prosemirror-history",
+          "bytes": 5764
+        },
+        {
+          "name": "@tiptap/extension-link",
+          "bytes": 5563
+        },
+        {
+          "name": "@tiptap/extension-table",
+          "bytes": 5211
+        },
+        {
+          "name": "@radix-ui/react-dialog",
+          "bytes": 5084
+        },
+        {
+          "name": "flairup",
+          "bytes": 4753
+        },
+        {
+          "name": "@radix-ui/react-popover",
+          "bytes": 4516
+        },
+        {
+          "name": "y-websocket",
+          "bytes": 4515
+        },
+        {
+          "name": "@radix-ui/react-popper",
+          "bytes": 4251
+        },
+        {
+          "name": "@floating-ui/utils",
+          "bytes": 4066
+        },
+        {
+          "name": "@tiptap/extension-bubble-menu",
+          "bytes": 3985
+        },
+        {
+          "name": "scheduler",
+          "bytes": 3926
+        },
+        {
+          "name": "@tiptap/suggestion",
+          "bytes": 3678
+        },
+        {
+          "name": "prosemirror-gapcursor",
+          "bytes": 3571
+        },
+        {
+          "name": "@tiptap/extension-mention",
+          "bytes": 3494
+        },
+        {
+          "name": "@radix-ui/react-dismissable-layer",
+          "bytes": 3461
+        },
+        {
+          "name": "rope-sequence",
+          "bytes": 3412
+        },
+        {
+          "name": "@radix-ui/react-slot",
+          "bytes": 3292
+        },
+        {
+          "name": "@radix-ui/react-focus-scope",
+          "bytes": 3192
+        },
+        {
+          "name": "@dnd-kit/utilities",
+          "bytes": 3189
+        },
+        {
+          "name": "prosemirror-dropcursor",
+          "bytes": 3038
+        },
+        {
+          "name": "@floating-ui/react-dom",
+          "bytes": 3017
+        },
+        {
+          "name": "y-protocols",
+          "bytes": 2949
+        },
+        {
+          "name": "@tanstack/react-query",
+          "bytes": 2741
+        },
+        {
+          "name": "@tiptap/extension-code-block",
+          "bytes": 2701
+        },
+        {
+          "name": "prosemirror-schema-list",
+          "bytes": 2663
+        },
+        {
+          "name": "lowlight",
+          "bytes": 2643
+        },
+        {
+          "name": "@tiptap/extension-task-item",
+          "bytes": 2443
+        },
+        {
+          "name": "react-remove-scroll-bar",
+          "bytes": 2171
+        },
+        {
+          "name": "@tiptap/extension-collaboration",
+          "bytes": 2060
+        },
+        {
+          "name": "@radix-ui/react-presence",
+          "bytes": 2052
+        },
+        {
+          "name": "@tiptap/extension-collaboration-cursor",
+          "bytes": 1778
+        },
+        {
+          "name": "@tanstack/react-query-persist-client",
+          "bytes": 1749
+        },
+        {
+          "name": "y-indexeddb",
+          "bytes": 1732
+        },
+        {
+          "name": "w3c-keyname",
+          "bytes": 1509
+        },
+        {
+          "name": "aria-hidden",
+          "bytes": 1487
+        },
+        {
+          "name": "@tiptap/extension-ordered-list",
+          "bytes": 1460
+        },
+        {
+          "name": "orderedmap",
+          "bytes": 1446
+        },
+        {
+          "name": "@tiptap/starter-kit",
+          "bytes": 1386
+        },
+        {
+          "name": "@radix-ui/react-context",
+          "bytes": 1372
+        },
+        {
+          "name": "prosemirror-keymap",
+          "bytes": 1228
+        },
+        {
+          "name": "use-sidecar",
+          "bytes": 1159
+        },
+        {
+          "name": "@tiptap/extension-bold",
+          "bytes": 1081
+        },
+        {
+          "name": "@tiptap/extension-horizontal-rule",
+          "bytes": 1067
+        },
+        {
+          "name": "@tiptap/extension-bullet-list",
+          "bytes": 1046
+        },
+        {
+          "name": "@tiptap/extension-italic",
+          "bytes": 1014
+        },
+        {
+          "name": "@tiptap/extension-heading",
+          "bytes": 983
+        },
+        {
+          "name": "@radix-ui/react-use-controllable-state",
+          "bytes": 958
+        },
+        {
+          "name": "@tiptap/extension-placeholder",
+          "bytes": 932
+        },
+        {
+          "name": "@tiptap/extension-hard-break",
+          "bytes": 910
+        },
+        {
+          "name": "@radix-ui/react-primitive",
+          "bytes": 779
+        },
+        {
+          "name": "@tiptap/extension-strike",
+          "bytes": 777
+        },
+        {
+          "name": "tslib",
+          "bytes": 747
+        },
+        {
+          "name": "@tanstack/query-persist-client-core",
+          "bytes": 736
+        },
+        {
+          "name": "react-style-singleton",
+          "bytes": 724
+        },
+        {
+          "name": "idb-keyval",
+          "bytes": 658
+        },
+        {
+          "name": "@tiptap/extension-code",
+          "bytes": 646
+        },
+        {
+          "name": "use-callback-ref",
+          "bytes": 632
+        },
+        {
+          "name": "@tiptap/extension-blockquote",
+          "bytes": 605
+        },
+        {
+          "name": "@radix-ui/react-focus-guards",
+          "bytes": 552
+        },
+        {
+          "name": "@dnd-kit/accessibility",
+          "bytes": 549
+        },
+        {
+          "name": "@tiptap/extension-task-list",
+          "bytes": 536
+        },
+        {
+          "name": "@tiptap/extension-list-item",
+          "bytes": 493
+        },
+        {
+          "name": "@tiptap/extension-history",
+          "bytes": 482
+        },
+        {
+          "name": "@radix-ui/react-use-size",
+          "bytes": 450
+        },
+        {
+          "name": "@tiptap/extension-table-header",
+          "bytes": 432
+        },
+        {
+          "name": "@tiptap/extension-table-cell",
+          "bytes": 423
+        },
+        {
+          "name": "@tiptap/extension-paragraph",
+          "bytes": 391
+        },
+        {
+          "name": "clsx",
+          "bytes": 362
+        },
+        {
+          "name": "@radix-ui/react-compose-refs",
+          "bytes": 341
+        },
+        {
+          "name": "@radix-ui/react-visually-hidden",
+          "bytes": 291
+        },
+        {
+          "name": "@radix-ui/react-arrow",
+          "bytes": 278
+        },
+        {
+          "name": "@radix-ui/react-portal",
+          "bytes": 274
+        },
+        {
+          "name": "@tiptap/extension-gapcursor",
+          "bytes": 246
+        },
+        {
+          "name": "@radix-ui/react-use-escape-keydown",
+          "bytes": 240
+        },
+        {
+          "name": "@tiptap/extension-table-row",
+          "bytes": 239
+        },
+        {
+          "name": "@radix-ui/react-id",
+          "bytes": 159
+        },
+        {
+          "name": "@radix-ui/react-use-callback-ref",
+          "bytes": 155
+        },
+        {
+          "name": "@tiptap/extension-dropcursor",
+          "bytes": 155
+        },
+        {
+          "name": "@radix-ui/primitive",
+          "bytes": 144
+        },
+        {
+          "name": "@ship/shared",
+          "bytes": 97
+        },
+        {
+          "name": "get-nonce",
+          "bytes": 76
+        },
+        {
+          "name": "@radix-ui/react-use-layout-effect",
+          "bytes": 70
+        },
+        {
+          "name": "@tiptap/extension-document",
+          "bytes": 56
+        },
+        {
+          "name": "@tiptap/extension-text",
+          "bytes": 44
+        },
+        {
+          "name": "@tanstack/react-query-devtools",
+          "bytes": 31
+        }
+      ]
+    },
+    {
+      "file": "assets/ProgramWeeksTab-BzbUWlt4.js",
+      "bytes": 16761,
+      "gzip": 5529,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 16578
+        }
+      ]
+    },
+    {
+      "file": "assets/WeekReviewTab-DmxN07T1.js",
+      "bytes": 12644,
+      "gzip": 3671,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 12465
+        }
+      ]
+    },
+    {
+      "file": "assets/StandupFeed-BjJLDai5.js",
+      "bytes": 9648,
+      "gzip": 2887,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 9516
+        }
+      ]
+    },
+    {
+      "file": "assets/ProjectRetroTab-BV2rvgoM.js",
+      "bytes": 9043,
+      "gzip": 2400,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 8932
+        }
+      ]
+    },
+    {
+      "file": "assets/ProjectWeeksTab-oE3MioHn.js",
+      "bytes": 6654,
+      "gzip": 2311,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 6578
+        }
+      ]
+    },
+    {
+      "file": "assets/ProgramProjectsTab-eNNvrO8g.js",
+      "bytes": 4401,
+      "gzip": 1546,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 4318
+        }
+      ]
+    },
+    {
+      "file": "assets/ProjectDetailsTab-gSyN3jFM.js",
+      "bytes": 3604,
+      "gzip": 1482,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 3458
+        }
+      ]
+    },
+    {
+      "file": "assets/WeekPlanningTab-DWsXI-LK.js",
+      "bytes": 2987,
+      "gzip": 1483,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 2890
+        }
+      ]
+    },
+    {
+      "file": "assets/WeekOverviewTab-BkUUf8Qc.js",
+      "bytes": 1888,
+      "gzip": 914,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 1787
+        }
+      ]
+    },
+    {
+      "file": "assets/fingerprint-DETfo2gZ.js",
+      "bytes": 1800,
+      "gzip": 936,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 1759
+        }
+      ]
+    },
+    {
+      "file": "assets/ProgramOverviewTab-CysaNSnp.js",
+      "bytes": 1735,
+      "gzip": 830,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 1631
+        }
+      ]
+    },
+    {
+      "file": "assets/instagram-CkSGsMT0.js",
+      "bytes": 1670,
+      "gzip": 790,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 1629
+        }
+      ]
+    },
+    {
+      "file": "assets/coronavirus-CzmE_Rfs.js",
+      "bytes": 1623,
+      "gzip": 650,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 1582
+        }
+      ]
+    },
+    {
+      "file": "assets/WeekIssuesTab-D4BLXISm.js",
+      "bytes": 1315,
+      "gzip": 745,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 1260
+        }
+      ]
+    },
+    {
+      "file": "assets/language-xZHcYWXG.js",
+      "bytes": 944,
+      "gzip": 548,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 903
+        }
+      ]
+    },
+    {
+      "file": "assets/reduce_capacity-P---9WKJ.js",
+      "bytes": 936,
+      "gzip": 436,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 895
+        }
+      ]
+    },
+    {
+      "file": "assets/settings-CmmeQHes.js",
+      "bytes": 886,
+      "gzip": 502,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 845
+        }
+      ]
+    },
+    {
+      "file": "assets/soap-BHt5W93Q.js",
+      "bytes": 830,
+      "gzip": 453,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 789
+        }
+      ]
+    },
+    {
+      "file": "assets/do_not_touch-CvpB5HoY.js",
+      "bytes": 813,
+      "gzip": 420,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 772
+        }
+      ]
+    },
+    {
+      "file": "assets/masks-HmhP3t8r.js",
+      "bytes": 820,
+      "gzip": 507,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 779
+        }
+      ]
+    },
+    {
+      "file": "assets/flooding-C7huXCTi.js",
+      "bytes": 814,
+      "gzip": 411,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 773
+        }
+      ]
+    },
+    {
+      "file": "assets/pets-B9vBY1ze.js",
+      "bytes": 757,
+      "gzip": 411,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 716
+        }
+      ]
+    },
+    {
+      "file": "assets/snow-C7n2tUDm.js",
+      "bytes": 742,
+      "gzip": 417,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 701
+        }
+      ]
+    },
+    {
+      "file": "assets/twitter-C3L-ApVA.js",
+      "bytes": 715,
+      "gzip": 444,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 674
+        }
+      ]
+    },
+    {
+      "file": "assets/groups-Bnu-6EBM.js",
+      "bytes": 701,
+      "gzip": 427,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 660
+        }
+      ]
+    },
+    {
+      "file": "assets/visibility_off-BKhtJZGz.js",
+      "bytes": 692,
+      "gzip": 445,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 651
+        }
+      ]
+    },
+    {
+      "file": "assets/hearing-AKvQ8c7c.js",
+      "bytes": 693,
+      "gzip": 447,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 652
+        }
+      ]
+    },
+    {
+      "file": "assets/directions_bike-Co0c_2F2.js",
+      "bytes": 684,
+      "gzip": 378,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 643
+        }
+      ]
+    },
+    {
+      "file": "assets/insights-O5wi3ghY.js",
+      "bytes": 690,
+      "gzip": 429,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 649
+        }
+      ]
+    },
+    {
+      "file": "assets/github-CGf-Xc4s.js",
+      "bytes": 691,
+      "gzip": 423,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 650
+        }
+      ]
+    },
+    {
+      "file": "assets/linkedin-BPsPDDse.js",
+      "bytes": 670,
+      "gzip": 409,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 629
+        }
+      ]
+    },
+    {
+      "file": "assets/sentiment_satisfied_alt-BbUZ6exx.js",
+      "bytes": 653,
+      "gzip": 362,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 612
+        }
+      ]
+    },
+    {
+      "file": "assets/wash-DHJBnn0x.js",
+      "bytes": 656,
+      "gzip": 383,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 615
+        }
+      ]
+    },
+    {
+      "file": "assets/support_agent-W3kFlVuu.js",
+      "bytes": 641,
+      "gzip": 405,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 600
+        }
+      ]
+    },
+    {
+      "file": "assets/support-ajQla38X.js",
+      "bytes": 644,
+      "gzip": 387,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 603
+        }
+      ]
+    },
+    {
+      "file": "assets/construction_worker-D34DhBt-.js",
+      "bytes": 616,
+      "gzip": 425,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 575
+        }
+      ]
+    },
+    {
+      "file": "assets/bathtub-Ck_HwNh6.js",
+      "bytes": 613,
+      "gzip": 415,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 572
+        }
+      ]
+    },
+    {
+      "file": "assets/construction-Bh6BJgoZ.js",
+      "bytes": 606,
+      "gzip": 397,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 565
+        }
+      ]
+    },
+    {
+      "file": "assets/local_fire_department-PwAOT_KD.js",
+      "bytes": 595,
+      "gzip": 400,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 554
+        }
+      ]
+    },
+    {
+      "file": "assets/sentiment_dissatisfied-Dfz8tBZg.js",
+      "bytes": 591,
+      "gzip": 374,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 550
+        }
+      ]
+    },
+    {
+      "file": "assets/clean_hands-HkajWuYM.js",
+      "bytes": 600,
+      "gzip": 414,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 559
+        }
+      ]
+    },
+    {
+      "file": "assets/connect_without_contact-US4kXaoY.js",
+      "bytes": 587,
+      "gzip": 385,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 546
+        }
+      ]
+    },
+    {
+      "file": "assets/sentiment_satisfied-CDZKI9_Z.js",
+      "bytes": 575,
+      "gzip": 365,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 534
+        }
+      ]
+    },
+    {
+      "file": "assets/notifications_active-DIfsp7kP.js",
+      "bytes": 570,
+      "gzip": 395,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 529
+        }
+      ]
+    },
+    {
+      "file": "assets/sentiment_very_dissatisfied-PnqoP4Vn.js",
+      "bytes": 552,
+      "gzip": 350,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 511
+        }
+      ]
+    },
+    {
+      "file": "assets/ProgramIssuesTab-f0wp_SPx.js",
+      "bytes": 562,
+      "gzip": 386,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 486
+        }
+      ]
+    },
+    {
+      "file": "assets/electrical_services-Wojh_3n4.js",
+      "bytes": 556,
+      "gzip": 362,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 515
+        }
+      ]
+    },
+    {
+      "file": "assets/youtube-CpgsWLAc.js",
+      "bytes": 567,
+      "gzip": 342,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 526
+        }
+      ]
+    },
+    {
+      "file": "assets/bug_report-CB6ncxHh.js",
+      "bytes": 561,
+      "gzip": 397,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 520
+        }
+      ]
+    },
+    {
+      "file": "assets/bedding-ye_8onRP.js",
+      "bytes": 559,
+      "gzip": 318,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 518
+        }
+      ]
+    },
+    {
+      "file": "assets/attach_money-CpB5Gj4K.js",
+      "bytes": 552,
+      "gzip": 380,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 511
+        }
+      ]
+    },
+    {
+      "file": "assets/favorite_border-CN4d0Mq3.js",
+      "bytes": 548,
+      "gzip": 381,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 507
+        }
+      ]
+    },
+    {
+      "file": "assets/share-HFgIagqz.js",
+      "bytes": 558,
+      "gzip": 368,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 517
+        }
+      ]
+    },
+    {
+      "file": "assets/alternate_email-DXU-2_Yk.js",
+      "bytes": 543,
+      "gzip": 362,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 502
+        }
+      ]
+    },
+    {
+      "file": "assets/campaign-BUB6Zie2.js",
+      "bytes": 550,
+      "gzip": 381,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 509
+        }
+      ]
+    },
+    {
+      "file": "assets/sanitizer-B-eCfZm_.js",
+      "bytes": 548,
+      "gzip": 375,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 507
+        }
+      ]
+    },
+    {
+      "file": "assets/local_gas_station-Dq1hxk2G.js",
+      "bytes": 537,
+      "gzip": 365,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 496
+        }
+      ]
+    },
+    {
+      "file": "assets/fax-TRibw793.js",
+      "bytes": 548,
+      "gzip": 303,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 507
+        }
+      ]
+    },
+    {
+      "file": "assets/local_taxi-Bgg90PH3.js",
+      "bytes": 541,
+      "gzip": 352,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 500
+        }
+      ]
+    },
+    {
+      "file": "assets/notifications_off-Bz2cnpTa.js",
+      "bytes": 534,
+      "gzip": 375,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 493
+        }
+      ]
+    },
+    {
+      "file": "assets/flickr-BIru31CJ.js",
+      "bytes": 544,
+      "gzip": 300,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 503
+        }
+      ]
+    },
+    {
+      "file": "assets/lightbulb_outline-vVlouekF.js",
+      "bytes": 532,
+      "gzip": 364,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 491
+        }
+      ]
+    },
+    {
+      "file": "assets/directions_car-Ke-OwgFN.js",
+      "bytes": 532,
+      "gzip": 338,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 491
+        }
+      ]
+    },
+    {
+      "file": "assets/directions_bus-BedtQmQ1.js",
+      "bytes": 530,
+      "gzip": 343,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 489
+        }
+      ]
+    },
+    {
+      "file": "assets/local_laundry_service-ClfFgJ1v.js",
+      "bytes": 520,
+      "gzip": 324,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 479
+        }
+      ]
+    },
+    {
+      "file": "assets/volume_off-CVC2ozq3.js",
+      "bytes": 530,
+      "gzip": 378,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 489
+        }
+      ]
+    },
+    {
+      "file": "assets/social_distance-Dt9ViVZ9.js",
+      "bytes": 522,
+      "gzip": 328,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 481
+        }
+      ]
+    },
+    {
+      "file": "assets/accessible_forward-DNeBYZAs.js",
+      "bytes": 513,
+      "gzip": 367,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 472
+        }
+      ]
+    },
+    {
+      "file": "assets/hurricane-BvRjAmeq.js",
+      "bytes": 520,
+      "gzip": 336,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 479
+        }
+      ]
+    },
+    {
+      "file": "assets/local_grocery_store-BGwQP8Yb.js",
+      "bytes": 510,
+      "gzip": 349,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 469
+        }
+      ]
+    },
+    {
+      "file": "assets/link_off-DzZUOF_g.js",
+      "bytes": 520,
+      "gzip": 373,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 479
+        }
+      ]
+    },
+    {
+      "file": "assets/group_add-BPA335ao.js",
+      "bytes": 514,
+      "gzip": 367,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 473
+        }
+      ]
+    },
+    {
+      "file": "assets/safety_divider-BUJpk4Bb.js",
+      "bytes": 504,
+      "gzip": 294,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 463
+        }
+      ]
+    },
+    {
+      "file": "assets/sentiment_neutral--hqLTlxi.js",
+      "bytes": 491,
+      "gzip": 310,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 450
+        }
+      ]
+    },
+    {
+      "file": "assets/public-A9LdjJc8.js",
+      "bytes": 501,
+      "gzip": 359,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 460
+        }
+      ]
+    },
+    {
+      "file": "assets/lock_outline-C1hufvo4.js",
+      "bytes": 493,
+      "gzip": 335,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 452
+        }
+      ]
+    },
+    {
+      "file": "assets/closed_caption-C8Midqa3.js",
+      "bytes": 482,
+      "gzip": 308,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 441
+        }
+      ]
+    },
+    {
+      "file": "assets/update-Dk_8EKBY.js",
+      "bytes": 481,
+      "gzip": 345,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 440
+        }
+      ]
+    },
+    {
+      "file": "assets/people-DaCyaYLS.js",
+      "bytes": 479,
+      "gzip": 312,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 438
+        }
+      ]
+    },
+    {
+      "file": "assets/my_location-D6NVbRbR.js",
+      "bytes": 473,
+      "gzip": 307,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 432
+        }
+      ]
+    },
+    {
+      "file": "assets/translate-Bx73jumd.js",
+      "bytes": 475,
+      "gzip": 355,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 434
+        }
+      ]
+    },
+    {
+      "file": "assets/shopping_basket-511-e5LC.js",
+      "bytes": 467,
+      "gzip": 341,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 426
+        }
+      ]
+    },
+    {
+      "file": "assets/identification-DqEEaHMG.js",
+      "bytes": 465,
+      "gzip": 313,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 424
+        }
+      ]
+    },
+    {
+      "file": "assets/help-CImS1vTK.js",
+      "bytes": 471,
+      "gzip": 339,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 430
+        }
+      ]
+    },
+    {
+      "file": "assets/thumb_up_alt-Dw-0vOZT.js",
+      "bytes": 459,
+      "gzip": 344,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 418
+        }
+      ]
+    },
+    {
+      "file": "assets/thumb_down_alt-B54Pet9c.js",
+      "bytes": 454,
+      "gzip": 341,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 413
+        }
+      ]
+    },
+    {
+      "file": "assets/zoom_in-DH9KY9Fy.js",
+      "bytes": 461,
+      "gzip": 323,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 420
+        }
+      ]
+    },
+    {
+      "file": "assets/account_box-v2uK179S.js",
+      "bytes": 456,
+      "gzip": 340,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 415
+        }
+      ]
+    },
+    {
+      "file": "assets/file_present-De7ra2O7.js",
+      "bytes": 450,
+      "gzip": 329,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 409
+        }
+      ]
+    },
+    {
+      "file": "assets/severe_weather-C-g2jcsl.js",
+      "bytes": 446,
+      "gzip": 311,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 405
+        }
+      ]
+    },
+    {
+      "file": "assets/emoji_events-twzqLu96.js",
+      "bytes": 447,
+      "gzip": 330,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 406
+        }
+      ]
+    },
+    {
+      "file": "assets/help_outline-B-z1vHWh.js",
+      "bytes": 446,
+      "gzip": 317,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 405
+        }
+      ]
+    },
+    {
+      "file": "assets/checkroom-tkAxkaWE.js",
+      "bytes": 446,
+      "gzip": 328,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 405
+        }
+      ]
+    },
+    {
+      "file": "assets/local_offer-CH3ckenN.js",
+      "bytes": 444,
+      "gzip": 322,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 403
+        }
+      ]
+    },
+    {
+      "file": "assets/verified-DWtvI9Fr.js",
+      "bytes": 441,
+      "gzip": 318,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 400
+        }
+      ]
+    },
+    {
+      "file": "assets/do_not_disturb-dtD31CXp.js",
+      "bytes": 432,
+      "gzip": 309,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 391
+        }
+      ]
+    },
+    {
+      "file": "assets/account_circle-CA4EPb_8.js",
+      "bytes": 430,
+      "gzip": 311,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 389
+        }
+      ]
+    },
+    {
+      "file": "assets/highlight_off-Cv6CLx-l.js",
+      "bytes": 431,
+      "gzip": 293,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 390
+        }
+      ]
+    },
+    {
+      "file": "assets/phone-BhPsOZ14.js",
+      "bytes": 439,
+      "gzip": 317,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 398
+        }
+      ]
+    },
+    {
+      "file": "assets/autorenew-j_1Z-kOm.js",
+      "bytes": 431,
+      "gzip": 321,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 390
+        }
+      ]
+    },
+    {
+      "file": "assets/lock_open-BMojMrqE.js",
+      "bytes": 427,
+      "gzip": 304,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 386
+        }
+      ]
+    },
+    {
+      "file": "assets/alarm-DzWwQ3nQ.js",
+      "bytes": 427,
+      "gzip": 315,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 386
+        }
+      ]
+    },
+    {
+      "file": "assets/facebook-BbM8zvg9.js",
+      "bytes": 424,
+      "gzip": 320,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 383
+        }
+      ]
+    },
+    {
+      "file": "assets/ProjectIssuesTab-BPkbt8_8.js",
+      "bytes": 415,
+      "gzip": 304,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 367
+        }
+      ]
+    },
+    {
+      "file": "assets/keyboard-CwiC1UUJ.js",
+      "bytes": 423,
+      "gzip": 299,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 382
+        }
+      ]
+    },
+    {
+      "file": "assets/rain-ik4h4VDV.js",
+      "bytes": 426,
+      "gzip": 292,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 385
+        }
+      ]
+    },
+    {
+      "file": "assets/schedule-CWVZaYX1.js",
+      "bytes": 420,
+      "gzip": 298,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 379
+        }
+      ]
+    },
+    {
+      "file": "assets/directions_walk-DO6sko0m.js",
+      "bytes": 411,
+      "gzip": 314,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 370
+        }
+      ]
+    },
+    {
+      "file": "assets/lock-oR4-oWpr.js",
+      "bytes": 422,
+      "gzip": 304,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 381
+        }
+      ]
+    },
+    {
+      "file": "assets/loop-BhUY8W-o.js",
+      "bytes": 421,
+      "gzip": 304,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 380
+        }
+      ]
+    },
+    {
+      "file": "assets/notifications_none-DxdIaFQO.js",
+      "bytes": 407,
+      "gzip": 312,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 366
+        }
+      ]
+    },
+    {
+      "file": "assets/visibility-C7M96WfC.js",
+      "bytes": 414,
+      "gzip": 295,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 373
+        }
+      ]
+    },
+    {
+      "file": "assets/info_outline-RCHc9rQS.js",
+      "bytes": 410,
+      "gzip": 291,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 369
+        }
+      ]
+    },
+    {
+      "file": "assets/api-B0-oVrSR.js",
+      "bytes": 418,
+      "gzip": 274,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 377
+        }
+      ]
+    },
+    {
+      "file": "assets/attach_file-DRIjfP3v.js",
+      "bytes": 409,
+      "gzip": 300,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 368
+        }
+      ]
+    },
+    {
+      "file": "assets/eco-BYN8wbqm.js",
+      "bytes": 416,
+      "gzip": 307,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 375
+        }
+      ]
+    },
+    {
+      "file": "assets/link-DL2nfTzE.js",
+      "bytes": 415,
+      "gzip": 302,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 374
+        }
+      ]
+    },
+    {
+      "file": "assets/zoom_out_map-D-GFdnIV.js",
+      "bytes": 407,
+      "gzip": 293,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 366
+        }
+      ]
+    },
+    {
+      "file": "assets/zoom_out-BEBAvZHb.js",
+      "bytes": 410,
+      "gzip": 304,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 369
+        }
+      ]
+    },
+    {
+      "file": "assets/photo_camera-Dg4GFsc0.js",
+      "bytes": 404,
+      "gzip": 297,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 363
+        }
+      ]
+    },
+    {
+      "file": "assets/contact_page-DDa6CAtI.js",
+      "bytes": 401,
+      "gzip": 300,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 360
+        }
+      ]
+    },
+    {
+      "file": "assets/history-DOVxhl29.js",
+      "bytes": 404,
+      "gzip": 307,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 363
+        }
+      ]
+    },
+    {
+      "file": "assets/rss_feed-U-u7kxD8.js",
+      "bytes": 403,
+      "gzip": 289,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 362
+        }
+      ]
+    },
+    {
+      "file": "assets/military_tech-ChZ18ppL.js",
+      "bytes": 397,
+      "gzip": 306,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 356
+        }
+      ]
+    },
+    {
+      "file": "assets/directions-9yiqBlH0.js",
+      "bytes": 396,
+      "gzip": 286,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 355
+        }
+      ]
+    },
+    {
+      "file": "assets/search-DEo1izxk.js",
+      "bytes": 399,
+      "gzip": 296,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 358
+        }
+      ]
+    },
+    {
+      "file": "assets/tornado-z4JoSpxC.js",
+      "bytes": 395,
+      "gzip": 305,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 354
+        }
+      ]
+    },
+    {
+      "file": "assets/check_circle_outline-SHGmeMG0.js",
+      "bytes": 375,
+      "gzip": 281,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 334
+        }
+      ]
+    },
+    {
+      "file": "assets/star_outline-BY9Kim02.js",
+      "bytes": 383,
+      "gzip": 293,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 342
+        }
+      ]
+    },
+    {
+      "file": "assets/local_library-D20bFR_l.js",
+      "bytes": 376,
+      "gzip": 279,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 335
+        }
+      ]
+    },
+    {
+      "file": "assets/x-BhR1uiqu.js",
+      "bytes": 386,
+      "gzip": 307,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 345
+        }
+      ]
+    },
+    {
+      "file": "assets/error_outline-Bendfws0.js",
+      "bytes": 373,
+      "gzip": 282,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 332
+        }
+      ]
+    },
+    {
+      "file": "assets/map-BhM1F9A_.js",
+      "bytes": 383,
+      "gzip": 298,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 342
+        }
+      ]
+    },
+    {
+      "file": "assets/medical_services-C1jsjE9w.js",
+      "bytes": 370,
+      "gzip": 275,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 329
+        }
+      ]
+    },
+    {
+      "file": "assets/device_thermostat-B91z9YEw.js",
+      "bytes": 368,
+      "gzip": 284,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 327
+        }
+      ]
+    },
+    {
+      "file": "assets/add_circle_outline-CKUMekAK.js",
+      "bytes": 362,
+      "gzip": 275,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 321
+        }
+      ]
+    },
+    {
+      "file": "assets/favorite-Cbu_QBDC.js",
+      "bytes": 372,
+      "gzip": 288,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 331
+        }
+      ]
+    },
+    {
+      "file": "assets/build-BkYEYro7.js",
+      "bytes": 374,
+      "gzip": 286,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 333
+        }
+      ]
+    },
+    {
+      "file": "assets/cancel--EhkhnRF.js",
+      "bytes": 373,
+      "gzip": 270,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 332
+        }
+      ]
+    },
+    {
+      "file": "assets/timer-D11CwwpU.js",
+      "bytes": 373,
+      "gzip": 287,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 332
+        }
+      ]
+    },
+    {
+      "file": "assets/notifications-GFmyYzVL.js",
+      "bytes": 361,
+      "gzip": 284,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 320
+        }
+      ]
+    },
+    {
+      "file": "assets/upload_file-jPoCjOMo.js",
+      "bytes": 363,
+      "gzip": 288,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 322
+        }
+      ]
+    },
+    {
+      "file": "assets/accessibility_new-Baub2BCa.js",
+      "bytes": 355,
+      "gzip": 284,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 314
+        }
+      ]
+    },
+    {
+      "file": "assets/deck-Duui4_FH.js",
+      "bytes": 368,
+      "gzip": 279,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 327
+        }
+      ]
+    },
+    {
+      "file": "assets/lightbulb-DdXV08s0.js",
+      "bytes": 362,
+      "gzip": 275,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 321
+        }
+      ]
+    },
+    {
+      "file": "assets/wifi-DZSH-xkh.js",
+      "bytes": 367,
+      "gzip": 272,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 326
+        }
+      ]
+    },
+    {
+      "file": "assets/push_pin-CTvwRqdB.js",
+      "bytes": 359,
+      "gzip": 284,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 318
+        }
+      ]
+    },
+    {
+      "file": "assets/location_city-CZIUiZOw.js",
+      "bytes": 352,
+      "gzip": 253,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 311
+        }
+      ]
+    },
+    {
+      "file": "assets/local_police-DswXhLos.js",
+      "bytes": 352,
+      "gzip": 279,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 311
+        }
+      ]
+    },
+    {
+      "file": "assets/science-CZMbiLpN.js",
+      "bytes": 357,
+      "gzip": 284,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 316
+        }
+      ]
+    },
+    {
+      "file": "assets/more_horiz-7dC_Qpan.js",
+      "bytes": 352,
+      "gzip": 227,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 311
+        }
+      ]
+    },
+    {
+      "file": "assets/cloud-B6Dy287k.js",
+      "bytes": 356,
+      "gzip": 277,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 315
+        }
+      ]
+    },
+    {
+      "file": "assets/work-BCx6cK6k.js",
+      "bytes": 356,
+      "gzip": 267,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 315
+        }
+      ]
+    },
+    {
+      "file": "assets/more_vert-DOJYb_c4.js",
+      "bytes": 350,
+      "gzip": 237,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 309
+        }
+      ]
+    },
+    {
+      "file": "assets/report-Caiu-_mH.js",
+      "bytes": 353,
+      "gzip": 267,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 312
+        }
+      ]
+    },
+    {
+      "file": "assets/filter_alt-B2s3pMWl.js",
+      "bytes": 347,
+      "gzip": 276,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 306
+        }
+      ]
+    },
+    {
+      "file": "assets/undo-Cdy0m53z.js",
+      "bytes": 349,
+      "gzip": 279,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 308
+        }
+      ]
+    },
+    {
+      "file": "assets/print-TR7x-ylJ.js",
+      "bytes": 347,
+      "gzip": 272,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 306
+        }
+      ]
+    },
+    {
+      "file": "assets/radio_button_unchecked-D6WVGDNd.js",
+      "bytes": 330,
+      "gzip": 250,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 289
+        }
+      ]
+    },
+    {
+      "file": "assets/spellcheck-D19M1AQ3.js",
+      "bytes": 342,
+      "gzip": 275,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 301
+        }
+      ]
+    },
+    {
+      "file": "assets/star_half-p76AfoEl.js",
+      "bytes": 343,
+      "gzip": 277,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 302
+        }
+      ]
+    },
+    {
+      "file": "assets/hourglass_empty-33WOyinj.js",
+      "bytes": 335,
+      "gzip": 277,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 294
+        }
+      ]
+    },
+    {
+      "file": "assets/restaurant-DZlnO3E-.js",
+      "bytes": 337,
+      "gzip": 277,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 296
+        }
+      ]
+    },
+    {
+      "file": "assets/toggle_off-Dj_O6rAt.js",
+      "bytes": 335,
+      "gzip": 256,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 294
+        }
+      ]
+    },
+    {
+      "file": "assets/toggle_on-RRkPqLWG.js",
+      "bytes": 334,
+      "gzip": 256,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 293
+        }
+      ]
+    },
+    {
+      "file": "assets/content_copy-CqD8MUUe.js",
+      "bytes": 329,
+      "gzip": 258,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 288
+        }
+      ]
+    },
+    {
+      "file": "assets/edit-bwGMOmX_.js",
+      "bytes": 335,
+      "gzip": 258,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 294
+        }
+      ]
+    },
+    {
+      "file": "assets/event-CnRS-Ngx.js",
+      "bytes": 334,
+      "gzip": 271,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 293
+        }
+      ]
+    },
+    {
+      "file": "assets/backpack-BCEIBCdC.js",
+      "bytes": 329,
+      "gzip": 271,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 288
+        }
+      ]
+    },
+    {
+      "file": "assets/local_hospital-CowkJhbC.js",
+      "bytes": 323,
+      "gzip": 261,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 282
+        }
+      ]
+    },
+    {
+      "file": "assets/credit_card-Dk1kmWsS.js",
+      "bytes": 325,
+      "gzip": 261,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 284
+        }
+      ]
+    },
+    {
+      "file": "assets/forum-kxKidfRv.js",
+      "bytes": 330,
+      "gzip": 259,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 289
+        }
+      ]
+    },
+    {
+      "file": "assets/launch-mnQK-mit.js",
+      "bytes": 329,
+      "gzip": 268,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 288
+        }
+      ]
+    },
+    {
+      "file": "assets/label-CousILLk.js",
+      "bytes": 329,
+      "gzip": 265,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 288
+        }
+      ]
+    },
+    {
+      "file": "assets/camping-jJuQ2UPD.js",
+      "bytes": 326,
+      "gzip": 265,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 285
+        }
+      ]
+    },
+    {
+      "file": "assets/grid_view-7dxJ-BlF.js",
+      "bytes": 324,
+      "gzip": 252,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 283
+        }
+      ]
+    },
+    {
+      "file": "assets/mail_outline-5JnxU9pF.js",
+      "bytes": 321,
+      "gzip": 264,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 280
+        }
+      ]
+    },
+    {
+      "file": "assets/assessment-BhjkYiFp.js",
+      "bytes": 321,
+      "gzip": 258,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 280
+        }
+      ]
+    },
+    {
+      "file": "assets/location_on-BJ5p-Wmb.js",
+      "bytes": 320,
+      "gzip": 254,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 279
+        }
+      ]
+    },
+    {
+      "file": "assets/sort_arrow-CEbGkvyS.js",
+      "bytes": 321,
+      "gzip": 258,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 280
+        }
+      ]
+    },
+    {
+      "file": "assets/check_circle-DWqkc1Jr.js",
+      "bytes": 318,
+      "gzip": 254,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 277
+        }
+      ]
+    },
+    {
+      "file": "assets/topic-DTpNmBRn.js",
+      "bytes": 325,
+      "gzip": 264,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 284
+        }
+      ]
+    },
+    {
+      "file": "assets/local_cafe-DPqRMZqe.js",
+      "bytes": 319,
+      "gzip": 260,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 278
+        }
+      ]
+    },
+    {
+      "file": "assets/security-CqH8CDqW.js",
+      "bytes": 321,
+      "gzip": 267,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 280
+        }
+      ]
+    },
+    {
+      "file": "assets/calendar_today-tb-cqc3m.js",
+      "bytes": 314,
+      "gzip": 259,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 273
+        }
+      ]
+    },
+    {
+      "file": "assets/clothes-D_itCinx.js",
+      "bytes": 321,
+      "gzip": 257,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 280
+        }
+      ]
+    },
+    {
+      "file": "assets/save_alt-D8Qbt-HK.js",
+      "bytes": 319,
+      "gzip": 265,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 278
+        }
+      ]
+    },
+    {
+      "file": "assets/flight-Dij5iRAL.js",
+      "bytes": 320,
+      "gzip": 263,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 279
+        }
+      ]
+    },
+    {
+      "file": "assets/verified_user-DuUTYv23.js",
+      "bytes": 312,
+      "gzip": 261,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 271
+        }
+      ]
+    },
+    {
+      "file": "assets/comment-Zgbo_GyX.js",
+      "bytes": 317,
+      "gzip": 258,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 276
+        }
+      ]
+    },
+    {
+      "file": "assets/image-CSk76MnY.js",
+      "bytes": 319,
+      "gzip": 259,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 278
+        }
+      ]
+    },
+    {
+      "file": "assets/unfold_less-D3BCL4lF.js",
+      "bytes": 313,
+      "gzip": 252,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 272
+        }
+      ]
+    },
+    {
+      "file": "assets/chevron_right-Bj8BzsDU.js",
+      "bytes": 310,
+      "gzip": 248,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 269
+        }
+      ]
+    },
+    {
+      "file": "assets/folder_open-BsBmZVAr.js",
+      "bytes": 311,
+      "gzip": 257,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 270
+        }
+      ]
+    },
+    {
+      "file": "assets/hotel-DLKl_NP8.js",
+      "bytes": 317,
+      "gzip": 258,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 276
+        }
+      ]
+    },
+    {
+      "file": "assets/chevron_left-DxO3-1ca.js",
+      "bytes": 309,
+      "gzip": 240,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 268
+        }
+      ]
+    },
+    {
+      "file": "assets/local_pharmacy-DbZGunf_.js",
+      "bytes": 307,
+      "gzip": 261,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 266
+        }
+      ]
+    },
+    {
+      "file": "assets/logout-B-IBGFMc.js",
+      "bytes": 315,
+      "gzip": 261,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 274
+        }
+      ]
+    },
+    {
+      "file": "assets/person-atc284cN.js",
+      "bytes": 315,
+      "gzip": 251,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 274
+        }
+      ]
+    },
+    {
+      "file": "assets/unfold_more-BqT8U90i.js",
+      "bytes": 310,
+      "gzip": 250,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 269
+        }
+      ]
+    },
+    {
+      "file": "assets/chat-D6PRDl91.js",
+      "bytes": 316,
+      "gzip": 261,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 275
+        }
+      ]
+    },
+    {
+      "file": "assets/hospital-B2HZTL94.js",
+      "bytes": 311,
+      "gzip": 244,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 270
+        }
+      ]
+    },
+    {
+      "file": "assets/announcement-CJS_maiX.js",
+      "bytes": 306,
+      "gzip": 252,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 265
+        }
+      ]
+    },
+    {
+      "file": "assets/check_box_outline_blank-CbmQpz2J.js",
+      "bytes": 295,
+      "gzip": 244,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 254
+        }
+      ]
+    },
+    {
+      "file": "assets/mail-DbzcsQyM.js",
+      "bytes": 313,
+      "gzip": 257,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 272
+        }
+      ]
+    },
+    {
+      "file": "assets/add_circle-NFAFUpBX.js",
+      "bytes": 305,
+      "gzip": 246,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 264
+        }
+      ]
+    },
+    {
+      "file": "assets/login-pLvGguUs.js",
+      "bytes": 310,
+      "gzip": 255,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 269
+        }
+      ]
+    },
+    {
+      "file": "assets/close-Dajt8gjn.js",
+      "bytes": 309,
+      "gzip": 236,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 268
+        }
+      ]
+    },
+    {
+      "file": "assets/navigate_far_next-DiaEjbWB.js",
+      "bytes": 297,
+      "gzip": 237,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 256
+        }
+      ]
+    },
+    {
+      "file": "assets/navigate_far_before-BfwBh4xw.js",
+      "bytes": 290,
+      "gzip": 229,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 249
+        }
+      ]
+    },
+    {
+      "file": "assets/local_parking-Cg594FmP.js",
+      "bytes": 294,
+      "gzip": 246,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 253
+        }
+      ]
+    },
+    {
+      "file": "assets/error-DUOpYn6d.js",
+      "bytes": 299,
+      "gzip": 243,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 258
+        }
+      ]
+    },
+    {
+      "file": "assets/info-Donxhe_K.js",
+      "bytes": 299,
+      "gzip": 242,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 258
+        }
+      ]
+    },
+    {
+      "file": "assets/folder-D5np0XFh.js",
+      "bytes": 294,
+      "gzip": 243,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 253
+        }
+      ]
+    },
+    {
+      "file": "assets/remove_circle-S0ChXBj4.js",
+      "bytes": 287,
+      "gzip": 236,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 246
+        }
+      ]
+    },
+    {
+      "file": "assets/star-lS8glC0H.js",
+      "bytes": 296,
+      "gzip": 248,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 255
+        }
+      ]
+    },
+    {
+      "file": "assets/statusColors-CQb8KAr2.js",
+      "bytes": 287,
+      "gzip": 173,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 286
+        }
+      ]
+    },
+    {
+      "file": "assets/account_balance-BfXZEago.js",
+      "bytes": 277,
+      "gzip": 239,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 236
+        }
+      ]
+    },
+    {
+      "file": "assets/trending_down-DiFf-vUn.js",
+      "bytes": 278,
+      "gzip": 232,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 237
+        }
+      ]
+    },
+    {
+      "file": "assets/trending_up-p492Cdba.js",
+      "bytes": 279,
+      "gzip": 238,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 238
+        }
+      ]
+    },
+    {
+      "file": "assets/code-B8RyNnX1.js",
+      "bytes": 282,
+      "gzip": 235,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 241
+        }
+      ]
+    },
+    {
+      "file": "assets/delete-53RKm96V.js",
+      "bytes": 280,
+      "gzip": 239,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 239
+        }
+      ]
+    },
+    {
+      "file": "assets/list-COWLIR0b.js",
+      "bytes": 282,
+      "gzip": 233,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 241
+        }
+      ]
+    },
+    {
+      "file": "assets/store-dMSZI7cU.js",
+      "bytes": 276,
+      "gzip": 236,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 235
+        }
+      ]
+    },
+    {
+      "file": "assets/arrow_downward-C_IsuboL.js",
+      "bytes": 265,
+      "gzip": 229,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 224
+        }
+      ]
+    },
+    {
+      "file": "assets/priority_high-Bu4R41OZ.js",
+      "bytes": 266,
+      "gzip": 218,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 225
+        }
+      ]
+    },
+    {
+      "file": "assets/arrow_forward-DgdrzfHj.js",
+      "bytes": 264,
+      "gzip": 230,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 223
+        }
+      ]
+    },
+    {
+      "file": "assets/first_page-CfGU8o_b.js",
+      "bytes": 266,
+      "gzip": 232,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 225
+        }
+      ]
+    },
+    {
+      "file": "assets/school-B8PXGaqN.js",
+      "bytes": 270,
+      "gzip": 233,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 229
+        }
+      ]
+    },
+    {
+      "file": "assets/arrow_back-BFZI7LsT.js",
+      "bytes": 265,
+      "gzip": 229,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 224
+        }
+      ]
+    },
+    {
+      "file": "assets/arrow_upward-q8kwAutQ.js",
+      "bytes": 263,
+      "gzip": 228,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 222
+        }
+      ]
+    },
+    {
+      "file": "assets/last_page-DixVjQ6h.js",
+      "bytes": 266,
+      "gzip": 229,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 225
+        }
+      ]
+    },
+    {
+      "file": "assets/bookmark-DgBmF98Q.js",
+      "bytes": 266,
+      "gzip": 229,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 225
+        }
+      ]
+    },
+    {
+      "file": "assets/shield-BzSljC72.js",
+      "bytes": 267,
+      "gzip": 231,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 226
+        }
+      ]
+    },
+    {
+      "file": "assets/navigate_before-CMypJ-vt.js",
+      "bytes": 253,
+      "gzip": 219,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 212
+        }
+      ]
+    },
+    {
+      "file": "assets/navigate_next-D2UPtzLi.js",
+      "bytes": 254,
+      "gzip": 222,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 213
+        }
+      ]
+    },
+    {
+      "file": "assets/expand_less-CEGF6Nxs.js",
+      "bytes": 253,
+      "gzip": 221,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 212
+        }
+      ]
+    },
+    {
+      "file": "assets/expand_more-4pl8zTX_.js",
+      "bytes": 252,
+      "gzip": 220,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 211
+        }
+      ]
+    },
+    {
+      "file": "assets/text_fields-CuLS0EZ0.js",
+      "bytes": 252,
+      "gzip": 221,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 211
+        }
+      ]
+    },
+    {
+      "file": "assets/check-BMQn0V7V.js",
+      "bytes": 257,
+      "gzip": 223,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 216
+        }
+      ]
+    },
+    {
+      "file": "assets/park-DPWv7UeN.js",
+      "bytes": 257,
+      "gzip": 227,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 216
+        }
+      ]
+    },
+    {
+      "file": "assets/format_quote-BttxLWaW.js",
+      "bytes": 248,
+      "gzip": 215,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 207
+        }
+      ]
+    },
+    {
+      "file": "assets/format_size-gpGajeeL.js",
+      "bytes": 249,
+      "gzip": 221,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 208
+        }
+      ]
+    },
+    {
+      "file": "assets/filter_list-CR0qUxF6.js",
+      "bytes": 248,
+      "gzip": 221,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 207
+        }
+      ]
+    },
+    {
+      "file": "assets/file_download-Dy4mNvcp.js",
+      "bytes": 243,
+      "gzip": 218,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 202
+        }
+      ]
+    },
+    {
+      "file": "assets/file_upload-czxDu4g3.js",
+      "bytes": 245,
+      "gzip": 217,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 204
+        }
+      ]
+    },
+    {
+      "file": "assets/near_me-BLzX-liO.js",
+      "bytes": 249,
+      "gzip": 220,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 208
+        }
+      ]
+    },
+    {
+      "file": "assets/warning-DH8hp72X.js",
+      "bytes": 249,
+      "gzip": 215,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 208
+        }
+      ]
+    },
+    {
+      "file": "assets/fast_forward-aXELhNiS.js",
+      "bytes": 239,
+      "gzip": 212,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 198
+        }
+      ]
+    },
+    {
+      "file": "assets/menu-C2JEj_M1.js",
+      "bytes": 247,
+      "gzip": 216,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 206
+        }
+      ]
+    },
+    {
+      "file": "assets/fast_rewind-BtLA4unE.js",
+      "bytes": 238,
+      "gzip": 211,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 197
+        }
+      ]
+    },
+    {
+      "file": "assets/send-Dh-cmkWC.js",
+      "bytes": 245,
+      "gzip": 212,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 204
+        }
+      ]
+    },
+    {
+      "file": "assets/flag-CVbZL3GR.js",
+      "bytes": 244,
+      "gzip": 217,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 203
+        }
+      ]
+    },
+    {
+      "file": "assets/home-Ck4-pku7.js",
+      "bytes": 243,
+      "gzip": 214,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 202
+        }
+      ]
+    },
+    {
+      "file": "assets/drag_handle-rN68K5SD.js",
+      "bytes": 235,
+      "gzip": 211,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 194
+        }
+      ]
+    },
+    {
+      "file": "assets/add-DQatKLWt.js",
+      "bytes": 241,
+      "gzip": 214,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 200
+        }
+      ]
+    },
+    {
+      "file": "assets/arrow_drop_down-Dm9u6Qoh.js",
+      "bytes": 222,
+      "gzip": 198,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 181
+        }
+      ]
+    },
+    {
+      "file": "assets/arrow_drop_up-Btu8Dqcs.js",
+      "bytes": 222,
+      "gzip": 198,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 181
+        }
+      ]
+    },
+    {
+      "file": "assets/remove-C7rGvU6r.js",
+      "bytes": 223,
+      "gzip": 202,
+      "owners": [
+        {
+          "name": "@uswds/uswds",
+          "bytes": 182
+        }
+      ]
+    },
+    {
+      "file": "assets/WeekStandupsTab-h5P0rMz3.js",
+      "bytes": 164,
+      "gzip": 153,
+      "owners": [
+        {
+          "name": "app source",
+          "bytes": 77
+        }
+      ]
+    }
+  ]
+}

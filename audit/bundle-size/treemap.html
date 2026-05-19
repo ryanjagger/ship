@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Ship Bundle Treemap</title>
+<style>
+  :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { margin: 0; background: #f6f7f9; color: #171717; }
+  main { padding: 24px; max-width: 1280px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 24px; }
+  p { margin: 0 0 18px; color: #555; }
+  .meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+  .metric { background: #fff; border: 1px solid #d8dde6; border-radius: 8px; padding: 12px; }
+  .metric strong { display: block; font-size: 18px; margin-top: 4px; }
+  #chart { width: 100%; height: 720px; background: #fff; border: 1px solid #cfd6e0; border-radius: 8px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; background: #fff; border: 1px solid #d8dde6; }
+  th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid #e6e9ef; font-size: 14px; }
+  th { background: #eef2f7; }
+  .node-label { pointer-events: none; font-size: 12px; fill: #101828; font-weight: 650; }
+  .node-size { pointer-events: none; font-size: 11px; fill: #344054; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ship Production Bundle Treemap</h1>
+  <p>Generated from a Vite production sourcemap build. Sizes are minified production bytes; gzip depends on server compression.</p>
+  <section class="meta">
+    <div class="metric">Entry JS<strong>2025.1 KiB</strong></div>
+    <div class="metric">CSS<strong>65.0 KiB</strong></div>
+    <div class="metric">JS chunks<strong>261</strong></div>
+    <div class="metric">Analyzer date<strong>2026-05-19</strong></div>
+  </section>
+  <svg id="chart" viewBox="0 0 1200 720" role="img" aria-label="Bundle treemap"></svg>
+  <table>
+    <thead><tr><th>Largest dependency owner</th><th>Approx minified size</th></tr></thead>
+    <tbody><tr><td>emoji-picker-react</td><td>260.4 KiB</td></tr><tr><td>highlight.js</td><td>166.6 KiB</td></tr><tr><td>react-dom</td><td>129.1 KiB</td></tr><tr><td>prosemirror-view</td><td>94.0 KiB</td></tr><tr><td>@uswds/uswds</td><td>92.4 KiB</td></tr><tr><td>yjs</td><td>65.7 KiB</td></tr><tr><td>@tiptap/core</td><td>64.7 KiB</td></tr><tr><td>prosemirror-model</td><td>43.5 KiB</td></tr><tr><td>@tanstack/query-core</td><td>39.9 KiB</td></tr><tr><td>@dnd-kit/core</td><td>39.0 KiB</td></tr><tr><td>react-router</td><td>36.1 KiB</td></tr><tr><td>prosemirror-tables</td><td>34.5 KiB</td></tr></tbody>
+  </table>
+</main>
+<script>
+const tree = {"name":"Production frontend bundle","value":2316957,"children":[{"name":"assets/index-C2vAyoQ1.js (entry)","value":2073698,"children":[{"name":"app source","value":642171},{"name":"emoji-picker-react","value":266678},{"name":"highlight.js","value":170565},{"name":"react-dom","value":132149},{"name":"prosemirror-view","value":96250},{"name":"yjs","value":67251},{"name":"@tiptap/core","value":66271},{"name":"prosemirror-model","value":44587},{"name":"@tanstack/query-core","value":40860},{"name":"@dnd-kit/core","value":39973},{"name":"react-router","value":36964},{"name":"prosemirror-tables","value":35312},{"name":"prosemirror-transform","value":30689},{"name":"lib0","value":25238},{"name":"@tiptap/extension-code-block-lowlight","value":23407},{"name":"@popperjs/core","value":20328},{"name":"tailwind-merge","value":20056},{"name":"diff-match-patch","value":19155},{"name":"y-prosemirror","value":19007},{"name":"linkifyjs","value":18401},{"name":"@tiptap/react","value":17638},{"name":"tippy.js","value":16087},{"name":"prosemirror-state","value":11897},{"name":"cmdk","value":11895},{"name":"prosemirror-commands","value":9074},{"name":"other mapped/unmapped main code","value":191795}]},{"name":"assets/index-DJeYp5na.css","value":66512},{"name":"USWDS lazy icon chunks (245)","value":104639,"children":[{"name":"@uswds/uswds SVG modules","value":104639}]},{"name":"lazy tab/editor chunks (14)","value":71821,"children":[{"name":"ProgramWeeksTab-BzbUWlt4.js","value":16761},{"name":"WeekReviewTab-DmxN07T1.js","value":12644},{"name":"StandupFeed-BjJLDai5.js","value":9648},{"name":"ProjectRetroTab-BV2rvgoM.js","value":9043},{"name":"ProjectWeeksTab-oE3MioHn.js","value":6654},{"name":"ProgramProjectsTab-eNNvrO8g.js","value":4401},{"name":"ProjectDetailsTab-gSyN3jFM.js","value":3604},{"name":"WeekPlanningTab-DWsXI-LK.js","value":2987},{"name":"WeekOverviewTab-BkUUf8Qc.js","value":1888},{"name":"ProgramOverviewTab-CysaNSnp.js","value":1735},{"name":"WeekIssuesTab-D4BLXISm.js","value":1315},{"name":"ProgramIssuesTab-f0wp_SPx.js","value":562},{"name":"ProjectIssuesTab-BPkbt8_8.js","value":415},{"name":"WeekStandupsTab-h5P0rMz3.js","value":164}]},{"name":"other tiny JS chunks (1)","value":287}]};
+const colors = ['#9ecae1','#fdae6b','#a1d99b','#bcbddc','#fdd0a2','#c7e9c0','#fcbba1','#dadaeb','#b3cde3','#decbe4'];
+function fmt(n){ return (n/1024).toFixed(1) + ' KiB'; }
+function layout(items, x, y, w, h, depth = 0) {
+  const total = items.reduce((a, d) => a + d.value, 0) || 1;
+  let offset = 0;
+  const horizontal = w >= h;
+  return items.flatMap((d, i) => {
+    const ratio = d.value / total;
+    const rect = horizontal
+      ? { x: x + offset, y, w: w * ratio, h }
+      : { x, y: y + offset, w, h: h * ratio };
+    offset += horizontal ? rect.w : rect.h;
+    const current = { ...rect, ...d, depth, color: colors[(i + depth) % colors.length] };
+    if (!d.children || d.children.length === 0 || rect.w < 90 || rect.h < 70) return [current];
+    const pad = 5;
+    return [current, ...layout(d.children, rect.x + pad, rect.y + 24, Math.max(0, rect.w - pad * 2), Math.max(0, rect.h - 29), depth + 1)];
+  });
+}
+const svg = document.getElementById('chart');
+const rects = layout(tree.children, 0, 0, 1200, 720);
+for (const r of rects) {
+  const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', r.x + 1); rect.setAttribute('y', r.y + 1);
+  rect.setAttribute('width', Math.max(0, r.w - 2)); rect.setAttribute('height', Math.max(0, r.h - 2));
+  rect.setAttribute('fill', r.color); rect.setAttribute('stroke', '#fff'); rect.setAttribute('stroke-width', r.depth ? '1' : '2');
+  rect.setAttribute('opacity', String(Math.max(0.55, 1 - r.depth * 0.12)));
+  const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+  title.textContent = r.name + ' - ' + fmt(r.value);
+  rect.appendChild(title); group.appendChild(rect);
+  if (r.w > 74 && r.h > 34) {
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', r.x + 8); label.setAttribute('y', r.y + 17); label.setAttribute('class', 'node-label');
+    label.textContent = r.name.length > Math.floor(r.w / 7) ? r.name.slice(0, Math.max(6, Math.floor(r.w / 7) - 1)) + '…' : r.name;
+    group.appendChild(label);
+    const size = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    size.setAttribute('x', r.x + 8); size.setAttribute('y', r.y + 32); size.setAttribute('class', 'node-size');
+    size.textContent = fmt(r.value);
+    group.appendChild(size);
+  }
+  svg.appendChild(group);
+}
+</script>
+</body>
+</html>
