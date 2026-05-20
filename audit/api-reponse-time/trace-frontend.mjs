@@ -1,9 +1,12 @@
 import { chromium } from '@playwright/test';
 
-const baseUrl = 'http://localhost:5173';
+const baseUrl = process.env.WEB_BASE_URL ?? 'http://localhost:5173';
+const traceEmail = process.env.TRACE_EMAIL ?? 'dev@ship.local';
+const tracePassword = process.env.TRACE_PASSWORD ?? 'admin123';
 const requests = [];
 const starts = new Map();
 let currentFlow = 'bootstrap';
+const startedAt = new Date().toISOString();
 
 function pathWithQuery(rawUrl) {
   const url = new URL(rawUrl);
@@ -46,8 +49,8 @@ async function settle() {
 
 currentFlow = 'login';
 await page.goto(`${baseUrl}/login`);
-await page.getByLabel('Email address').fill('dev@ship.local');
-await page.getByLabel('Password').fill('admin123');
+await page.getByLabel('Email address').fill(traceEmail);
+await page.getByLabel('Password').fill(tracePassword);
 await page.getByRole('button', { name: 'Sign in' }).click();
 await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 15000 });
 await settle();
@@ -99,4 +102,14 @@ const summary = [...byEndpoint.values()]
   }))
   .sort((a, b) => b.count - a.count || a.endpoint.localeCompare(b.endpoint));
 
-console.log(JSON.stringify({ requests, summary }, null, 2));
+console.log(JSON.stringify({
+  metadata: {
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    baseUrl,
+    authenticatedAs: traceEmail,
+    flows: flows.map(([name, path]) => ({ name, path })),
+  },
+  requests,
+  summary,
+}, null, 2));
