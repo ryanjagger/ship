@@ -41,6 +41,36 @@ postgres:
 
 The counts below include authentication/session middleware queries because they are paid by real browser flows. They exclude the login setup request.
 
+## Reproduce Locally
+
+The reproducible audit script uses the API package's local PostgreSQL connection (`api/.env.local` / `DATABASE_URL`) and traces queries through the shared `pg.Pool` in-process. It does not require Docker PostgreSQL logging.
+
+```bash
+pnpm db:migrate
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm audit:db-query-efficiency
+```
+
+The script authenticates as `dev@ship.local` / `admin123`, executes the five flows below, runs `EXPLAIN ANALYZE` on the slowest SELECT query shapes, and prints the audit deliverable table. Use JSON output when copying numbers into another artifact:
+
+```bash
+pnpm audit:db-query-efficiency -- --json
+```
+
+If your package-manager shim is unavailable, the script can be run directly:
+
+```bash
+node --import ./api/node_modules/tsx/dist/loader.mjs audit/database-query-efficiency/run-audit.mjs
+```
+
+Useful options:
+
+- `AUDIT_EMAIL` / `AUDIT_PASSWORD` override the seeded login.
+- `AUDIT_SEARCH_TERM` changes the search-content query term.
+- `--no-explain` skips `EXPLAIN ANALYZE`.
+- `--explain-limit 12` changes how many unique slow query shapes are explained.
+
 Flow endpoint sets:
 
 | Flow | Endpoints traced |
