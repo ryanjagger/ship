@@ -2,6 +2,8 @@
 
 This directory contains the project audit reports.
 
+- [Documentation Audit](documentation/DOCS_AUDIT_REPORT.md)
+
 - [Type Safety Audit](type-safety/README.md)
 - [Bundle Size Audit](bundle-size/README.md)
 - [API Response Time Audit](api-reponse-time/README.md)
