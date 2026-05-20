@@ -9,7 +9,20 @@ import Link from '@tiptap/extension-link';
 import { ResizableImage } from './editor/ResizableImage';
 import Dropcursor from '@tiptap/extension-dropcursor';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
-import { common, createLowlight } from 'lowlight';
+import { createLowlight } from 'lowlight';
+import bash from 'highlight.js/lib/languages/bash';
+import css from 'highlight.js/lib/languages/css';
+import go from 'highlight.js/lib/languages/go';
+import javascript from 'highlight.js/lib/languages/javascript';
+import json from 'highlight.js/lib/languages/json';
+import markdown from 'highlight.js/lib/languages/markdown';
+import python from 'highlight.js/lib/languages/python';
+import rust from 'highlight.js/lib/languages/rust';
+import shell from 'highlight.js/lib/languages/shell';
+import sql from 'highlight.js/lib/languages/sql';
+import typescript from 'highlight.js/lib/languages/typescript';
+import xml from 'highlight.js/lib/languages/xml';
+import yaml from 'highlight.js/lib/languages/yaml';
 import Table from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableCell from '@tiptap/extension-table-cell';
@@ -42,8 +55,27 @@ import { useCommentsQuery, useCreateComment, useUpdateComment } from '@/hooks/us
 import { BubbleMenu } from '@tiptap/react';
 import 'tippy.js/dist/tippy.css';
 
-// Create lowlight instance with common languages
-const lowlight = createLowlight(common);
+// Curated language set; full `common` set adds ~100 KiB of unused grammars.
+const lowlight = createLowlight();
+lowlight.register('bash', bash);
+lowlight.register('css', css);
+lowlight.register('go', go);
+lowlight.register('html', xml);
+lowlight.register('javascript', javascript);
+lowlight.register('js', javascript);
+lowlight.register('json', json);
+lowlight.register('jsx', javascript);
+lowlight.register('markdown', markdown);
+lowlight.register('md', markdown);
+lowlight.register('python', python);
+lowlight.register('rust', rust);
+lowlight.register('shell', shell);
+lowlight.register('sql', sql);
+lowlight.register('typescript', typescript);
+lowlight.register('ts', typescript);
+lowlight.register('tsx', typescript);
+lowlight.register('xml', xml);
+lowlight.register('yaml', yaml);
 
 interface EditorProps {
   documentId: string;
