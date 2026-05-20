@@ -27,6 +27,7 @@
     "test": "pnpm --filter @ship/api test",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "audit:db-query-efficiency": "node --import ./api/node_modules/tsx/dist/loader.mjs audit/database-query-efficiency/run-audit.mjs",
     "worktree:init": "./scripts/worktree-init.sh",
     "db:seed": "pnpm --filter @ship/api db:seed",
     "db:migrate": "pnpm --filter @ship/api db:migrate",
