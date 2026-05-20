@@ -285,7 +285,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cloudfront_default_certificate = var.app_domain_name == ""
     acm_certificate_arn            = var.app_domain_name != "" ? aws_acm_certificate.app[0].arn : null
     ssl_support_method             = var.app_domain_name != "" ? "sni-only" : null
-    minimum_protocol_version       = "TLSv1.2_2021"
+    minimum_protocol_version       = var.app_domain_name != "" ? "TLSv1.2_2021" : "TLSv1"
   }
 
   restrictions {
@@ -440,6 +440,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
   rule {
     id     = "abort-incomplete-multipart"
     status = "Enabled"
+
+    filter {}
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 1

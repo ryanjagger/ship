@@ -63,7 +63,7 @@ cd "$PROJECT_ROOT"
 pnpm build:web
 
 echo "Syncing to S3: $S3_BUCKET"
-aws s3 sync web/dist/ "s3://${S3_BUCKET}/" --delete
+aws s3 sync web/dist/ "s3://${S3_BUCKET}/" --delete --exclude "deploy/*"
 
 echo "Invalidating CloudFront cache..."
 INVALIDATION_ID=$(aws cloudfront create-invalidation \

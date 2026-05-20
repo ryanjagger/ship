@@ -1,36 +1,22 @@
-# Dev environment - uses shared VPC from treasury-shared-infra
+# Dev environment - standalone demo infrastructure
 
-# Read shared VPC configuration from SSM (set by treasury-shared-infra)
-data "aws_ssm_parameter" "vpc_id" {
-  name = "/infra/dev/vpc_id"
+# VPC Module (dev creates its own isolated demo VPC)
+module "vpc" {
+  source = "../../modules/vpc"
+
+  project_name       = var.project_name
+  environment        = var.environment
+  vpc_cidr           = var.vpc_cidr
+  enable_nat_gateway = var.enable_nat_gateway
 }
 
-data "aws_ssm_parameter" "private_subnet_ids" {
-  name = "/infra/dev/private_subnet_ids"
-}
-
-data "aws_ssm_parameter" "public_subnet_ids" {
-  name = "/infra/dev/public_subnet_ids"
-}
-
-data "aws_ssm_parameter" "vpc_cidr" {
-  name = "/infra/dev/vpc_cidr"
-}
-
-locals {
-  vpc_id             = data.aws_ssm_parameter.vpc_id.value
-  private_subnet_ids = split(",", data.aws_ssm_parameter.private_subnet_ids.value)
-  public_subnet_ids  = split(",", data.aws_ssm_parameter.public_subnet_ids.value)
-  vpc_cidr           = data.aws_ssm_parameter.vpc_cidr.value
-}
-
-# Security Groups (create within shared VPC)
+# Security Groups
 module "security_groups" {
   source = "../../modules/security-groups"
 
   project_name = var.project_name
   environment  = var.environment
-  vpc_id       = local.vpc_id
+  vpc_id       = module.vpc.vpc_id
 }
 
 # Aurora Serverless v2 Database (dev has its own isolated database)
@@ -40,8 +26,8 @@ module "aurora" {
   project_name = var.project_name
   environment  = var.environment
 
-  vpc_id            = local.vpc_id
-  subnet_ids        = local.private_subnet_ids
+  vpc_id            = module.vpc.vpc_id
+  subnet_ids        = module.vpc.private_subnet_ids
   security_group_id = module.security_groups.aurora_security_group_id
 
   db_name      = var.db_name
@@ -49,7 +35,7 @@ module "aurora" {
   max_capacity = var.aurora_max_capacity
 }
 
-# Elastic Beanstalk (dev uses shared VPC)
+# Elastic Beanstalk
 module "elastic_beanstalk" {
   source = "../../modules/elastic-beanstalk"
 
@@ -57,11 +43,13 @@ module "elastic_beanstalk" {
   environment  = var.environment
   aws_region   = var.aws_region
 
-  vpc_id                        = local.vpc_id
-  private_subnet_ids            = local.private_subnet_ids
-  public_subnet_ids             = local.public_subnet_ids
+  vpc_id                        = module.vpc.vpc_id
+  private_subnet_ids            = module.vpc.private_subnet_ids
+  public_subnet_ids             = module.vpc.public_subnet_ids
   alb_security_group_id         = module.security_groups.alb_security_group_id
   eb_instance_security_group_id = module.security_groups.eb_instance_security_group_id
+  instance_type                 = var.eb_instance_type
+  seed_demo_data                = var.seed_demo_data
 }
 
 # CloudFront + S3 Frontend (dev has its own CDN + bucket)
@@ -72,7 +60,7 @@ module "cloudfront_s3" {
   environment          = var.environment
   app_domain_name      = var.app_domain_name
   route53_zone_id      = var.route53_zone_id
-  eb_environment_cname = var.eb_environment_cname
+  eb_environment_cname = module.elastic_beanstalk.environment_cname
   upload_cors_origins  = var.upload_cors_origins
 }
 

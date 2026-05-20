@@ -28,8 +28,9 @@ resource "aws_rds_cluster_parameter_group" "aurora" {
 
   # DDoS protection: Connection and query limits
   parameter {
-    name  = "max_connections"
-    value = "200"
+    name         = "max_connections"
+    value        = "200"
+    apply_method = "pending-reboot"
   }
 
   parameter {

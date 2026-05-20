@@ -1,16 +1,16 @@
 output "vpc_id" {
-  description = "VPC ID (from shared infrastructure)"
-  value       = nonsensitive(local.vpc_id)
+  description = "VPC ID"
+  value       = module.vpc.vpc_id
 }
 
 output "private_subnet_ids" {
-  description = "Private subnet IDs (from shared infrastructure)"
-  value       = nonsensitive(local.private_subnet_ids)
+  description = "Private subnet IDs"
+  value       = module.vpc.private_subnet_ids
 }
 
 output "public_subnet_ids" {
-  description = "Public subnet IDs (from shared infrastructure)"
-  value       = nonsensitive(local.public_subnet_ids)
+  description = "Public subnet IDs"
+  value       = module.vpc.public_subnet_ids
 }
 
 output "aurora_cluster_endpoint" {
@@ -85,9 +85,9 @@ output "eb_config_summary" {
     application_name        = module.elastic_beanstalk.application_name
     instance_profile        = module.elastic_beanstalk.instance_profile_name
     service_role_arn        = module.elastic_beanstalk.service_role_arn
-    vpc_id                  = nonsensitive(local.vpc_id)
-    private_subnets         = nonsensitive(join(",", local.private_subnet_ids))
-    public_subnets          = nonsensitive(join(",", local.public_subnet_ids))
+    vpc_id                  = module.vpc.vpc_id
+    private_subnets         = join(",", module.vpc.private_subnet_ids)
+    public_subnets          = join(",", module.vpc.public_subnet_ids)
     instance_security_group = module.security_groups.eb_instance_security_group_id
     alb_security_group      = module.security_groups.alb_security_group_id
   }

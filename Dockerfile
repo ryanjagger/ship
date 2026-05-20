@@ -30,6 +30,6 @@ ENV NODE_ENV=production
 ENV VITE_APP_ENV=production
 ENV PORT=80
 
-# Start the application (run migrations first to ensure schema exists)
+# Start the application (run migrations first; optionally seed demo data)
 WORKDIR /app/api
-CMD ["sh", "-c", "node dist/db/migrate.js && node dist/index.js"]
+CMD ["sh", "-c", "node dist/db/migrate.js && if [ \"$SEED_DEMO_DATA\" = \"true\" ]; then node dist/db/seed.js; fi && node dist/index.js"]

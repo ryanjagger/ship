@@ -40,6 +40,30 @@ variable "app_domain_name" {
   default     = ""
 }
 
+variable "vpc_cidr" {
+  description = "VPC CIDR block"
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "enable_nat_gateway" {
+  description = "Enable NAT Gateway for private subnets (required for EB Docker pulls)"
+  type        = bool
+  default     = true
+}
+
+variable "eb_instance_type" {
+  description = "Elastic Beanstalk EC2 instance type"
+  type        = string
+  default     = "t2.small"
+}
+
+variable "seed_demo_data" {
+  description = "Run demo data seed during application startup"
+  type        = bool
+  default     = true
+}
+
 variable "aurora_min_capacity" {
   description = "Aurora Serverless v2 minimum capacity (ACUs)"
   type        = number

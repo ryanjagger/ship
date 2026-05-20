@@ -55,3 +55,9 @@ variable "max_instances" {
   type        = number
   default     = 4
 }
+
+variable "seed_demo_data" {
+  description = "Run demo data seed during application startup"
+  type        = bool
+  default     = false
+}
