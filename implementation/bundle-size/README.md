@@ -1,6 +1,6 @@
 # Bundle Size Audit — Implementation
 
-This document records the bundle-size improvements implemented against the recommendations in [README.md](./README.md), with before/after metrics measured from a clean `pnpm run build:web`.
+This document records the bundle-size improvements implemented against the recommendations in [the audit README](../../audit/bundle-size/README.md), with before/after metrics measured from a clean `pnpm run build:web`.
 
 ## What was implemented
 
