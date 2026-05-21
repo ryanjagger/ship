@@ -14,7 +14,7 @@ Do NOT read all docs upfront - this wastes context.
 
 ## Quick Reference (Essential)
 
-- **Dev commands**: `pnpm dev`, `pnpm test`, `/e2e-test-runner`
+- **Dev commands**: `pnpm dev`, `pnpm test`, `pnpm test:e2e` (run E2E in background — see CLAUDE.md)
 - **Document model**: Everything is a document with `document_type` field
 - **Editor layout**: 4-panel (Icon Rail | Sidebar | Content | Properties)
 - **Session timeout**: 15min inactivity, 12hr absolute
