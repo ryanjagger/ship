@@ -214,7 +214,7 @@ CloudFront access logs are disabled by default to save costs. To enable:
 1. Check EB logs: `eb logs`
 2. Common issues:
    - Database connection failed (check SSM parameters)
-   - Port mismatch (ensure PORT=8080 in env)
+   - Port mismatch (ensure `PORT=80` in env — see `api/.ebextensions/01-env.config`)
    - Build failed (check Dockerfile)
 
 ### WebSocket Not Working
