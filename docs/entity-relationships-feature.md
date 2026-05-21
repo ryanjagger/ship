@@ -49,7 +49,7 @@ GitHub-style activity visualization showing 30 days of activity.
 - Issue state changes
 - Standup posts
 
-**Component:** `ActivityChart` - Reusable across Program, Project, Week views.
+**Component:** No standalone `ActivityChart` component currently exists in `web/src/components/`. The visualization, where present, is rendered inline by the consuming page. This section describes the intended shape.
 
 **API Endpoint:** `GET /api/activity/:entityType/:entityId`
 
@@ -63,22 +63,22 @@ GitHub-style activity visualization showing 30 days of activity.
 }
 ```
 
-### 3. Hypothesis & Success Criteria Blocks
+### 3. Plan & Success Criteria Blocks
 
 Special structured sections in Project and Week documents.
 
 **Slash Commands:**
-- `/hypothesis` - Insert Hypothesis section
+- `/plan` - Insert Plan section (formerly `/hypothesis`; `hypothesis` remains as an alias)
 - `/criteria` - Insert Success Criteria section
 
 **Detection:**
-Also detects existing H2 headings named "Hypothesis" or "Success Criteria" (case-insensitive).
+Also detects existing H2 headings named "Plan", "Hypothesis", or "Success Criteria" (case-insensitive).
 
 **Storage Model:**
-Dual storage - content is source of truth, syncs to `properties.hypothesis` and `properties.success_criteria` on save. This enables:
+Dual storage - content is source of truth, syncs to `properties.plan` and `properties.success_criteria` on save. The property was renamed from `hypothesis` → `plan` by migration 032. This enables:
 - Fast queries on properties
 - Normal rich-text editing experience
-- Search/filter by hypothesis content
+- Search/filter by plan content
 
 ### 4. Program Vision & Goals
 
@@ -101,7 +101,7 @@ Documents missing critical fields are flagged but not blocked from saving.
 **Completeness Rules:**
 ```javascript
 // Project is complete if:
-properties.hypothesis && properties.success_criteria
+properties.plan && properties.success_criteria
 
 // Week is complete if:
 properties.goal && properties.start_date && properties.end_date && linked_issues.length > 0
@@ -138,7 +138,7 @@ Automatic detection and linking of issue references in standup content.
 ### Database Changes
 
 No schema migrations required. All new data stored in existing `properties` JSONB column:
-- `properties.hypothesis` - text
+- `properties.plan` - text (renamed from `hypothesis` by migration 032)
 - `properties.success_criteria` - text
 - `properties.vision` - text
 - `properties.goals` - text
@@ -155,9 +155,9 @@ No schema migrations required. All new data stored in existing `properties` JSON
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| `ActivityChart` | `web/src/components/ActivityChart.tsx` | Reusable activity visualization |
-| `IncompleteBanner` | `web/src/components/IncompleteBanner.tsx` | Warning banner for incomplete docs |
-| Slash commands | TipTap extensions | `/hypothesis`, `/criteria`, `/vision`, `/goals` |
+| _ActivityChart_ | _(not yet extracted as a standalone component)_ | Activity visualization — rendered inline by consuming pages |
+| _IncompleteBanner_ | _(not yet extracted as a standalone component)_ | Warning banner for incomplete docs — rendered inline by consuming pages |
+| Slash commands | TipTap extensions | `/plan` (alias `/hypothesis`), `/criteria`, `/vision`, `/goals` |
 
 ## Related
 

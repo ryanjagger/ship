@@ -52,8 +52,10 @@ ship/
 │   │   ├── components/     # UI components
 │   │   ├── pages/          # Route pages
 │   │   ├── hooks/          # Custom hooks
-│   │   ├── stores/         # Zustand stores
-│   │   ├── db/             # IndexedDB access
+│   │   ├── contexts/       # React context providers
+│   │   ├── services/       # API client wrappers
+│   │   ├── lib/            # Generic utilities
+│   │   ├── styles/         # Global CSS / Tailwind config
 │   │   └── main.tsx        # Entry point
 │   ├── package.json
 │   └── vite.config.ts
@@ -711,13 +713,15 @@ pnpm dev
 
 ```json
 {
-  "dev": "concurrently \"pnpm --filter api dev\" \"pnpm --filter web dev\"",
-  "build": "pnpm --filter api build && pnpm --filter web build",
-  "test": "pnpm --filter api test && pnpm --filter web test",
-  "db:migrate": "pnpm --filter api db:migrate",
-  "db:generate": "pnpm --filter api db:generate"
+  "dev": "./scripts/dev.sh",
+  "build": "pnpm --recursive run build",
+  "test": "pnpm --filter @ship/api test",
+  "db:seed": "pnpm --filter @ship/api db:seed",
+  "db:migrate": "pnpm --filter @ship/api db:migrate"
 }
 ```
+
+`scripts/dev.sh` finds an available port pair, creates the worktree's database if missing, runs migrations + seeds on a fresh DB, and launches `pnpm dev:api` and `pnpm dev:web` in parallel.
 
 ## Claude Code Integration
 

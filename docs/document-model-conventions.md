@@ -122,7 +122,7 @@ Ship uses two distinct patterns for document relationships. Understanding when t
 
 | Pattern | Column/Table | Relationship | Use Case |
 |---------|--------------|--------------|----------|
-| **parent_id** | `parent_id` column | 1:1 containment | Wiki children, sprint_plan → sprint |
+| **parent_id** | `parent_id` column | 1:1 containment | Wiki children, weekly_plan → sprint |
 | **document_associations** | Junction table | Many-to-many organizational | program, project, sprint memberships |
 
 **parent_id (Hierarchy):** Used when a document is *contained within* another document. The child cannot exist without the parent. Examples:
@@ -270,7 +270,7 @@ function getWeekNumber(date: Date, workspaceStartDate: Date): number {
 What IS stored is the **Week document** - one per program per week window:
 
 - `document_type: 'sprint'` (historical type name)
-- `program_id`: which program
+- Program association (via `document_associations`, `relationship_type = 'program'`)
 - `properties.sprint_number`: which 7-day window (REQUIRED, historical field name)
 - `properties.owner_id`: **REQUIRED** - person accountable for this week
 - Document body: week goals, context, description (everything is a document)
@@ -384,17 +384,17 @@ Program mode displays weeks in **three sections**:
 Issues flow from backlog to active week work:
 
 ```
-Backlog (project_id set, no week)
+Backlog (project association set, no sprint association)
     ↓
-Assigned to Week (week association set, project_id kept)
+Assigned to Week (sprint association added, project association kept)
     ↓
 Done (completed_at set)
 ```
 
-Issues maintain **both** project and week associations:
+Issues maintain **both** project and sprint associations in `document_associations`:
 
-- `project_id` - which project this issue belongs to (persistent)
-- Week association - which week this issue is being worked in (changes)
+- `project` association - which project this issue belongs to (persistent)
+- `sprint` association - which week this issue is being worked in (changes)
 
 ## Ticket Numbers
 
@@ -449,8 +449,8 @@ Create indexes for common query patterns:
 { keyPath: "id" }                              // Primary key
 { keyPath: "workspace_id" }                    // All docs in workspace
 { keyPath: ["workspace_id", "document_type"] } // Docs by type
-{ keyPath: ["program_id", "document_type"] }   // Docs in program
-{ keyPath: ["week_id"] }                       // Docs in week
+// Program / week scoping live in document_associations, not on the documents row;
+// build those indexes on the document_associations cache instead.
 { keyPath: "updated_at" }                      // Sync ordering
 ```
 
@@ -507,7 +507,7 @@ Ship has exactly **4 canonical patterns** for displaying collections of items. W
 | **SelectableList** | `<SelectableList>` | Tables/lists with selection | Hover checkboxes, multi-select, keyboard nav, context menu, bulk actions |
 | **Tree** | `<DocumentTreeItem>` | Hierarchical data | Expand/collapse, indentation, parent-child relationships |
 | **Kanban** | `<KanbanBoard>` | Status-based columns | Drag-and-drop between columns, cards grouped by state |
-| **CardGrid** | `<CardGrid>` | Navigable card collections | Responsive grid, click-to-navigate, visual cards |
+| **CardGrid** | _(no shared component yet)_ | Navigable card collections | Responsive grid, click-to-navigate, visual cards — currently implemented inline where needed |
 
 ### Decision Tree: Which Pattern?
 
@@ -557,7 +557,7 @@ Use for workflow visualization where items move through states.
 **When to use:** Issue status workflow, any state machine visualization
 
 #### CardGrid
-Use for browsable collections where users navigate to items.
+Use for browsable collections where users navigate to items. No shared `<CardGrid>` component exists yet — current pages implement this inline (e.g., the team directory). If multiple inline grids accumulate, extract a shared component.
 
 **Features:**
 - Responsive grid (fewer columns on mobile)
