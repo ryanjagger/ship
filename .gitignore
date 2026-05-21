@@ -53,6 +53,9 @@ evidence/
 playwright-report/
 test-results/
 
+# Vitest / v8 coverage reports
+coverage/
+
 # Plans
 /plans
 

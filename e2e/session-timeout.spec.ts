@@ -662,8 +662,11 @@ test.describe('Extend Session API', () => {
     // Wait for modal to dismiss
     await expect(modal).not.toBeVisible();
 
-    // Verify API call was made
-    expect(extendCalls.length).toBe(1);
+    // Verify API call was made. resetTimer() dismisses the modal synchronously
+    // but awaits apiPost(/api/auth/extend-session) — under load the fetch can
+    // still be in flight when modal-not-visible resolves, so we poll instead
+    // of asserting on the array length immediately.
+    await expect.poll(() => extendCalls.length, { timeout: 5000 }).toBe(1);
     expect(extendCalls[0]).toContain('/api/auth/extend-session');
   });
 
