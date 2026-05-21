@@ -75,38 +75,42 @@ Flow endpoint sets:
 
 | Flow | Endpoints traced |
 | --- | --- |
-| Load main page | App shell endpoints plus `GET /api/dashboard/my-week` |
-| View a document | App shell endpoints plus `GET /api/documents/:id`, `GET /api/team/people`, `GET /api/documents/:id/comments` |
-| List issues | App shell endpoints ending on `GET /api/issues` |
-| Load sprint board | App shell endpoints plus `GET /api/team/grid`, `GET /api/team/projects`, `GET /api/team/assignments` |
+| Load main page | Global data-provider endpoints plus `GET /api/dashboard/my-week` |
+| View a document | Global data-provider endpoints plus `GET /api/documents/:id`, `GET /api/team/people`, `GET /api/documents/:id/comments` |
+| List issues | Global data-provider endpoints ending on `GET /api/issues` |
+| Load sprint board | Global data-provider endpoints plus `GET /api/team/grid`, `GET /api/team/projects`, `GET /api/team/assignments` |
 | Search content | `GET /api/search/mentions?q=audit` |
 
-The app shell currently includes `GET /api/auth/me`, `GET /api/auth/session`, `GET /api/team/people?includeArchived=true`, `GET /api/documents?type=wiki`, `GET /api/programs`, `GET /api/projects`, `GET /api/issues`, `GET /api/standups/status`, and `GET /api/accountability/action-items`.
+The global data-provider set currently includes `GET /api/auth/me`, `GET /api/auth/session`, `GET /api/team/people?includeArchived=true`, `GET /api/documents?type=wiki`, `GET /api/programs`, `GET /api/projects`, `GET /api/issues`, `GET /api/standups/status`, and `GET /api/accountability/action-items`.
+
+In this audit, "global data providers" means the shared protected-route providers that mount around normal pages: session state, global navigation/sidebar lists, team data, project/program/issue lists, standup status, and accountability indicators. The `N+1 Detected?` column below is a flow-level result. For the first four flows, the `Yes` value is primarily inherited from globally mounted providers, especially the providers that call `GET /api/projects` and `GET /api/programs`; it does not mean each page-specific endpoint has a separate N+1 problem. The search flow intentionally traces only `GET /api/search/mentions?q=audit`, so it does not include global provider cost.
 
 ## Audit Deliverable
 
-| User Flow | Total Queries | Slowest Query (ms) | N+1 Detected? |
-| --- | ---: | ---: | --- |
-| Load main page | 57 | 3.42ms | Yes |
-| View a document | 59 | 2.38ms | Yes |
-| List issues | 48 | 2.57ms | Yes |
-| Load sprint board | 65 | 2.00ms | Yes |
-| Search content | 5 | 0.84ms | No |
+| User Flow | Total Queries | Slowest Query (ms) | N+1 Detected? | Primary N+1 Source |
+| --- | ---: | ---: | --- | --- |
+| Load main page | 57 | 3.42ms | Yes | Global providers: `GET /api/projects`, `GET /api/programs` |
+| View a document | 59 | 2.38ms | Yes | Global providers, not the document detail endpoints |
+| List issues | 48 | 2.57ms | Yes | Global providers; `GET /api/issues` batches issue associations |
+| Load sprint board | 65 | 2.00ms | Yes | Global providers, not the sprint-board-specific endpoints |
+| Search content | 5 | 0.84ms | No | Search endpoint only; global providers excluded |
 
 ## EXPLAIN ANALYZE Findings
 
 | Query | Execution | Plan signal | Finding |
 | --- | ---: | --- | --- |
 | `GET /api/projects` list query | 2.679ms | 3 correlated subplans, each `loops=15`; 235 primary-key lookups inside count subplans | Slowest query shape. Counts and inferred status are computed once per project instead of batched. |
+| `GET /api/programs` list query | 0.950ms | 2 correlated subplans; 250 primary-key lookups inside count subplans | Program issue/sprint counts are computed once per program instead of batched. |
 | `GET /api/documents?type=wiki` | 0.636ms | Sequential scan of 720 document rows, 347 returned, sort on `position, created_at DESC` | Fast locally, but no index supports the active wiki list order. |
 | `GET /api/issues` list query | 1.152ms | Uses `idx_documents_document_type`; sorts 200 rows by JSONB priority and `updated_at` | No SQL N+1 for issue associations because `getBelongsToAssociationsBatch` batches them. Payload is still heavy because `content` is fetched for every issue. |
 | `GET /api/search/mentions?q=audit` | 1.087ms | Sequential scan; `title ILIKE '%audit%'`; 440 rows matched before top-N sort | Missing trigram/search index. This will degrade as the unified `documents` table grows. |
 
 ## Detailed Observations
 
-- The largest query-count driver is the global app shell, not a specific page. Every protected route mounts deprecated global providers for wiki documents, programs, projects, and issues, even on routes that do not need those lists.
+- The largest query-count driver is the globally mounted protected-route providers, not a specific page. Every protected route mounts deprecated global providers for wiki documents, programs, projects, and issues, even on routes that do not need those lists.
 - Auth adds repeated overhead. Each authenticated endpoint runs a session lookup and session activity update. Many route handlers then run another workspace role lookup through `getVisibilityContext`.
 - `GET /api/projects` has the clearest N+1-shaped database plan. It executes per-project subplans for sprint count, issue count, and inferred status.
+- `GET /api/programs` has the same count-subquery shape at smaller scale. It executes per-program subplans for issue count and sprint count.
 - `GET /api/accountability/action-items` contains application-level N+1 risk. `checkMissingStandups`, `checkSprintAccountability`, and `checkWeeklyPersonAccountability` loop over active sprints or allocations and issue follow-up queries.
 - `GET /api/issues` avoids an association N+1 by batching `belongs_to`, but it fetches `content` for every issue in the list view. That is unnecessary list payload.
 - `GET /api/search/mentions` is not N+1, but it does a full scan because leading-wildcard `ILIKE` cannot use the existing btree-style indexes.
