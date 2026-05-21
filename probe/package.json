@@ -1,0 +1,10 @@
+{
+  "name": "probe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "node --import ../api/node_modules/tsx/dist/loader.mjs src/cli.ts",
+    "type-check": "tsc --noEmit"
+  }
+}
