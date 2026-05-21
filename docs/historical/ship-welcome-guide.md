@@ -1,3 +1,5 @@
+> **Frozen 2026-05-21.** Point-in-time welcome guide. Not maintained. Mixes "sprint" and "week" vocabulary inconsistently — current canonical terminology lives in `docs/document-model-conventions.md` and `docs/week-documentation-philosophy.md`.
+
 # Welcome to Ship
 
 Ship is a project management platform designed for teams that ship software. It combines document collaboration, issue tracking, and sprint planning into a unified workspace where everything is a document.
