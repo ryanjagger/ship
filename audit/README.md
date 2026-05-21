@@ -1,7 +1,5 @@
 # Audit
 
-This directory contains the project audit reports.
-
 - [Orientation Checklist & Notes](../notes.md)
 - [Documentation Audit](documentation/DOCS_AUDIT_REPORT.md)
 - [Type Safety Audit](type-safety/README.md)
