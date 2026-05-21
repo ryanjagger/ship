@@ -2,18 +2,55 @@
 
 ## Scope
 
-Measured backend response time under seeded, realistic local data volume. This audit used the app's normal seed first, then added audit-specific volume without changing the production seed.
+Measured backend response time under seeded, realistic local data volume. This audit uses the app's normal seed first, then adds audit-specific volume without changing the production seed.
 
-## Seeded Data
+This benchmark is reproducible as a local synthetic test: the scripts, seed data, endpoint list, concurrency levels, and result formatter are checked in. Exact millisecond values will still vary by machine, PostgreSQL state, Node version, and concurrent local workload.
 
-Commands used:
+## Reproduction Runbook
+
+Run these commands from the repository root.
+
+### 1. Prerequisites
+
+- Node `>=20`
+- pnpm `>=9` (`package.json` currently pins `pnpm@10.27.0`)
+- PostgreSQL available locally
+- ApacheBench available at `/usr/sbin/ab` on macOS, or set `AB_PATH`
+- Playwright browsers installed if you rerun the frontend trace
+
+Install dependencies if needed:
 
 ```bash
+pnpm install
+```
+
+### 2. Use a disposable database
+
+Use a clean database for comparable counts. This deletes only the named benchmark database:
+
+```bash
+dropdb --if-exists ship_api_response_time_audit
+createdb ship_api_response_time_audit
+export DATABASE_URL=postgresql://localhost/ship_api_response_time_audit
+```
+
+Every terminal that runs database or API commands needs this `DATABASE_URL` value. If you intentionally want to use `api/.env.local` instead, omit the `DATABASE_URL` export. Do not run this audit against a shared or production-like database.
+
+### 3. Migrate and seed
+
+```bash
+pnpm db:migrate
 pnpm db:seed
 node audit/api-reponse-time/seed-volume.mjs
 ```
 
-Final live data volume:
+Verify the final volume without mutating data:
+
+```bash
+node audit/api-reponse-time/seed-volume.mjs --summary-only
+```
+
+Expected counts for a comparable run:
 
 | Data type | Count |
 | --- | ---: |
@@ -25,9 +62,37 @@ Final live data volume:
 | Projects | 15 |
 | Programs | 5 |
 
-## Frontend Trace
+If these counts differ, the benchmark still runs, but the numbers should not be compared directly to the results below.
 
-Traced the frontend with Playwright across these common flows:
+### 4. Optional frontend trace
+
+The trace is how the original endpoint set was selected. Rerun it when changing benchmark scope.
+
+Start the normal API in one terminal:
+
+```bash
+DATABASE_URL=postgresql://localhost/ship_api_response_time_audit \
+PORT=3000 \
+CORS_ORIGIN=http://localhost:5173 \
+SESSION_SECRET=local-trace-secret \
+pnpm --filter @ship/api dev
+```
+
+Start the web app in a second terminal:
+
+```bash
+API_PORT=3000 VITE_PORT=5173 pnpm --filter @ship/web dev
+```
+
+Then run the trace in a third terminal:
+
+```bash
+WEB_BASE_URL=http://localhost:5173 \
+  node audit/api-reponse-time/trace-frontend.mjs \
+  | tee audit/api-reponse-time/results/trace-frontend.json
+```
+
+The trace logs in, visits these flows, and emits raw request records plus an endpoint summary:
 
 - Login
 - My Week
@@ -37,15 +102,131 @@ Traced the frontend with Playwright across these common flows:
 - Team Allocation
 - Team Status
 
-Trace command:
+### 5. Build and start the benchmark API
+
+Build the production-style API artifact:
 
 ```bash
-node audit/api-reponse-time/trace-frontend.mjs
+pnpm build:api
 ```
 
-The trace showed frequent app-shell calls like `GET /api/auth/session`, `GET /api/auth/me`, and `GET /api/documents?type=wiki`. I excluded the lightweight auth/session polling endpoints from the benchmark target set and focused on the most important data-bearing endpoints from common user flows.
+Start a temporary API instance in a dedicated terminal:
 
-Benchmarked endpoints:
+```bash
+DATABASE_URL=postgresql://localhost/ship_api_response_time_audit \
+PORT=3001 \
+CORS_ORIGIN=http://localhost:5173 \
+E2E_TEST=1 \
+SESSION_SECRET=local-benchmark-secret \
+node api/dist/index.js
+```
+
+`E2E_TEST=1` raises the local API limiter to `10000` requests per minute. The `3000` request appendix needs pacing to stay below that limit.
+
+If startup fails with `EADDRINUSE`, another process is already using the selected port. Either stop the existing process or choose another port:
+
+```bash
+lsof -nP -iTCP:3001 -sTCP:LISTEN
+kill <pid>
+```
+
+Or keep the existing process and start the benchmark API on a different port:
+
+```bash
+DATABASE_URL=postgresql://localhost/ship_api_response_time_audit \
+PORT=3002 \
+CORS_ORIGIN=http://localhost:5173 \
+E2E_TEST=1 \
+SESSION_SECRET=local-benchmark-secret \
+node api/dist/index.js
+
+API_BASE_URL=http://localhost:3002 \
+BENCHMARK_ENDPOINT_SET=documents-appendix \
+BENCHMARK_REQUESTS=3000 \
+BENCHMARK_CONNECTIONS=50 \
+BENCHMARK_ENDPOINT_DELAY_MS=65000 \
+node audit/api-reponse-time/benchmark-ab.mjs
+```
+
+### 6. Run the benchmark
+
+In another terminal:
+
+```bash
+API_BASE_URL=http://localhost:3001 \
+BENCHMARK_REQUESTS=300 \
+BENCHMARK_CONNECTIONS=10,25,50 \
+node audit/api-reponse-time/benchmark-ab.mjs \
+  | tee audit/api-reponse-time/results/benchmark.json
+```
+
+Render the Markdown tables from the raw JSON:
+
+```bash
+node audit/api-reponse-time/format-results.mjs \
+  audit/api-reponse-time/results/benchmark.json
+```
+
+The benchmark runner logs in as `dev@ship.local`, sends a real authenticated cookie to ApacheBench, warms each endpoint once, then runs each endpoint/concurrency pair.
+
+### 7. Run the documents appendix
+
+Run this optional appendix when you want p99 for the generic `GET /api/documents` route across all document types. It uses `3000` requests by default for a more meaningful p99 sample and runs only at 50 concurrent connections unless you override `BENCHMARK_CONNECTIONS`.
+
+If you just ran the primary benchmark, wait 65 seconds before starting the appendix so the local rate-limit window resets.
+
+```bash
+API_BASE_URL=http://localhost:3001 \
+BENCHMARK_ENDPOINT_SET=documents-appendix \
+BENCHMARK_REQUESTS=3000 \
+BENCHMARK_CONNECTIONS=50 \
+BENCHMARK_ENDPOINT_DELAY_MS=65000 \
+node audit/api-reponse-time/benchmark-ab.mjs \
+  | tee audit/api-reponse-time/results/documents-appendix.json
+```
+
+Render the appendix table:
+
+```bash
+node audit/api-reponse-time/format-results.mjs \
+  audit/api-reponse-time/results/documents-appendix.json
+```
+
+The appendix includes `GET /api/documents`, plus `GET /api/documents?type=<document_type>` for every document type. These are generic document-list route measurements; they do not replace dedicated route benchmarks like `GET /api/issues` or `GET /api/projects`, which add their own enrichment and response shape.
+
+### 8. Cleanup
+
+Stop any API or web server terminals with `Ctrl-C`, then remove the disposable database if you no longer need the seeded benchmark data:
+
+```bash
+dropdb --if-exists ship_api_response_time_audit
+unset DATABASE_URL
+```
+
+Generated trace and benchmark JSON files are local artifacts under `audit/api-reponse-time/results/` and are ignored by git. Remove them when you want a clean local output directory:
+
+```bash
+rm -f audit/api-reponse-time/results/*.json
+```
+
+Configurable script environment:
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `DATABASE_URL` | `api/.env.local` | `seed-volume.mjs`, API server |
+| `API_BASE_URL` | `http://localhost:3001` | `benchmark-ab.mjs` |
+| `WEB_BASE_URL` | `http://localhost:5173` | `trace-frontend.mjs` |
+| `AB_PATH` | `/usr/sbin/ab` | `benchmark-ab.mjs` |
+| `BENCHMARK_ENDPOINT_SET` | `primary` | `benchmark-ab.mjs` |
+| `BENCHMARK_REQUESTS` | `300` for `primary`, `3000` for `documents-appendix` | `benchmark-ab.mjs` |
+| `BENCHMARK_CONNECTIONS` | `10,25,50` for `primary`, `50` for `documents-appendix` | `benchmark-ab.mjs` |
+| `BENCHMARK_ENDPOINT_DELAY_MS` | `0` | `benchmark-ab.mjs` |
+| `BENCHMARK_EMAIL` / `BENCHMARK_PASSWORD` | `dev@ship.local` / `admin123` | `benchmark-ab.mjs` |
+| `TRACE_EMAIL` / `TRACE_PASSWORD` | `dev@ship.local` / `admin123` | `trace-frontend.mjs` |
+
+## Benchmarked Endpoints
+
+The frontend trace showed frequent app-shell calls like `GET /api/auth/session`, `GET /api/auth/me`, and `GET /api/documents?type=wiki`. I excluded the lightweight auth/session polling endpoints from the benchmark target set and focused on the most important data-bearing endpoints from common user flows.
 
 1. `GET /api/documents?type=wiki`
 2. `GET /api/issues`
@@ -53,23 +234,23 @@ Benchmarked endpoints:
 4. `GET /api/dashboard/my-week`
 5. `GET /api/team/accountability-grid-v3`
 
-## Benchmark Method
+## Documents Appendix
 
-Tool: ApacheBench (`ab`)
+The appendix endpoint set expands the generic documents list route to all types:
 
-Command pattern:
+- `GET /api/documents`
+- `GET /api/documents?type=wiki`
+- `GET /api/documents?type=issue`
+- `GET /api/documents?type=program`
+- `GET /api/documents?type=project`
+- `GET /api/documents?type=sprint`
+- `GET /api/documents?type=person`
+- `GET /api/documents?type=weekly_plan`
+- `GET /api/documents?type=weekly_retro`
+- `GET /api/documents?type=standup`
+- `GET /api/documents?type=weekly_review`
 
-```bash
-/usr/sbin/ab -q -n 300 -c <connections> -H "Cookie: <authenticated session>" http://localhost:3001<endpoint>
-```
-
-I ran a temporary API instance on port `3001` against the same local PostgreSQL database:
-
-```bash
-PORT=3001 CORS_ORIGIN=http://localhost:5173 E2E_TEST=1 node api/dist/index.js
-```
-
-`E2E_TEST=1` avoids the development IP rate limiter dominating the benchmark. All requests were authenticated with a real session cookie. Each endpoint/concurrency run used 300 requests. Failed requests: `0` for every run.
+Use `BENCHMARK_ENDPOINT_SET=documents-appendix` to run this set. The formatter includes item count and single authenticated response size when the raw benchmark JSON contains warmup metadata.
 
 ## Audit Deliverable
 
@@ -156,4 +337,5 @@ Likely improvements:
 
 - Tail latency rises roughly linearly from 10 to 50 concurrent connections for the heavier endpoints. The API's development database pool is capped at 10 connections, so 25 and 50 connection runs necessarily queue database work.
 - Session auth updates `sessions.last_activity` on authenticated requests. This is realistic for browser traffic, but a many-connection benchmark using one session cookie can add lock contention that would be lower with many real users.
+- `300` requests is enough for a quick local regression check, but thin for p99. Use `BENCHMARK_REQUESTS=3000` when p99 is the decision metric.
 - None of the measured endpoints failed under load, and all P99 values stayed below `120ms` in this local environment.
