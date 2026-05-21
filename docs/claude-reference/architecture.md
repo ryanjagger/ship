@@ -57,11 +57,12 @@ The central architectural pattern: **everything is a document with properties**.
 All content lives in a single `documents` table with a `document_type` discriminator:
 
 ```sql
--- api/src/db/schema.sql:83-87
--- Note: document_type enum uses 'sprint' for historical compatibility
+-- api/src/db/schema.sql
+-- Note: 'sprint' value retained for historical compatibility (refers to the week document itself).
+-- Migration 033 renamed sprint_plan / sprint_retro / sprint_review → weekly_plan / weekly_retro / weekly_review.
 CREATE TYPE document_type AS ENUM (
-  'wiki', 'issue', 'program', 'project', 'sprint',
-  'person', 'sprint_plan', 'sprint_retro'
+  'wiki', 'issue', 'program', 'project', 'sprint', 'person',
+  'weekly_plan', 'weekly_retro', 'standup', 'weekly_review'
 );
 ```
 
@@ -73,6 +74,10 @@ CREATE TYPE document_type AS ENUM (
 | `project` | Time-bounded deliverable | impact, confidence, ease (ICE scores), owner_id |
 | `sprint` | Week container (historical DB name for "week") | sprint_number, owner_id |
 | `person` | User profile document | email, role, capacity_hours |
+| `weekly_plan` | Pre-week plan declaring intent | plan, success_criteria, confidence |
+| `weekly_retro` | Post-week retrospective | what_went_well, what_to_improve, plan_validated |
+| `standup` | Daily standup entry | author_id, posted_at |
+| `weekly_review` | End-of-week review/demo | plan_validated, key_learnings |
 
 ### Document Schema
 
@@ -86,12 +91,11 @@ interface Document {
   content: Record<string, unknown>;  // TipTap JSON
   yjs_state?: Uint8Array;        // CRDT state for collaboration
 
-  // Associations (columns for efficient querying)
-  program_id?: string | null;
-  project_id?: string | null;
+  // Tree nesting (the only association still stored as a column)
   parent_id?: string | null;
-  // Note: sprint_id was dropped by migration 027.
-  // Week assignments now use the document_associations table.
+  // program_id, project_id, and sprint_id columns were dropped by
+  // migrations 027 (project_id, sprint_id) and 029 (program_id).
+  // All program/project/sprint relationships now live in document_associations.
 
   // Type-specific properties (JSONB)
   properties: Record<string, unknown>;
@@ -108,11 +112,11 @@ Properties use schema-less JSONB with TypeScript enforcement:
 ```typescript
 // shared/src/types/document.ts:60-68
 interface IssueProperties {
-  state: IssueState;        // 'triage' | 'backlog' | 'todo' | 'in_progress' | 'done' | 'cancelled'
-  priority: IssuePriority;  // 'low' | 'medium' | 'high' | 'urgent'
+  state: IssueState;        // 'triage' | 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled'
+  priority: IssuePriority;  // 'low' | 'medium' | 'high' | 'urgent' (API also accepts 'none')
   assignee_id?: string;
   estimate?: number;
-  source: IssueSource;      // 'internal' | 'external'
+  source: IssueSource;      // 'internal' | 'external' | 'action_items'
   [key: string]: unknown;   // Custom properties allowed
 }
 ```
@@ -337,9 +341,11 @@ Offline-tolerant, not offline-first. Mutations require network; optimistic updat
 
 Week dates computed from `sprint_number` (historical field name) + workspace `sprint_start_date`. Status computed from dates.
 
+There is no `computeWeekDates` helper in `shared/`; the math is performed inline in API routes (search for `sprint_start_date` and `sprint_number` in `api/src/routes/`). The shape of the computation is:
+
 ```typescript
-// shared/src/types/document.ts:341-366
-export function computeWeekDates(sprintNumber: number, workspaceStartDate: Date) {
+// Illustrative — actual code lives inline in api/src/routes/weeks.ts and similar.
+function computeWeekDates(sprintNumber: number, workspaceStartDate: Date) {
   const start = new Date(workspaceStartDate);
   start.setDate(start.getDate() + (sprintNumber - 1) * 7);
   const end = new Date(start);
@@ -365,15 +371,25 @@ CREATE TABLE sessions (
 );
 ```
 
-### 5. Properties in JSONB, Associations in Columns
+### 5. Properties in JSONB, Associations in the Junction Table
 
-Association fields (`program_id`, `project_id`) are columns for efficient joins. Week assignments use the `document_associations` table (`sprint_id` column was dropped by migration 027). Type-specific properties go in JSONB.
+All program, project, and sprint relationships live in `document_associations`. Only `parent_id` remains as a column on `documents` for the tree structure. Migrations 027 (project_id, sprint_id) and 029 (program_id) dropped the legacy association columns. Type-specific properties go in JSONB.
 
 ```sql
--- api/src/db/schema.sql:107-116
-program_id UUID REFERENCES documents(id),
-project_id UUID REFERENCES documents(id),
-properties JSONB DEFAULT '{}',
+-- api/src/db/schema.sql
+CREATE TABLE documents (
+  ...
+  parent_id UUID REFERENCES documents(id),
+  properties JSONB DEFAULT '{}',
+  ...
+);
+
+CREATE TABLE document_associations (
+  document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  related_id  UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  relationship_type relationship_type NOT NULL,  -- 'parent' | 'program' | 'project' | 'sprint'
+  ...
+);
 ```
 
 ### 6. Rate Limiting on WebSocket

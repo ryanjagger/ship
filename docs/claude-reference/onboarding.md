@@ -109,10 +109,9 @@ Document types stored in `document_type` field:
 - `person` - User profiles
 
 Key relationships:
-- `program_id` - Which program a document belongs to
-- `project_id` - Which project an issue belongs to
-- `parent_id` - Document hierarchy
-- Week assignments use the `document_associations` table (the `sprint_id` column was dropped by migration 027)
+- `parent_id` (column on `documents`) - Document tree nesting
+- All other relationships live in `document_associations` with `relationship_type ∈ 'parent' | 'program' | 'project' | 'sprint'`
+- The legacy `program_id`, `project_id`, and `sprint_id` columns on `documents` were dropped by migrations 027 (project/sprint) and 029 (program)
 
 ### 4-Panel Editor Layout
 

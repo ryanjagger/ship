@@ -107,8 +107,6 @@ erDiagram
         jsonb properties
         uuid workspace_id FK
         uuid parent_id FK
-        uuid project_id FK
-        uuid program_id FK
         string visibility
     }
 
@@ -118,9 +116,9 @@ erDiagram
 
     document_associations {
         uuid id PK
-        uuid source_document_id FK
-        uuid target_document_id FK
-        string relationship_type
+        uuid document_id FK
+        uuid related_id FK
+        relationship_type relationship_type
     }
 ```
 

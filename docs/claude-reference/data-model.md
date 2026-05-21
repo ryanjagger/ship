@@ -10,19 +10,23 @@ Ship uses a **Unified Document Model** where all content types are stored in a s
 
 | Table | Purpose |
 |-------|---------|
-| `documents` | All content (wiki, issue, program, project, week, person, standup, weekly_review) |
+| `documents` | All content (10 types: wiki, issue, program, project, sprint, person, weekly_plan, weekly_retro, standup, weekly_review) |
 | `document_associations` | Junction table for flexible document relationships |
 | `document_history` | Audit trail of all document field changes |
+| `document_snapshots` | Point-in-time snapshots of document content |
 | `document_links` | Backlinks between documents |
+| `comments` | Inline document comments |
 | `workspaces` | Multi-tenant isolation |
 | `users` | Global identity (users can belong to multiple workspaces) |
 | `workspace_memberships` | Authorization: who can access what workspace |
 | `workspace_invites` | Email invite flow |
 | `sessions` | Cookie-based auth with 15-min inactivity timeout |
+| `oauth_state` | OAuth/PIV auth flow state |
 | `api_tokens` | Long-lived tokens for CLI/programmatic access |
 | `files` | S3 file references for attachments |
 | `audit_logs` | Compliance-grade action logging |
-| `sprint_iterations` | Claude Code work session tracking (historical table name) |
+| `sprint_iterations` | Claude Code work session tracking (historical table name; per-week) |
+| `issue_iterations` | Per-issue iteration tracking |
 
 ---
 
@@ -41,14 +45,12 @@ CREATE TABLE documents (
   content JSONB DEFAULT '{"type":"doc","content":[{"type":"paragraph"}]}',
   yjs_state BYTEA,  -- Yjs CRDT state for collaboration
 
-  -- Hierarchy
+  -- Hierarchy (the only association still stored as a column on documents)
   parent_id UUID REFERENCES documents(id) ON DELETE CASCADE,
   position INTEGER DEFAULT 0,
-
-  -- Associations (transitioning to document_associations table)
-  program_id UUID REFERENCES documents(id) ON DELETE SET NULL,
-  project_id UUID REFERENCES documents(id) ON DELETE SET NULL,
-  -- Note: sprint_id was dropped by migration 027. Week assignments use document_associations.
+  -- Legacy association columns (program_id, project_id, sprint_id) were dropped
+  -- by migrations 027 (project_id, sprint_id) and 029 (program_id).
+  -- All program/project/sprint relationships now live in document_associations.
 
   -- Type-specific properties (JSONB)
   properties JSONB DEFAULT '{}',
@@ -74,19 +76,19 @@ CREATE TABLE documents (
 ### Document Type Enum
 
 ```sql
--- Note: 'sprint' types retained for historical compatibility
--- User-facing terminology: Sprint → Week
+-- 'sprint' is retained as a historical name for the week document itself.
+-- Migration 033 renamed sprint_plan / sprint_retro / sprint_review → weekly_*.
 CREATE TYPE document_type AS ENUM (
-  'wiki',          -- Documentation content
-  'issue',         -- Work items with state/priority
-  'program',       -- Product/initiative container
-  'project',       -- Time-bounded deliverable
-  'sprint',        -- Week document (historical name)
-  'person',        -- User profile page
-  'sprint_plan',   -- Week planning document (historical name)
-  'sprint_retro',  -- Week retrospective (historical name)
-  'standup',       -- Daily standup entry
-  'sprint_review'  -- Week review/demo (historical name)
+  'wiki',           -- Documentation content
+  'issue',          -- Work items with state/priority
+  'program',        -- Product/initiative container
+  'project',        -- Time-bounded deliverable
+  'sprint',         -- Week document (historical name)
+  'person',         -- User profile page
+  'weekly_plan',    -- Pre-week plan
+  'weekly_retro',   -- Post-week retrospective
+  'standup',        -- Daily standup entry
+  'weekly_review'   -- End-of-week review/demo
 );
 ```
 
@@ -102,7 +104,9 @@ Properties are stored as schema-less JSONB, with structure enforced at the appli
 | `sprint` | `sprint_number` (historical field), `owner_id`, `goal` |
 | `person` | `user_id` (links to users.id), `email`, `capacity_hours`, `skills` |
 | `standup` | `author_id`, `posted_at` |
-| `sprint_review` | `hypothesis_validated`, `key_learnings` (week review properties) |
+| `weekly_plan` | `plan`, `success_criteria`, `confidence` |
+| `weekly_retro` | `what_went_well`, `what_to_improve`, `plan_validated` |
+| `weekly_review` | `plan_validated`, `key_learnings` |
 
 ### Issue States
 
@@ -120,9 +124,9 @@ Additional states: `cancelled`, custom states per workspace.
 CREATE INDEX idx_documents_workspace_id ON documents(workspace_id);
 CREATE INDEX idx_documents_parent_id ON documents(parent_id);
 CREATE INDEX idx_documents_document_type ON documents(document_type);
-CREATE INDEX idx_documents_program_id ON documents(program_id);
-CREATE INDEX idx_documents_project_id ON documents(project_id);
--- Note: idx_documents_sprint_id was dropped with the sprint_id column (migration 027)
+-- idx_documents_program_id, idx_documents_project_id, and idx_documents_sprint_id
+-- were dropped alongside their columns by migrations 027 and 029.
+-- Use document_associations indexes (idx_document_associations_*) instead.
 CREATE INDEX idx_documents_properties ON documents USING GIN (properties);
 CREATE INDEX idx_documents_visibility ON documents(visibility);
 
@@ -396,7 +400,7 @@ Compliance-grade action logging.
 CREATE TABLE audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID REFERENCES workspaces(id) ON DELETE SET NULL,
-  actor_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   impersonating_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   action TEXT NOT NULL,
   resource_type TEXT,
@@ -421,11 +425,13 @@ Schema changes are managed via numbered migration files in `api/src/db/migration
 - Each migration runs in a transaction with rollback on failure
 - **Never modify schema.sql directly for existing tables** - use migrations
 
-**Current migrations (27 files):**
+**Current migrations (~42 files; see `api/src/db/migrations/` for the authoritative list):**
 - 001-006: Initial properties, person decoupling, history, visibility
 - 007-013: Archived/deleted, emoji, feedback, oauth, PIV support
 - 014-016: API tokens, sprint iterations, history automation
-- 017-022: Standup/sprint_review types, document conversion, associations
+- 017-022: Standup/weekly_review types, document conversion, associations
+- 023-029: Legacy association-column cleanup (027 dropped project_id/sprint_id; 029 dropped program_id)
+- 030-033: Workspace settings, plan rename (032), sprint→week enum rename (033)
 
 ---
 

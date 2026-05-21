@@ -105,7 +105,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     // Delete associations first (foreign key constraint)
     await client.query(
-      'DELETE FROM document_associations WHERE source_document_id = $1 OR target_document_id = $1',
+      'DELETE FROM document_associations WHERE document_id = $1 OR related_id = $1',
       [req.params.id]
     );
 
@@ -351,26 +351,27 @@ From `api/src/db/migrations/020_document_associations.sql`:
 -- Create the associations table
 CREATE TABLE IF NOT EXISTS document_associations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source_document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    target_document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    relationship_type VARCHAR(50) NOT NULL,
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    related_id  UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    relationship_type relationship_type NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata JSONB DEFAULT '{}',
 
     -- Prevent duplicate associations
     CONSTRAINT unique_association
-        UNIQUE (source_document_id, target_document_id, relationship_type),
+        UNIQUE (document_id, related_id, relationship_type),
 
     -- Prevent self-references
     CONSTRAINT no_self_reference
-        CHECK (source_document_id != target_document_id)
+        CHECK (document_id != related_id)
 );
 
 -- Indexes for common queries
-CREATE INDEX IF NOT EXISTS idx_assoc_source
-    ON document_associations(source_document_id);
-CREATE INDEX IF NOT EXISTS idx_assoc_target
-    ON document_associations(target_document_id);
-CREATE INDEX IF NOT EXISTS idx_assoc_type
+CREATE INDEX IF NOT EXISTS idx_document_associations_document_id
+    ON document_associations(document_id);
+CREATE INDEX IF NOT EXISTS idx_document_associations_related_id
+    ON document_associations(related_id);
+CREATE INDEX IF NOT EXISTS idx_document_associations_type
     ON document_associations(relationship_type);
 
 COMMENT ON TABLE document_associations IS
