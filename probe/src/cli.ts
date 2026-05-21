@@ -3,6 +3,7 @@
 import { parseConfig } from './config.js';
 import { createReport, finding, notTested, writeReports, type ProbeCheck } from './report.js';
 import { runAuthProbe } from './probes/auth.js';
+import { runWebSocketProbe } from './probes/websocket.js';
 
 async function main(): Promise<void> {
   const config = parseConfig();
@@ -14,6 +15,21 @@ async function main(): Promise<void> {
     checks.push(finding(
       'runner.auth_probe.unhandled_error',
       'Auth probe crashed before completion',
+      'runner',
+      'critical',
+      {
+        error: error instanceof Error ? error.stack ?? error.message : String(error),
+      },
+      ['Run the probe command again with the same arguments and inspect this stack trace.']
+    ));
+  }
+
+  try {
+    checks.push(...await runWebSocketProbe(config));
+  } catch (error) {
+    checks.push(finding(
+      'runner.websocket_probe.unhandled_error',
+      'WebSocket probe crashed before completion',
       'runner',
       'critical',
       {
@@ -35,9 +51,6 @@ async function main(): Promise<void> {
 
 function placeholderChecks(): ProbeCheck[] {
   return [
-    notTested('websocket.validation.not_implemented', 'WebSocket validation probes are not implemented in this slice', 'websocket', {
-      plannedEndpointCoverage: ['/collaboration/{docType}:{docId}', '/events'],
-    }),
     notTested('inputs.sanitization.not_implemented', 'Input sanitization probes are not implemented in this slice', 'inputs', {
       plannedVectors: ['stored-xss', 'reflected-xss', 'sql-injection', 'long-input'],
     }),
