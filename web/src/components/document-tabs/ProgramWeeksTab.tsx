@@ -117,7 +117,7 @@ function EmptySprintState({
       <p className="text-sm text-center max-w-md">
         Click on a week in the timeline above to view its details, issues, and progress.
         {activeSprint && (
-          <span className="block mt-2 text-accent">
+          <span className="block mt-2 text-accent-text">
             The current week is active.
           </span>
         )}

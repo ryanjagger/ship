@@ -149,10 +149,11 @@ export function MergeProgramDialog({ isOpen, onClose, sourceId, sourceName }: Me
 
         {/* Target selection */}
         <div className="mb-4">
-          <label className="mb-1 block text-xs font-medium text-muted uppercase tracking-wider">
+          <label htmlFor="merge-program-target" className="mb-1 block text-xs font-medium text-muted uppercase tracking-wider">
             Merge into
           </label>
           <select
+            id="merge-program-target"
             value={targetId || ''}
             onChange={(e) => setTargetId(e.target.value || null)}
             disabled={isMerging}
@@ -208,10 +209,11 @@ export function MergeProgramDialog({ isOpen, onClose, sourceId, sourceName }: Me
         {/* Type-to-confirm */}
         {preview && !previewLoading && (
           <div className="mb-4">
-            <label className="mb-1 block text-xs font-medium text-muted">
+            <label htmlFor="merge-program-confirm" className="mb-1 block text-xs font-medium text-muted">
               Type <strong className="text-foreground">{sourceName}</strong> to confirm
             </label>
             <input
+              id="merge-program-confirm"
               type="text"
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}

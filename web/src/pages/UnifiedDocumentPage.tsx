@@ -460,7 +460,7 @@ export function UnifiedDocumentPage() {
         </div>
         <button
           onClick={() => navigate('/docs')}
-          className="text-sm text-accent hover:underline"
+          className="text-sm text-accent-text hover:underline"
         >
           Go to Documents
         </button>
@@ -477,6 +477,7 @@ export function UnifiedDocumentPage() {
     const tabs = resolveTabLabels(tabConfig, document, tabCounts);
     const currentTabConfig = tabConfig.find(t => t.id === activeTab) || tabConfig[0];
     const TabComponent = currentTabConfig?.component;
+    const activeTabId = activeTab || tabs[0]?.id;
 
     return (
       <div className="flex h-full flex-col">
@@ -484,7 +485,7 @@ export function UnifiedDocumentPage() {
         <div className="border-b border-border px-4">
           <TabBar
             tabs={tabs}
-            activeTab={activeTab || tabs[0]?.id}
+            activeTab={activeTabId}
             onTabChange={(tab) => {
               // Navigate to new URL - first tab gets clean URL, others get tab suffix
               if (tab === tabConfig[0]?.id) {
@@ -497,7 +498,13 @@ export function UnifiedDocumentPage() {
         </div>
 
         {/* Content area with lazy-loaded tab component */}
-        <div className="flex-1 overflow-hidden">
+        <div
+          id={`tabpanel-${activeTabId}`}
+          role="tabpanel"
+          aria-labelledby={`tab-${activeTabId}`}
+          tabIndex={0}
+          className="flex-1 overflow-hidden focus:outline-none"
+        >
           <Suspense
             fallback={
               <div className="flex h-full items-center justify-center">

@@ -12,6 +12,7 @@ export default {
         border: '#262626',
         accent: '#005ea2', // Logo blue
         'accent-hover': '#0071bc', // Lighter blue for hover
+        'accent-text': '#4a9eda', // AA-compliant accent for text (#4a9eda on #0d0d0d ≈ 6.3:1)
         warning: '#d97706', // Amber for degraded/stale states (e.g. realtime reconnecting, stale cache)
       },
       fontFamily: {

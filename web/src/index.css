@@ -1030,3 +1030,15 @@ span[data-emoji] {
   color: rgba(251, 146, 60, 0.8);
   font-style: italic;
 }
+
+/* WCAG 2.3.3 reduced-motion: snap all animations + transitions */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -28,7 +28,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // Verify maintainer label exists in sidebar
-      const maintainerLabel = page.locator('label:has-text("Maintainer")');
+      const maintainerLabel = page.getByText('Maintainer', { exact: true });
       await expect(maintainerLabel).toBeVisible();
     });
 
@@ -49,7 +49,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // The maintainer combobox should show 'Dev User' (the creator from seed data)
-      const maintainerButton = page.locator('label:has-text("Maintainer")').locator('..').locator('button');
+      const maintainerButton = page.getByText('Maintainer', { exact: true }).locator('..').locator('button');
       await expect(maintainerButton).toContainText('Dev User');
     });
 
@@ -70,7 +70,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // Click the maintainer combobox
-      const maintainerButton = page.locator('label:has-text("Maintainer")').locator('..').locator('button');
+      const maintainerButton = page.getByText('Maintainer', { exact: true }).locator('..').locator('button');
       await maintainerButton.click();
 
       // Wait for popover to appear
@@ -101,7 +101,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // Click the maintainer combobox and change to Bob Martinez
-      const maintainerButton = page.locator('label:has-text("Maintainer")').locator('..').locator('button');
+      const maintainerButton = page.getByText('Maintainer', { exact: true }).locator('..').locator('button');
       await maintainerButton.click();
       await page.waitForSelector('[cmdk-list]', { timeout: 5000 });
       await page.locator('[cmdk-item]').filter({ hasText: 'Bob Martinez' }).click();
@@ -114,7 +114,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // Verify maintainer persisted
-      const maintainerButtonAfterReload = page.locator('label:has-text("Maintainer")').locator('..').locator('button');
+      const maintainerButtonAfterReload = page.getByText('Maintainer', { exact: true }).locator('..').locator('button');
       await expect(maintainerButtonAfterReload).toContainText('Bob Martinez');
     });
 
@@ -135,7 +135,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // The maintainer button should contain an avatar div with initials
-      const maintainerButton = page.locator('label:has-text("Maintainer")').locator('..').locator('button');
+      const maintainerButton = page.getByText('Maintainer', { exact: true }).locator('..').locator('button');
 
       // Avatar is a div with rounded-full class containing initials
       const avatar = maintainerButton.locator('div.rounded-full');
@@ -164,7 +164,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // Verify Created label exists
-      const createdLabel = page.locator('label:has-text("Created")');
+      const createdLabel = page.getByText('Created', { exact: true });
       await expect(createdLabel).toBeVisible();
 
       // Verify date is displayed (format: "Jan 7, 2025" etc)
@@ -189,7 +189,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // Verify Updated label exists
-      const updatedLabel = page.locator('label:has-text("Updated")');
+      const updatedLabel = page.getByText('Updated', { exact: true });
       await expect(updatedLabel).toBeVisible();
 
       // Verify date/time is displayed (format: "Jan 7, 2025, 3:45 PM" etc)
@@ -214,7 +214,7 @@ test.describe('Wiki Document Properties Sidebar', () => {
       await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 
       // Get initial updated timestamp
-      const updatedLabel = page.locator('label:has-text("Updated")');
+      const updatedLabel = page.getByText('Updated', { exact: true });
       const updatedValue = updatedLabel.locator('..').locator('p');
       const initialUpdated = await updatedValue.textContent();
 
@@ -256,10 +256,10 @@ test.describe('Wiki Document Properties Sidebar', () => {
 
       // The properties sidebar should be visible with standard property rows
       // Look for the sidebar container (it should have Maintainer, Visibility, Created, Updated)
-      await expect(page.locator('label:has-text("Maintainer")')).toBeVisible();
-      await expect(page.locator('label:has-text("Visibility")')).toBeVisible();
-      await expect(page.locator('label:has-text("Created")')).toBeVisible();
-      await expect(page.locator('label:has-text("Updated")')).toBeVisible();
+      await expect(page.getByText('Maintainer', { exact: true })).toBeVisible();
+      await expect(page.getByText('Visibility', { exact: true })).toBeVisible();
+      await expect(page.getByText('Created', { exact: true })).toBeVisible();
+      await expect(page.getByText('Updated', { exact: true })).toBeVisible();
     });
 
     test('maintains consistent layout with other document types', async ({ page }) => {
@@ -280,11 +280,11 @@ test.describe('Wiki Document Properties Sidebar', () => {
 
       // Wiki documents should have properties in a sidebar container
       // The sidebar uses PropertyRow components with label and content pattern
-      const maintainerRow = page.locator('label:has-text("Maintainer")').locator('..');
+      const maintainerRow = page.getByText('Maintainer', { exact: true }).locator('..');
       await expect(maintainerRow).toBeVisible();
 
       // Verify consistent styling - PropertyRow has specific class structure
-      const propertyLabels = page.locator('label.text-xs.font-medium.text-muted');
+      const propertyLabels = page.locator('div.text-xs.font-medium.text-muted');
       const count = await propertyLabels.count();
 
       // Wiki documents should have at least Maintainer, Visibility, Created, Updated

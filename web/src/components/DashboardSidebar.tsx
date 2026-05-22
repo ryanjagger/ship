@@ -33,7 +33,7 @@ export function DashboardSidebar() {
         className={cn(
           'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
           isMyWork
-            ? 'bg-accent/10 text-accent font-medium'
+            ? 'bg-accent/10 text-accent-text font-medium'
             : 'text-muted hover:bg-border/30 hover:text-foreground'
         )}
       >
@@ -48,7 +48,7 @@ export function DashboardSidebar() {
         className={cn(
           'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors mt-1',
           currentView === 'overview'
-            ? 'bg-accent/10 text-accent font-medium'
+            ? 'bg-accent/10 text-accent-text font-medium'
             : 'text-muted hover:bg-border/30 hover:text-foreground'
         )}
       >

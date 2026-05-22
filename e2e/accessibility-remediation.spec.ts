@@ -685,9 +685,13 @@ test.describe('Phase 2: Serious Violations', () => {
       const statusRegion = page.getByTestId('sync-status')
       await expect(statusRegion).toBeVisible()
 
-      // MUST have aria-live attribute
+      // role="status" + aria-atomic ensure the region announces atomically when it does fire.
+      // aria-live is gated: "polite" only when degraded (disconnected/cached); "off" while
+      // synced/connecting so NVDA/JAWS don't read "Saving"/"Saved" on every keystroke.
+      await expect(statusRegion).toHaveAttribute('role', 'status')
+      await expect(statusRegion).toHaveAttribute('aria-atomic', 'true')
       const ariaLive = await statusRegion.getAttribute('aria-live')
-      expect(ariaLive).toBe('polite')
+      expect(['polite', 'off']).toContain(ariaLive)
     })
   })
 

@@ -53,6 +53,9 @@ export function AppLayout() {
     return localStorage.getItem('ship:leftSidebarCollapsed') === 'true';
   });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const commandPaletteOpenRef = useRef(commandPaletteOpen);
+  commandPaletteOpenRef.current = commandPaletteOpen;
+  const commandPalettePreviousFocusRef = useRef<HTMLElement | null>(null);
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
   const [projectSetupWizardOpen, setProjectSetupWizardOpen] = useState(false);
   const [actionItemsModalOpen, setActionItemsModalOpen] = useState(false);
@@ -138,12 +141,26 @@ export function AppLayout() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
+        // Capture launcher synchronously, BEFORE setState triggers the palette mount
+        // and its <Command.Input autoFocus> moves focus away.
+        if (!commandPaletteOpenRef.current) {
+          commandPalettePreviousFocusRef.current = document.activeElement as HTMLElement | null;
+        }
         setCommandPaletteOpen(open => !open);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Restore focus on close. All close paths (Escape, outside-click, selection)
+  // end at setCommandPaletteOpen(false), so this catches every route.
+  useEffect(() => {
+    if (!commandPaletteOpen && commandPalettePreviousFocusRef.current) {
+      commandPalettePreviousFocusRef.current.focus();
+      commandPalettePreviousFocusRef.current = null;
+    }
+  }, [commandPaletteOpen]);
 
   // Get current document type and ID for /documents/:id routes
   const { currentDocumentType, currentDocumentId, currentDocumentProjectId } = useCurrentDocument();
@@ -302,7 +319,8 @@ export function AppLayout() {
           <div className="relative mb-4">
             <button
               onClick={() => setWorkspaceSwitcherOpen(!workspaceSwitcherOpen)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/20 text-accent-text hover:bg-accent/30 transition-colors"
+              aria-label={currentWorkspace?.name ? `Switch workspace (current: ${currentWorkspace.name})` : 'Select workspace'}
               title={currentWorkspace?.name || 'Select workspace'}
             >
               {currentWorkspace?.name?.charAt(0).toUpperCase() || 'W'}
@@ -324,7 +342,7 @@ export function AppLayout() {
                         className={cn(
                           'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors',
                           ws.id === currentWorkspace?.id
-                            ? 'bg-accent/10 text-accent'
+                            ? 'bg-accent/10 text-accent-text'
                             : 'text-foreground hover:bg-border/30'
                         )}
                       >
@@ -411,6 +429,7 @@ export function AppLayout() {
             <button
               onClick={logout}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/80 text-xs font-medium text-white hover:bg-accent transition-colors"
+              aria-label={`Sign out (${user?.name ?? 'user'})`}
               title={`${user?.name} - Click to logout`}
             >
               {user?.name?.charAt(0).toUpperCase() || 'U'}
@@ -629,7 +648,7 @@ function DocumentsTree({ documents, isError, onRetry, activeId, onSelect }: { do
           <button
             type="button"
             onClick={onRetry}
-            className="mt-1 text-accent hover:underline"
+            className="mt-1 text-accent-text hover:underline"
           >
             Retry
           </button>

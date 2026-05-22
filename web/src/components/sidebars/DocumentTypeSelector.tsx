@@ -27,7 +27,7 @@ export function DocumentTypeSelector({
 }: DocumentTypeSelectorProps) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-muted">Type</label>
+      <div className="text-xs font-medium text-muted">Type</div>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as DocumentType)}
