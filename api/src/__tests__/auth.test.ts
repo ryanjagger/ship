@@ -26,7 +26,11 @@ function createMockReqRes(cookies: Record<string, string> = {}) {
 
 describe('authMiddleware', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // resetAllMocks (not clearAllMocks) so that queued mockResolvedValueOnce
+    // values do not leak across tests. The auth middleware's per-request query
+    // count varies with the throttled last_activity update, so any leftover
+    // queue would shift the next test's response chain.
+    vi.resetAllMocks();
   });
 
   describe('session validation', () => {

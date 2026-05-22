@@ -201,16 +201,18 @@ export async function authMiddleware(
       }
     }
 
-    // Update last activity
-    await pool.query(
-      'UPDATE sessions SET last_activity = $1 WHERE id = $2',
-      [now, sessionId]
-    );
+    // Update last_activity and refresh the cookie at most once per minute.
+    // Without this throttle, every authenticated request issued a write that
+    // contended with itself under burst load (see
+    // audit/api-reponse-time/peer-review.md #1). The inactivity-timeout check
+    // above still runs on every request — only the *write* is throttled.
+    const ACTIVITY_REFRESH_THRESHOLD_MS = 60 * 1000;
+    if (inactivityMs > ACTIVITY_REFRESH_THRESHOLD_MS) {
+      await pool.query(
+        'UPDATE sessions SET last_activity = $1 WHERE id = $2',
+        [now, sessionId]
+      );
 
-    // Refresh cookie with sliding expiration (throttled to avoid overhead)
-    // Only refresh if more than 60 seconds since last activity
-    const COOKIE_REFRESH_THRESHOLD_MS = 60 * 1000;
-    if (inactivityMs > COOKIE_REFRESH_THRESHOLD_MS) {
       res.cookie('session_id', sessionId, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
