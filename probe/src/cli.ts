@@ -2,6 +2,7 @@
 
 import { parseConfig } from './config.js';
 import { createReport, finding, writeReports, type ProbeCheck } from './report.js';
+import { runPreflightProbe } from './probes/preflight.js';
 import { runAuthProbe } from './probes/auth.js';
 import { runWebSocketProbe } from './probes/websocket.js';
 import { runDependencyProbe } from './probes/dependencies.js';
@@ -12,6 +13,21 @@ import { runRateLimitProbe } from './probes/rate-limit.js';
 async function main(): Promise<void> {
   const config = parseConfig();
   const checks: ProbeCheck[] = [];
+
+  try {
+    checks.push(...await runPreflightProbe(config));
+  } catch (error) {
+    checks.push(finding(
+      'runner.preflight_probe.unhandled_error',
+      'Preflight probe crashed before completion',
+      'runner',
+      'critical',
+      {
+        error: error instanceof Error ? error.stack ?? error.message : String(error),
+      },
+      ['Run `pnpm probe` again and inspect this stack trace.']
+    ));
+  }
 
   try {
     checks.push(...await runAuthProbe(config));

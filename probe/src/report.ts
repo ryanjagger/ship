@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { ProbeConfig } from './config.js';
 
 export type ProbeSurface =
+  | 'preflight'
   | 'auth'
   | 'websocket'
   | 'inputs'
