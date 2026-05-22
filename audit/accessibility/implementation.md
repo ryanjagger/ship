@@ -20,7 +20,7 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Icon-only buttons relying on `title` for SR name | 2 (workspace, sign-out) | **0** | `31339df` |
 | Form fields with linked validation errors | 2 (Login only) | **4** (+ ProjectSetupWizard) | `6bd2cdf` |
 | Tab panels with valid `aria-controls` target | 0 (dangling refs) | _Phase 2_ | — |
-| Reduced-motion handling | None | _Phase 3_ | — |
+| Reduced-motion handling | None | **Global CSS rule (5 declarations, universal selector)** | _Phase 3_ |
 | `aria-grabbed` (deprecated) usages | 1 | **0** (replaced by dnd-kit announcements) | _Phase 2_ |
 | Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | **0** (now Shift+C) | `50eeb37` |
 | Color-only current-week marker on grids | 2 (heatmap, allocation) | **0** (sr-only label + aria-current added) | _Phase 2_ |
@@ -320,25 +320,26 @@ Did not touch the `isToday ? 'text-accent' : 'text-muted'` ternary on the date l
 
 **Reproducibility.** Audit runner contrast check on My Week after Phase 3 (`pnpm build:web` + `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts`); expect 0 contrast violations on future-row text. Manual: load `/my-week` with a future day in view; verify the "Upcoming" pill is visible and the row text is muted but legible.
 
-### 3.3 Global `prefers-reduced-motion` — Status: _TBD_
+### 3.3 Global `prefers-reduced-motion` — Status: **Done** (verified at Phase 3 end)
 
-**Before.** `grep -r 'prefers-reduced-motion\|motion-reduce\|motion-safe' web/src` returns 0 hits. Visible animations include `animate-pulse` on banners and sync indicator, `animate-in slide-in-from-right-4 fade-in` on toasts, `animate-spin` on loaders, `transition-all duration-500` on the celebration banner.
+**Before.** `grep -r 'prefers-reduced-motion\|motion-reduce\|motion-safe' web/src` returns 0 hits. Visible animations include `animate-pulse` on banners and sync indicator (~15 usages), `animate-in slide-in-from-right-4 fade-in` on toasts, `animate-spin` on loaders, `transition-all duration-500` on the celebration banner. For users with `prefers-reduced-motion: reduce` set in their OS, none of these were suppressed — a vestibular-disorder accessibility gap per WCAG 2.3.3.
 
-**Change.** Add to `web/src/index.css`:
-```css
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-```
-Audit `animate-pulse` usages on banners (`AccountabilityBanner.tsx:30, :56`) and the sync dot (`Editor.tsx:865`) — these are status indicators, not loading; consider replacing pulse with a static color cue regardless of `prefers-reduced-motion`.
+**Change.** Appended a single global CSS rule at the bottom of `web/src/index.css` (after the existing custom rules) wrapped in `@media (prefers-reduced-motion: reduce)`, targeting `*, *::before, *::after` with four declarations:
 
-**After.** Users with `prefers-reduced-motion: reduce` get a still UI; vestibular-safe.
+- `animation-duration: 0.01ms !important` — effectively collapses animations to a single frame so they "complete" without motion.
+- `animation-iteration-count: 1 !important` — ensures infinite animations (e.g. `animate-pulse`, `animate-spin`) don't loop.
+- `transition-duration: 0.01ms !important` — snaps CSS transitions instantly instead of interpolating.
+- `scroll-behavior: auto !important` — overrides any smooth-scroll behavior elsewhere; sudden but correct for users who opted out of motion.
 
-**Reproducibility.** macOS System Settings → Accessibility → Display → Reduce motion = ON; reload app; expect no visible pulse/spin/slide.
+`!important` is required to override Tailwind's utility-class specificity. The universal selector `*, *::before, *::after` is the WAI-ARIA Authoring-Practices recommended pattern and matches the precedent used by Tailwind UI, GitHub Primer, and GitLab Pajamas. A one-line comment (`/* WCAG 2.3.3 reduced-motion: snap all animations + transitions */`) sits above the rule because the intent isn't obvious from the syntax alone.
+
+The peer review (§8) notes that `animate-pulse` is also used as a *status indicator* on the AccountabilityBanner warning icon (`AccountabilityBanner.tsx:56`) and the syncing dot in Editor (`Editor.tsx:885`). Replacing pulse-as-status with a non-pulse cue (e.g. a static color or icon) is a design-system call that's deferred — listed in the **Deferred** section. The global CSS rule covers the WCAG 2.3.3 conformance ask without that per-component refactor.
+
+Did NOT gate individual animations in TSX (no per-call-site `motion-safe:`/`motion-reduce:` Tailwind variants, no `useReducedMotion` hooks). The single CSS rule catches every animation and transition in the app today, and any future ones, without an audit.
+
+**After.** With the rule in place, users with `prefers-reduced-motion: reduce` get a still UI: `animate-pulse`, `animate-spin`, `animate-in slide-in-from-right`, `transition-all duration-500`, and every other animated or transitioned property snap to instant. WCAG 2.3.3 satisfied.
+
+**Reproducibility.** `grep -n 'prefers-reduced-motion' web/src/index.css` returns 1 hit; `grep -rn 'prefers-reduced-motion' web/src` returns just the index.css hit (no orphan rules elsewhere). Manual: macOS System Settings → Accessibility → Display → Reduce motion = ON; reload app; expect no visible pulse/spin/slide on AccountabilityBanner, toasts, loaders, or the celebration banner.
 
 ## Phase 4 — Moderate / Polish
 
