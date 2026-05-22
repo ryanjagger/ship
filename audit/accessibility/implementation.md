@@ -71,30 +71,32 @@ Did not touch the isCheckingSetup loading state at `:174` — that's an ephemera
 
 **Reproducibility.** Audit runner Settings page; manual focus + VoiceOver check that announces the visible label.
 
-### 1.4 TipTap title textarea + duplicate `<h1>` — Status: _TBD_
+### 1.4 TipTap title textarea + duplicate `<h1>` — Status: **Done** (verified at Phase 1 end)
 
 **Before.** `web/src/components/Editor.tsx:927-949` renders the editable title as a `<textarea>` with no `aria-label`, no `<label>`, only `placeholder="Untitled"`. A small `<h1>` at `:843` duplicates the title text in the compact header. Result: SR users hear an `<h1>` at small visual size; the obvious-looking title input is unnamed.
 
-**Change.** Add `aria-label="Document title"` to the textarea at `:927`. Remove the small duplicate `<h1>` at `:843` (or hide visually + keep for SR — prefer removal, since the textarea content is the source of truth).
+**Change.** Two concrete patches in `web/src/components/Editor.tsx`:
+
+1. Added `aria-label="Document title"` to the title textarea at `:927`. Placeholder `"Untitled"` is preserved for visual continuity but no longer relied on as the accessible name (WCAG 3.3.2).
+2. Converted the small compact-header `<h1>` at `:843` to a `<div>`. This eliminates the duplicate-heading announcement (SR was hearing the title twice, once as a heading at small visual size and again as an unnamed textarea). The visually-large editable textarea — now programmatically named — becomes the unambiguous title control. Tradeoff: removing the only `<h1>` on the page trips axe's `page-has-heading-one` best-practice rule. That rule is a best-practice, not a WCAG conformance criterion, and the cleaner SR experience is the accepted trade per peer review. Stale "h1 for accessibility" / "WCAG 1.4.12" comments removed; `min-w-[3rem] overflow-visible` styling kept on the new `<div>`.
+
+Did not introduce `sr-only` hidden h1 elements or `aria-labelledby` cross-references — both add complexity for marginal SR benefit.
 
 **After.** One semantic title source, programmatically labeled. Affects Docs, Issues, Programs, Projects pages (every page that wraps the Editor).
 
 **Reproducibility.** Open `/documents/:id`; inspect textarea accessible name in DevTools accessibility panel; expect "Document title".
 
-### 1.5 TipTap editor surface accessible name — Status: _TBD_
+### 1.5 TipTap editor surface accessible name — Status: **Done** (verified at Phase 1 end)
 
 **Before.** `web/src/components/Editor.tsx:620-627` sets `editorProps.attributes` with only `class`. The resulting `contenteditable` `<div>` at `:981` has no `aria-label`, `role="textbox"`, or `aria-multiline`. VoiceOver announces "edit text, blank". Lighthouse and axe miss this because ProseMirror's element doesn't match standard rules — so the audit gave Docs/Issues/Programs/Projects "100" Lighthouse despite the unlabeled primary content surface.
 
-**Change.** Add to `editorProps.attributes`:
-```ts
-attributes: {
-  class: '...existing...',
-  'aria-label': 'Document body',
-  'aria-multiline': 'true',
-  role: 'textbox',
-}
-```
-(Or `aria-labelledby` pointing at the title textarea's `id` once added in §1.4.)
+**Change.** Added three attributes to `editorProps.attributes` in `web/src/components/Editor.tsx:622`:
+
+- `'aria-label': 'Document body'` — the accessible name SR users hear.
+- `'aria-multiline': 'true'` — communicates that Enter inserts a newline rather than submitting.
+- `role: 'textbox'` — promotes the `contenteditable` div from a generic group to a recognized input role.
+
+Did not use `aria-labelledby` against the title textarea — `aria-label` is the minimum complete name and avoids coupling the body's name to the title control's id.
 
 **After.** Editor surface announced as "Document body, edit text, multi line" by VoiceOver. Affects every editor-bearing page.
 

@@ -622,6 +622,9 @@ export function Editor({
     editorProps: {
       attributes: {
         class: 'prose prose-invert prose-sm max-w-none focus:outline-none min-h-[300px]',
+        'aria-label': 'Document body',
+        'aria-multiline': 'true',
+        role: 'textbox',
       },
     },
   }, [provider, documentType]);
@@ -838,12 +841,10 @@ export function Editor({
           {/* Optional header badge (e.g., issue number) */}
           {headerBadge}
 
-          {/* Title (display only - edit via large title below) - h1 for accessibility */}
-          {/* WCAG 1.4.12: min-w-[3rem] prevents collapse, overflow-visible shows text */}
-          <h1 className="flex-1 min-w-[3rem] overflow-visible text-sm font-medium text-foreground m-0">
+          <div className="flex-1 min-w-[3rem] overflow-visible text-sm font-medium text-foreground m-0">
             {title || 'Untitled'}
             {titleSuffix && <span className="text-muted font-normal"> &mdash; {titleSuffix}</span>}
-          </h1>
+          </div>
 
           {/* Sync status - WCAG 4.1.3 aria-live for status messages */}
           {/* Show 'Offline' when browser is offline, regardless of WebSocket state */}
@@ -940,6 +941,7 @@ export function Editor({
                 el.style.height = `${el.scrollHeight}px`;
               }}
               placeholder="Untitled"
+              aria-label="Document title"
               readOnly={titleReadOnly}
               rows={1}
               className={cn(
