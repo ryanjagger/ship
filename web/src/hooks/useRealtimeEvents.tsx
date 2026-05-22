@@ -61,10 +61,6 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  // Track suspected rate-limit so the UI can distinguish noisy reconnects.
-  // The browser hides the actual 429 from JS (close event has no upgrade status),
-  // so we infer rate-limit when reconnects close immediately after open.
-  const lastConnectAtRef = useRef(0);
   const subscribersRef = useRef<Map<RealtimeEventType, Set<EventCallback>>>(new Map());
   const [isConnected, setIsConnected] = useState(false);
   const [status, setStatus] = useState<RealtimeStatus>('disconnected');
@@ -92,10 +88,15 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
 
     const ws = new WebSocket(getEventsWsUrl());
     wsRef.current = ws;
-    lastConnectAtRef.current = Date.now();
+    // Tracked per-connection so we can distinguish "closed after open"
+    // from "upgrade rejected, never opened" in onclose. The browser hides
+    // the upgrade-time HTTP status (429) from JS, so this flag is the only
+    // signal we have to drive the 'rate-limited' UI state.
+    let didOpen = false;
 
     ws.onopen = () => {
       console.log('[RealtimeEvents] Connected');
+      didOpen = true;
       reconnectAttemptsRef.current = 0;
       setIsConnected(true);
       setStatus('connected');
@@ -115,8 +116,6 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
     };
 
     ws.onclose = () => {
-      const wasConnected = wsRef.current === ws && ws.readyState === WebSocket.CLOSED;
-      const connectionLifetimeMs = Date.now() - lastConnectAtRef.current;
       setIsConnected(false);
       // Only nullify if this is still the current WebSocket
       // (avoids race where a new WS was created before old one finished closing)
@@ -130,10 +129,10 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
       }
 
       const attempt = reconnectAttemptsRef.current;
-      // Close-without-open within <1s strongly suggests the upgrade was rejected
-      // (most commonly 429 since session/access errors are rarer). Reflect that
-      // in the UI so users see "rate-limited" instead of perpetual "reconnecting".
-      const likelyRateLimited = !wasConnected && connectionLifetimeMs < 1000 && attempt >= 2;
+      // Upgrade rejected without ever opening — most commonly 429 since session/access
+      // errors are rarer. Reflect that in the UI so users see "rate-limited" instead
+      // of perpetual "reconnecting" once we've retried a couple times.
+      const likelyRateLimited = !didOpen && attempt >= 2;
       setStatus(likelyRateLimited ? 'rate-limited' : 'reconnecting');
 
       const delay = computeReconnectDelay(attempt);
