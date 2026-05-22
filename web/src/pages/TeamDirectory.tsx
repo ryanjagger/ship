@@ -112,7 +112,7 @@ export function TeamDirectoryPage() {
               type="checkbox"
               checked={showArchived}
               onChange={(e) => setShowArchived(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/50"
+              className="h-3.5 w-3.5 rounded border-border text-accent-text focus:ring-accent/50"
             />
             <span className="text-xs text-muted">Show archived</span>
           </label>

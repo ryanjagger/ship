@@ -836,7 +836,7 @@ export function ReviewsPage() {
                       week.isCurrent && 'ring-1 ring-inset ring-accent/30'
                     )}
                   >
-                    <span className={cn('text-xs font-medium', week.isCurrent ? 'text-accent' : 'text-foreground')}>
+                    <span className={cn('text-xs font-medium', week.isCurrent ? 'text-accent-text' : 'text-foreground')}>
                       {week.name}
                     </span>
                     <span className="text-[10px] text-muted">
@@ -1095,7 +1095,7 @@ function ReviewPanel({
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted">{selectedCell.weekName} &middot; {isRetroMode ? 'Retro' : 'Plan'}</span>
             {batchMode && (
-              <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+              <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent-text">
                 {batchMode.currentIndex + 1} of {batchMode.queue.length}
               </span>
             )}

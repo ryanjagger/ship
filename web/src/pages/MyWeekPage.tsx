@@ -119,7 +119,7 @@ export function MyWeekPage() {
         <div className="flex items-center gap-2.5">
           <h1 className="text-xl font-semibold text-foreground">Week {week.week_number}</h1>
           {week.is_current && (
-            <span className="text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded">Current</span>
+            <span className="text-xs bg-accent/20 text-accent-text px-1.5 py-0.5 rounded">Current</span>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -342,7 +342,7 @@ export function MyWeekPage() {
 
               const dateLabel = (
                 <div className="w-20 flex-shrink-0">
-                  <span className={cn('text-xs font-medium', isToday ? 'text-accent' : 'text-muted')}>
+                  <span className={cn('text-xs font-medium', isToday ? 'text-accent-text' : 'text-muted')}>
                     {slot.day.slice(0, 3)}
                   </span>
                   <span className="text-xs text-muted ml-1">

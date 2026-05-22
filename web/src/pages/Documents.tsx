@@ -263,7 +263,7 @@ export function DocumentsPage() {
           <button
             type="button"
             onClick={() => { void refreshDocuments(); }}
-            className="text-accent hover:underline"
+            className="text-accent-text hover:underline"
           >
             Retry
           </button>
@@ -294,7 +294,7 @@ export function DocumentsPage() {
                 <p className="text-muted">No documents yet</p>
                 <button
                   onClick={() => handleCreateDocument()}
-                  className="mt-2 text-sm text-accent hover:underline"
+                  className="mt-2 text-sm text-accent-text hover:underline"
                 >
                   Create your first document
                 </button>

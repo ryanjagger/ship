@@ -367,7 +367,7 @@ function ProjectCard({ project }: { project: Project }) {
         </div>
       </div>
       <div className="text-right">
-        <div className="text-lg font-bold text-accent tabular-nums">
+        <div className="text-lg font-bold text-accent-text tabular-nums">
           {project.ice_score}
         </div>
         <div className="text-xs text-muted">ICE</div>

@@ -286,7 +286,7 @@ export function AccountabilityGrid({ showArchived = false }: AccountabilityGridP
                 >
                   <span className={cn(
                     'text-xs font-medium',
-                    sprint.isCurrent ? 'text-accent' : 'text-foreground'
+                    sprint.isCurrent ? 'text-accent-text' : 'text-foreground'
                   )}>
                     {sprint.isCurrent && <span className="sr-only">Current sprint — </span>}
                     {sprint.name}

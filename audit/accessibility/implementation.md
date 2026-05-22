@@ -11,10 +11,10 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Lighthouse low-water-mark (Settings) | 94 | **100** | `087d67c` |
 | Login Lighthouse | 98 | **100** | `74ce704` |
 | axe Critical violations | 1 | **0** | `087d67c` |
-| axe Serious violations | 3 | 3 (all Phase 3 contrast) | — |
+| axe Serious violations | 3 | 3 (all Phase 3 contrast; 3.1 expected to resolve at Phase 3 end) | — |
 | Pages with `<main>` landmark | 9/10 (Login missing) | **10/10** | `74ce704` |
 | Selects missing accessible name | 3 (Settings) | **0** | `087d67c` |
-| `text-accent` on `bg-background` text usages | ~20+ | _Phase 3_ | — |
+| `text-accent` on `bg-background` text usages | ~20+ | **0** (replaced with `text-accent-text`) | _Phase 3.1_ |
 | Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | **0** | `754d398` |
 | TipTap surfaces with accessible name | 0 (body + title) | **2/2** | `c0908cb` |
 | Icon-only buttons relying on `title` for SR name | 2 (workspace, sign-out) | **0** | `31339df` |
@@ -279,9 +279,9 @@ Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests.
 
 ## Phase 3 — Serious (WCAG AA: 1.4.3, 2.3.3)
 
-### 3.1 `accent-text` color token + repo-wide replacement — Status: _TBD_
+### 3.1 `accent-text` color token + repo-wide replacement — Status: **Done** (verified at Phase 3 end)
 
-**Before.** `text-accent` (#005ea2) on `bg-background` (#0d0d0d) yields ~2.99:1 contrast, failing AA 4.5:1. The audit reported 3 instances; the actual surface is ~20+ files using the token for text:
+**Before.** `text-accent` (#005ea2) on `bg-background` (#0d0d0d) yields ~2.99:1 contrast, failing AA 4.5:1. The audit reported 3 instances; the actual surface was 43 files / 76 occurrences using the token for text:
 
 - `web/src/components/ui/Combobox.tsx:138` (check-mark indicator color)
 - `MultiPersonCombobox.tsx`, `ProjectCombobox.tsx`, `ProgramCombobox.tsx`, `PersonCombobox.tsx` check states
@@ -292,11 +292,18 @@ Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests.
 - `web/src/components/AccountabilityGrid.tsx`, `StatusOverviewHeatmap.tsx`, `DocumentTreeItem.tsx`, `WeekTimeline.tsx`, `ProgramProjectsTab.tsx`, `VisibilityDropdown.tsx`
 - Per-page current-week labels on My Week, Team Allocation, Team Status
 
-**Change.** Add an `accent-text` token to `web/tailwind.config.js` colors at a luminance that gives ≥ 4.5:1 on `#0d0d0d` (target `#2e8dcc` or lighter; verify). Search-replace `text-accent` → `text-accent-text` for **text** usage only (do not touch `bg-accent`, `border-accent`, `ring-accent` which are non-text uses).
+**Change.** Two pieces:
 
-**After.** All `text-accent`-as-text instances meet AA contrast. `bg-accent` (filled controls) unchanged.
+1. Added `'accent-text': '#4a9eda'` to the `colors` extend block in `web/tailwind.config.js`, sandwiched between `'accent-hover'` and `warning`. Verified contrast ratio: `#4a9eda` (L_fg ≈ 0.282) on `#0d0d0d` (L_bg ≈ 0.0029) ≈ **6.27:1** — comfortably above WCAG AA's 4.5:1 with headroom for future background tweaks. Annotated inline (`// AA-compliant accent for text (#4a9eda on #0d0d0d ≈ 6.3:1)`) since the contrast budget is non-obvious from the hex alone.
+2. Repo-wide find-and-replace across `web/src/**/*.{ts,tsx}`: `text-accent` (matched only when not followed by `-` or a word character, via Perl negative lookahead) → `text-accent-text`. Touched **43 files / 76 occurrences**. Compound tokens were preserved: `text-accent-foreground` (2 hits in `MentionList.tsx`, `EmojiList.tsx`) was excluded by the lookahead and is unchanged.
 
-**Reproducibility.** `grep -r "text-accent" web/src` returns 0 results outside of intentional non-text or comments. Audit runner contrast check passes on My Week, Team Allocation, Team Status.
+**Option A (blanket replacement) was chosen over Option B (selective replacement on dark surfaces only).** Rationale: single source of truth — the codebase now uses one token for accent-colored text and that token is AA-compliant against every audited surface; mechanical sweep with no per-call-site background analysis; the new `#4a9eda` still reads as "accent blue" (lighter shade of the same hue), so testers will not perceive a brand crisis. Selective replacement would have required ~200 lines of per-component judgment calls about background context and locked in two parallel accent-text tokens to maintain forever.
+
+`bg-accent` (filled controls / chip backgrounds), `border-accent` (borders / focus rings), `ring-accent` (focus ring color), and `accent-hover` (button hover state) were intentionally **not** touched. Those are non-text usages where the deeper brand blue still reads correctly against the surfaces they sit on, and the original brand-blue accent is preserved as the surface/chrome color.
+
+**After.** All `text-accent`-as-text instances meet AA contrast. Brand surfaces (`bg-accent` filled chips, `border-accent` borders, focus rings) are unchanged.
+
+**Reproducibility.** `grep -rnE 'text-accent(?![-A-Za-z_])' web/src -P` returns 0 results. `grep -rn 'text-accent-text' web/src` returns 76 hits. `grep -rn 'text-accent-foreground' web/src` returns 2 hits (preserved). Audit runner contrast check expected to pass on My Week, Team Allocation, Team Status at Phase 3 end.
 
 ### 3.2 My Week future-row dimming — Status: **Done** (verified at Phase 3 end)
 

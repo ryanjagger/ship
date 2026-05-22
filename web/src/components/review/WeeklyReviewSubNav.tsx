@@ -82,7 +82,7 @@ export function WeeklyReviewSubNav({ reviewState }: WeeklyReviewSubNavProps) {
       <div className="flex items-center gap-2">
         {reviewState.queueActive ? (
           <>
-            <span className="rounded bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent">
+            <span className="rounded bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent-text">
               {reviewState.queueIndex + 1} of {reviewState.queueLength}
             </span>
             <button

@@ -375,7 +375,7 @@ function WeeklyDocumentSidebar({
           <label className="text-xs font-medium text-muted mb-1 block">Project</label>
           <a
             href={`/documents/${projectId}/weeks`}
-            className="text-sm text-accent hover:underline"
+            className="text-sm text-accent-text hover:underline"
           >
             {projectName}
           </a>

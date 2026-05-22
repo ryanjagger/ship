@@ -567,7 +567,7 @@ export function OrgChartPage() {
                 setToast(null);
                 if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
               }}
-              className="font-medium text-accent hover:underline"
+              className="font-medium text-accent-text hover:underline"
             >
               Undo
             </button>
@@ -601,7 +601,7 @@ function NoSupervisorDropZone() {
       ref={setNodeRef}
       className={`mb-2 flex items-center justify-center rounded-md border-2 border-dashed px-4 py-2 text-xs transition-colors ${
         isOver
-          ? 'border-accent bg-accent/10 text-accent'
+          ? 'border-accent bg-accent/10 text-accent-text'
           : 'border-border/50 text-muted'
       }`}
     >
@@ -705,7 +705,7 @@ function OrgChartRow({
           <button
             onClick={() => onNavigate(`/team/${node.personId}`)}
             onPointerDown={(e) => e.stopPropagation()}
-            className="truncate font-medium text-foreground hover:text-accent hover:underline"
+            className="truncate font-medium text-foreground hover:text-accent-text hover:underline"
             tabIndex={-1}
           >
             {searchMatches && debouncedQuery ? (

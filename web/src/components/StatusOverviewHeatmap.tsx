@@ -405,7 +405,7 @@ export function StatusOverviewHeatmap({ showArchived = false }: StatusOverviewHe
                   )}
                   aria-current={week.isCurrent ? 'date' : undefined}
                 >
-                  <span className={cn('text-xs font-medium', week.isCurrent ? 'text-accent' : 'text-foreground')}>
+                  <span className={cn('text-xs font-medium', week.isCurrent ? 'text-accent-text' : 'text-foreground')}>
                     {week.isCurrent && <span className="sr-only">Current week — </span>}
                     {week.name}
                   </span>

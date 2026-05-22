@@ -308,7 +308,7 @@ export default function ProjectWeeksTab({ documentId }: DocumentTabProps) {
                     week.isCurrent && 'ring-1 ring-inset ring-accent/30'
                   )}
                 >
-                  <span className={cn('text-xs font-medium', week.isCurrent ? 'text-accent' : 'text-foreground')}>
+                  <span className={cn('text-xs font-medium', week.isCurrent ? 'text-accent-text' : 'text-foreground')}>
                     {week.name}
                   </span>
                   <span className="text-[10px] text-muted">

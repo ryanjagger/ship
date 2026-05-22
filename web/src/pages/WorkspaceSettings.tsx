@@ -286,7 +286,7 @@ function MembersTab({
             type="checkbox"
             checked={showArchived}
             onChange={(e) => onShowArchivedChange(e.target.checked)}
-            className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/50"
+            className="h-3.5 w-3.5 rounded border-border text-accent-text focus:ring-accent/50"
           />
           <span className="text-xs text-muted">Show archived</span>
         </label>
@@ -344,7 +344,7 @@ function MembersTab({
                     {isArchived ? (
                       <button
                         onClick={() => onRestoreMember(member.userId)}
-                        className="text-sm text-accent hover:text-accent/80 transition-colors"
+                        className="text-sm text-accent-text hover:text-accent-text/80 transition-colors"
                       >
                         Restore
                       </button>
@@ -501,7 +501,7 @@ function InvitesTab({
                         "text-sm transition-colors",
                         copiedId === invite.id
                           ? "text-green-500"
-                          : "text-accent hover:text-accent/80"
+                          : "text-accent-text hover:text-accent-text/80"
                       )}
                     >
                       {copiedId === invite.id ? 'Copied!' : 'Copy Link'}
