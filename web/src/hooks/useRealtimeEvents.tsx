@@ -61,6 +61,11 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  // Reflects current intent — flipped to false by disconnect() (logout/unmount)
+  // and read by every onclose handler before scheduling a reconnect. We can't
+  // rely on the `user` closure inside onclose because that handler is registered
+  // on the WebSocket at connect() time and keeps a stale value after logout.
+  const shouldReconnectRef = useRef(false);
   const subscribersRef = useRef<Map<RealtimeEventType, Set<EventCallback>>>(new Map());
   const [isConnected, setIsConnected] = useState(false);
   const [status, setStatus] = useState<RealtimeStatus>('disconnected');
@@ -84,6 +89,7 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
     if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
     if (wsRef.current?.readyState === WebSocket.CLOSING) return;
 
+    shouldReconnectRef.current = true;
     setStatus((prev) => (prev === 'connected' ? prev : reconnectAttemptsRef.current > 0 ? 'reconnecting' : 'connecting'));
 
     const ws = new WebSocket(getEventsWsUrl());
@@ -123,7 +129,7 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
         wsRef.current = null;
       }
 
-      if (!user) {
+      if (!shouldReconnectRef.current) {
         setStatus('disconnected');
         return;
       }
@@ -152,10 +158,13 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
       // produced the audit's "198 console errors" finding.
       ws.close();
     };
-  }, [user]);
+  }, []);
 
   // Disconnect from WebSocket
   const disconnect = useCallback(() => {
+    // Set this BEFORE closing the socket — onclose may fire synchronously in
+    // some environments and will read this flag to decide whether to reconnect.
+    shouldReconnectRef.current = false;
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
