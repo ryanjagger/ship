@@ -380,19 +380,17 @@ Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests.
 
 **Reproducibility.** `grep -rn '<label' web/src` reviewed; every remaining `<label>` has `htmlFor` or wraps a control.
 
-### 4.2 SelectableList table/grid semantics conflict — Status: _TBD_
+### 4.2 SelectableList table/grid semantics conflict — Status: **Done**
 
 **Before.** `web/src/components/SelectableList.tsx:117-130` puts `role="grid"` on a `<table>`, suppressing native `<th>` column-header announcement. `<th>` at `:134, :136` lacks `scope="col"`. The empty selection-column header at `:134` has only `aria-label="Selection"`.
 
-**Change.** Pick one model:
-- **Option A (preferred for static lists):** drop `role="grid"`; let native `<table>` semantics announce. Add `scope="col"` to `<th>`.
-- **Option B (if grid keyboard model is desired):** keep `role="grid"`, explicitly add `role="columnheader"` to `<th>`, ensure roving tabindex + arrow-key navigation is implemented.
+**Change.** Took **Option B** (keep `role="grid"`, add explicit columnheader roles) because the list already has full arrow-key navigation: `web/src/hooks/useSelection.ts:254-352` handles `ArrowUp` / `ArrowDown` to move the focused row, which is genuine grid keyboard behavior. Switching to Option A (drop `role="grid"`) would mean either losing the keyboard model or having a `<table>` that announces as a passive table but behaves like a grid — also misleading.
 
-Decide based on whether the list needs ARIA-grid keyboard navigation. Default to Option A.
+Concrete edits at `web/src/components/SelectableList.tsx:134-138`: added `scope="col" role="columnheader"` to both the empty selection-column `<th>` and each data-column `<th>`. The explicit `role="columnheader"` is needed because `role="grid"` on the parent `<table>` would otherwise suppress native `<th>` header announcement.
 
-**After.** `<th>` cells announced as column headers. No conflicting roles.
+**After.** Column headers announce correctly under `role="grid"`; the arrow-key keyboard model is preserved. The empty selection column still gets its accessible name from `aria-label="Selection"` (unchanged), now with a proper columnheader role.
 
-**Reproducibility.** SR pass over a selectable list; expect "column 2, Title".
+**Reproducibility.** `grep -n 'scope="col" role="columnheader"' web/src/components/SelectableList.tsx` returns 2 hits. SR pass over `/docs` or `/issues` (which use `SelectableList`): expect "column N, <label>" when moving across cells.
 
 ### 4.3 Image alt text UI — Status: _TBD_
 
