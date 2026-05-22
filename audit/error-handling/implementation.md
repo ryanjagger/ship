@@ -1,0 +1,125 @@
+# Runtime Error and Edge Case Handling — Implementation Notes
+
+Companion to `README.md` (audit baseline, 2026-05-19) and `peer-review.md` (independent pass). Documents what was fixed, how, and how to reproduce the result. Branch: `implement/error-handling`.
+
+The work is structured into four phases (see the plan section at the bottom). Each phase is independently shippable; later phases assume earlier ones have landed but do not strictly depend on them.
+
+## Summary
+
+| Area | Before | After | Commit |
+| --- | --- | --- | --- |
+| `pg.Pool` idle-client error handler | Absent — idle-client errors crashed the API process | `pool.on('error', ...)` logs and continues | `f15e6ee` |
+| Documents list 500 response (README Fix 1) | Rendered "No documents yet", indistinguishable from an empty workspace | Explicit error card + Retry; stale-data banner when cached docs exist; sidebar shows compact error+retry | `8747738` |
+
+## Implementation
+
+### Phase 1 — Crash prevention
+
+#### 1. Attach `pool.on('error', ...)` to the pg pool (peer-review §1)
+
+**Before.** `api/src/db/client.ts:17-26` created a `pg.Pool` but never attached a pool-level `'error'` listener. The `pg` docs explicitly warn that "the client comes back from the pool with an active error" and you must register a pool-level error handler, or "your application will crash with an unhandled exception when an idle client emits an error." Combined with the absence of any `process.on('uncaughtException')` handler in the repo (only `SIGTERM`/`SIGINT` in `api/src/db/client.ts:29,36`), an RDS failover, network blip, or admin `pg_terminate_backend` was a guaranteed process crash with no recovery.
+
+**Change.** Added a pool error listener immediately after the `Pool` constructor in `api/src/db/client.ts`:
+
+```ts
+pool.on('error', (err, _client) => {
+  console.error('[db] idle client error:', err);
+});
+```
+
+The listener intentionally only logs. The pool itself evicts the bad client and creates a fresh one on the next checkout; the process should keep serving healthy connections.
+
+**After.** Idle-client errors no longer escape to the event loop. Subsequent queries proceed against fresh connections from the pool. No change to request-path behavior on healthy connections.
+
+**Reproducibility.** With the dev API running, force-terminate a backend from a `psql` session:
+
+```sql
+SELECT pid, application_name FROM pg_stat_activity WHERE application_name LIKE 'node%';
+SELECT pg_terminate_backend(<pid>);
+```
+
+Before the fix: the API process exits with an unhandled exception stack trace. After the fix: a single `[db] idle client error: ...` line is logged and the API keeps serving.
+
+**Commit.** `f15e6ee`
+
+### Phase 2 — User-visible data-loss/confusion
+
+#### 1. Explicit error state for the documents list (README Fix 1)
+
+**Before.** `web/src/hooks/useDocumentsQuery.ts:197` returned `documents` defaulted to `[]` and exposed only `loading`, dropping `isError` / `error` from the underlying `useQuery` result. `web/src/lib/queryClient.ts:161-164` logs query errors globally but does not surface them to consumers. When `GET /api/documents?type=wiki` returned 500, `DocumentsPage` (`web/src/pages/Documents.tsx:257-279`) and the app-shell `DocumentsTree` (`web/src/pages/App.tsx:618-620`) both fell through to the `documents.length === 0` branch and rendered "No documents yet" — indistinguishable from an actual empty workspace. There was no retry affordance and no signal that anything had gone wrong.
+
+**Change.**
+
+- `web/src/hooks/useDocumentsQuery.ts:197-244` — `useDocuments()` now also returns `isError` and `error` (typed as `Error | null`) from the underlying `useQuery`. `refreshDocuments` already wrapped `refetch`, so no new retry plumbing was needed.
+- `web/src/contexts/DocumentsContext.tsx:17-26` — added `isError: boolean` and `error: Error | null` to `DocumentsContextValue` so consumers reading through the (deprecated-but-still-used) context see the same surface.
+- `web/src/pages/Documents.tsx:39,256-307` — destructure `isError` and `refreshDocuments`; when `isError && documents.length === 0`, render a `role="alert"` error card ("Documents could not be loaded", recovery hint, Retry button wired to `refreshDocuments`) in place of the empty state. When `isError && documents.length > 0`, render a non-blocking stale-data banner above the existing list ("Showing cached documents — couldn't reach the server. Retry") so cached content stays visible on transient failures.
+- `web/src/pages/App.tsx:47,491-497,606-635` — parent pulls `isError`/`refreshDocuments` from `useDocuments()` and passes them into `DocumentsTree`; the sidebar tree renders a compact "Couldn't load documents" + Retry block when there's no cached data, and falls through to its existing render path when cached data is present.
+
+The two render paths follow the README's "After behavior" prescription exactly: error UI when there's nothing to show, stale-data banner when there is.
+
+**After.** A 500 on the documents query produces a clear error message and a Retry button in both the main page and the sidebar. Cached documents are preserved during transient failures with a visible banner indicating staleness. The `documents.length === 0` empty state is now only reached when the workspace is genuinely empty.
+
+**Reproducibility.** With dev API + web running, intercept the documents request and observe both surfaces:
+
+1. Empty cache → error: open DevTools, block `GET /api/documents?type=wiki` (or stop the API process), then navigate to `/docs`. Expect "Documents could not be loaded" with Retry on the page, and "Couldn't load documents" with Retry in the sidebar. Click Retry with the API restored to see the list populate.
+2. Warm cache → stale banner: load `/docs` successfully first to populate the cache, then block the endpoint and reload. Expect the document list to remain visible with a "Showing cached documents — couldn't reach the server. Retry" banner above it.
+
+**Commit.** `8747738`
+
+## Deferred (planned)
+
+Carrying the rest of Phase 1 and Phases 2–4 from the plan:
+
+### Phase 1 — remaining
+
+- **Process-level rejection/exception handlers** in `api/src/index.ts` (peer-review §"got right"). Log and exit cleanly instead of dying silently on unhandled rejections.
+- **Express error middleware** at the bottom of `api/src/app.ts` (peer-review §3, §"got right"). Sync throws from any route currently bypass per-route try/catch and hit Express's default handler.
+- **Async-safe WebSocket connection listeners** at `api/src/collaboration/index.ts:683` and `:789` (peer-review §2). Wrap in try/catch, close socket with 1011 on throw, and add `wss.on('error', ...)` on both WSS instances.
+- **Per-send try/catch** around the broadcast loop at `api/src/collaboration/index.ts:262-276` (peer-review §3). One half-open socket should not break broadcast for the rest.
+
+### Phase 2 — user-visible data-loss/confusion
+
+- **`useAutoSave` returns save state** (README Fix 2 root cause; `web/src/hooks/useAutoSave.ts:39-46`). Replace the silent third-retry `console.error` with a returned `{ status, error }` state so callers can react.
+- **Title save failure UI** (README Fix 2). Consume the new save state in `Editor`/`UnifiedDocumentPage`; show `Save failed` with Retry/Revert; decouple from the global `Saved` indicator.
+- **Body persist failure UI** (peer-review §"overstated"). Same shape as the title fix but for `persistDocument` failures at `api/src/collaboration/index.ts:176-178`. Currently invisible.
+- **Realtime 429 visibility + backoff** (README Fix 3). Exponential backoff with jitter in `web/src/hooks/useRealtimeEvents.tsx:107-110`; explicit `Reconnecting`/`Rate limited` state separate from doc save state; server-side log on 429 upgrade rejection at `api/src/collaboration/index.ts:620-657`.
+- **Replace native `alert()` with toasts** in `web/src/components/Editor.tsx:404,418,423` (peer-review §4). `ToastProvider` is already wired at `web/src/main.tsx:257`.
+- **AI routes return non-2xx on failure** at `api/src/routes/ai.ts:42,72` (peer-review §5). TanStack Query treats 200 as success.
+
+### Phase 3 — provider-tree resilience
+
+- **Root error boundary** wrapping `web/src/main.tsx:251-268`. Today, a render error in any provider produces a white screen.
+- **`errorElement` or data-router migration** so router-level errors surface (peer-review §14).
+- **Per-request fetch timeouts** in `web/src/lib/api.ts` (peer-review §8). `AbortSignal.timeout(30_000)` on all helpers.
+- **CSRF retry guard** at `web/src/lib/api.ts:101-114,208-221` (peer-review §15). Bounded retry counter.
+
+### Phase 4 — consistency and observability
+
+- **Unify API error response shape** (peer-review §6). ~399 routes return `{ error: 'message' }` strings; client expects `{ success, error: { code, message } }`. Either migrate routes or teach the client both shapes.
+- **Request correlation IDs** (peer-review §7). One-line middleware adding `req.id = randomUUID()`; include in every `console.error` and in the Phase 1 error middleware response body.
+- **Zod-validate `req.query`** at routes that read repeated/typed params — search, standups, projects sort (peer-review §12).
+- **PG error code branching** (peer-review §13, §16). `23505 → 409 Conflict`, `57014 → 504 Gateway Timeout` with explicit copy.
+- **File upload hardening** at `api/src/routes/files.ts:172-191` (peer-review §10). Remove the multi-branch `req.body` introspection; trust `express.raw()`.
+- **1GB upload / 15-min session mismatch** (peer-review §11). Either chunked uploads, sliding session refresh during long requests, or cap upload size.
+- **Whitelist-only console errors in E2E.** Fail tests on unexpected console errors so future regressions are caught (audit recommendation 2).
+
+## Pattern recap
+
+The shape of the bugs the audit and peer review identified falls into a few recurring categories. Worth keeping in mind as new code lands:
+
+| Pattern | Examples |
+| --- | --- |
+| Async work in a listener with no try/catch / no `'error'` handler | `pg.Pool` (fixed), `wss.on('connection', async ...)`, `ws.send` in broadcast loops |
+| Failed mutation silently reported as success | `useAutoSave` third retry, AI routes returning 200 on error, Yjs body persist failures |
+| Failure surfaces as an empty state instead of an error state | `/docs` list 500 → "No documents yet" |
+| Realtime/transport state conflated with document save state | Editor `Saved` indicator while WebSocket 429s repeat |
+| Error boundary or `errorElement` missing above the failing code | Provider-tree render errors → white screen; router-level errors not handled |
+| Inconsistent contracts between client and server | Two error-response shapes, no request IDs, untyped `req.query` casts |
+
+In each case the fix is to add the missing boundary or signal at the layer where failure actually occurs, rather than trying to make the failure not happen.
+
+## Branch state at time of writing
+
+- **2 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state)
+- Plus this docs file
+- Remaining Phase 1 items and Phases 3–4 are planned but not implemented
