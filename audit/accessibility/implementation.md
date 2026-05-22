@@ -414,15 +414,15 @@ Decide based on whether the list needs ARIA-grid keyboard navigation. Default to
 
 **Reproducibility.** Focus a tree item or button; press Cmd+K; press Escape; expect the original element to be re-focused (visible focus ring returns).
 
-### 4.5 Sync-status live region: quiet routine ticks — Status: _TBD_
+### 4.5 Sync-status live region: quiet routine ticks — Status: **Done**
 
 **Before.** `web/src/components/Editor.tsx:854` uses `role="status" aria-live="polite" aria-atomic="true"` wrapping the four-state sync indicator. Text content flips between "Saving"/"Saved"/"Cached"/"Offline" frequently during typing, causing NVDA/JAWS to read repeatedly.
 
-**Change.** Default to `aria-live="off"`; flip to `polite` only on transitions out of `synced` (i.e. when the user goes offline or sync fails). Debounce or omit re-announcements when bouncing between Saving ↔ Saved during routine typing.
+**Change.** Made `aria-live` conditional on the effective status: `polite` only when the status is `disconnected` or `cached` (i.e. the user has lost the live connection); `off` for `synced` and `connecting`, which are the two states that churn during routine typing. The visible indicator still updates in all four states; only the screen-reader announcement is gated. Implementation is a single line: `aria-live={isDegraded ? 'polite' : 'off'}` with `isDegraded` derived from `effectiveStatus`.
 
-**After.** SR users hear sync status when it matters (disconnect) and silence during normal typing.
+**After.** Screen readers stay silent while the user types and the editor cycles Saving ↔ Saved. They hear "Cached" or "Offline" when the user actually loses sync, which is the announcement that matters. `aria-atomic="true"` is preserved so the whole region reads as one phrase when it does announce.
 
-**Reproducibility.** SR pass while typing; expect quiet. Disconnect network; expect "Offline" announcement.
+**Reproducibility.** SR pass while typing (synced state); expect no announcement. Disconnect the network; expect "Offline" to be read once.
 
 ## Phase 5 — Infrastructure
 

@@ -869,10 +869,11 @@ export function Editor({
           {/* Show 'Offline' when browser is offline, regardless of WebSocket state */}
           {(() => {
             const effectiveStatus = !isBrowserOnline ? 'disconnected' : syncStatus;
+            const isDegraded = effectiveStatus === 'disconnected' || effectiveStatus === 'cached';
             return (
               <div
                 role="status"
-                aria-live="polite"
+                aria-live={isDegraded ? 'polite' : 'off'}
                 aria-atomic="true"
                 className="flex items-center gap-1.5"
                 data-testid="sync-status"
