@@ -27,8 +27,8 @@ test.describe('Issue Estimates', () => {
       await page.getByRole('button', { name: 'New Issue', exact: true }).click()
       await expect(page).toHaveURL(/\/documents\/[a-f0-9-]+/, { timeout: 10000 })
 
-      // Should see Estimate field label in properties sidebar (label element, exact match)
-      await expect(page.locator('label').filter({ hasText: /^Estimate$/ })).toBeVisible({ timeout: 5000 })
+      // Should see Estimate field label in properties sidebar (PropertyRow renders label as <div>)
+      await expect(page.getByText('Estimate', { exact: true })).toBeVisible({ timeout: 5000 })
     })
 
     test('can enter estimate as free text number', async ({ page }) => {
