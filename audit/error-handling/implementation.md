@@ -10,6 +10,7 @@ The work is structured into four phases (see the plan section at the bottom). Ea
 | --- | --- | --- | --- |
 | `pg.Pool` idle-client error handler | Absent — idle-client errors crashed the API process | `pool.on('error', ...)` logs and continues | `f15e6ee` |
 | Documents list 500 response (README Fix 1) | Rendered "No documents yet", indistinguishable from an empty workspace | Explicit error card + Retry; stale-data banner when cached docs exist; sidebar shows compact error+retry | `8747738` |
+| Realtime `/events` WebSocket reconnect under 429 (README Fix 3) | Fixed 3 s reconnect retried straight into 30/IP/min limit; ~200 silent console errors per audit run; server 429s unlogged | Full-jitter exponential backoff (1 s … 30 s); inferred `rate-limited` state; non-blocking UI indicator; server `console.warn` on every 429 rejection | `dd305b3` |
 
 ## Implementation
 
@@ -66,6 +67,51 @@ The two render paths follow the README's "After behavior" prescription exactly: 
 
 **Commit.** `8747738`
 
+#### 2. Realtime rate-limit visibility and reconnect backoff (README Fix 3)
+
+**Before.** The `/events` WebSocket in `web/src/hooks/useRealtimeEvents.tsx:96-117` reconnected on a fixed 3-second timer after every close, regardless of close code. The server enforces 30 connections/IP/minute at `api/src/collaboration/index.ts:19-27` and returns `HTTP/1.1 429 Too Many Requests` before the upgrade. The client saw a normal close, waited 3 s, reconnected, was rejected with 429, closed, waited 3 s, repeated — a self-DoS loop that produced ~200 browser-side `Unexpected response code: 429` console errors during the audit run. The 429 rejections at `api/src/collaboration/index.ts:620-657` were not logged on the server side, so the issue was invisible in stdout/stderr. Every `ws.onerror` / `ws.onclose` also wrote to the console regardless of attempt count. The provider only exposed `isConnected: boolean`, so consumers could not distinguish "briefly reconnecting" from "rate-limited" and the UI showed nothing.
+
+**Change.**
+
+- Server logging — `api/src/collaboration/index.ts`. Both 429 branches now log path, client IP, current attempt count, and the configured window before destroying the socket, and the 429 response gains a `Retry-After: 60` header so well-behaved clients can honor it.
+
+  ```ts
+  if (isConnectionRateLimited(clientIp)) {
+    const recentCount = (connectionAttempts.get(clientIp) || []).length;
+    console.warn(`[Collaboration] 429 rate-limit /events ip=${clientIp} attempts=${recentCount}/${RATE_LIMIT.MAX_CONNECTIONS_PER_IP} window=${RATE_LIMIT.CONNECTION_WINDOW_MS}ms`);
+    socket.write('HTTP/1.1 429 Too Many Requests\r\nRetry-After: 60\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  ```
+
+- Client backoff — `web/src/hooks/useRealtimeEvents.tsx`. Replaced the fixed `setTimeout(connect, 3000)` with full-jitter exponential backoff:
+
+  ```ts
+  function computeReconnectDelay(attempt: number): number {
+    const exp = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** attempt);
+    return Math.floor(Math.random() * exp);
+  }
+  ```
+
+  `RECONNECT_BASE_MS = 1000`, `RECONNECT_CAP_MS = 30_000`. Attempt counter increments on every close and resets to zero on a successful `onopen`. After the first attempt, subsequent close logs are emitted only every fifth retry so the console stays usable. The `ws.onerror` handler no longer logs at all — it only requests close, deferring the retry decision to `onclose`.
+
+- Status surface — same file. Provider now exposes `status: 'connected' | 'connecting' | 'reconnecting' | 'rate-limited' | 'disconnected'` alongside the existing `isConnected`. The provider infers `'rate-limited'` when the WebSocket closes without ever firing `onopen` within <1 s and the attempt counter is ≥ 2, since the browser hides the upgrade-time 429 status from JS (the close event carries no HTTP status). This is heuristic but matches the actual server behavior closely enough to drive UI copy.
+
+- UI indicator — new `web/src/components/RealtimeStatusIndicator.tsx`. A small fixed-position pill (bottom-center, `pointer-events-none`, `role="status"`, `aria-live="polite"`) that renders only when status is `'reconnecting'` or `'rate-limited'`. Two copies: "Realtime reconnecting…" and "Realtime updates limited — reconnecting with backoff." Mounted in `web/src/pages/App.tsx` alongside the other shell-level overlays so it sits over every authenticated route.
+
+The `/collaboration/wiki:<id>` Yjs WebSocket (driven by y-websocket's `WebsocketProvider`) was intentionally left alone for this pass. y-websocket has its own internal reconnection logic that overriding requires either monkey-patching `provider.ws` or forking the library. The server-side log change covers 429 rejections on that path too (the warn line includes `url.pathname`), and the new UI indicator covers the global `/events` channel; if 429s on the editor path become a recurring problem, a follow-up can apply the same backoff strategy to the editor provider.
+
+**After.** A burst of reconnects no longer hammers the server: the first retry sleeps 0–1 s, the second 0–2 s, then 0–4 s, … up to 0–30 s. Once the server's 1-minute window clears, the next reconnect succeeds and the attempt counter resets. The console emits one log line on the first retry and one every five retries thereafter, instead of two per close. The server logs every 429 with enough context (IP, count, window) to diagnose the cause. Users see a small non-blocking pill when reconnects are degraded.
+
+**Reproducibility.**
+
+- Backoff: in DevTools, stop the API process. Watch the console — the next reconnect log should show a delay distributed in `[0, 1000)`, then `[0, 2000)`, `[0, 4000)`, etc.
+- Rate-limit log: from a Node REPL on the dev box, open `> 30` WebSockets to `ws://localhost:3001/events` in under a minute. The API server's stdout should print `[Collaboration] 429 rate-limit /events ip=... attempts=...` for each rejection past the 30th.
+- UI indicator: stop the API process and reload the app. After the second close (~1–3 s in), the bottom-center pill should appear; restart the API and confirm it disappears on the next successful open.
+
+**Commit.** `dd305b3`
+
 ## Deferred (planned)
 
 Carrying the rest of Phase 1 and Phases 2–4 from the plan:
@@ -82,7 +128,6 @@ Carrying the rest of Phase 1 and Phases 2–4 from the plan:
 - **`useAutoSave` returns save state** (README Fix 2 root cause; `web/src/hooks/useAutoSave.ts:39-46`). Replace the silent third-retry `console.error` with a returned `{ status, error }` state so callers can react.
 - **Title save failure UI** (README Fix 2). Consume the new save state in `Editor`/`UnifiedDocumentPage`; show `Save failed` with Retry/Revert; decouple from the global `Saved` indicator.
 - **Body persist failure UI** (peer-review §"overstated"). Same shape as the title fix but for `persistDocument` failures at `api/src/collaboration/index.ts:176-178`. Currently invisible.
-- **Realtime 429 visibility + backoff** (README Fix 3). Exponential backoff with jitter in `web/src/hooks/useRealtimeEvents.tsx:107-110`; explicit `Reconnecting`/`Rate limited` state separate from doc save state; server-side log on 429 upgrade rejection at `api/src/collaboration/index.ts:620-657`.
 - **Replace native `alert()` with toasts** in `web/src/components/Editor.tsx:404,418,423` (peer-review §4). `ToastProvider` is already wired at `web/src/main.tsx:257`.
 - **AI routes return non-2xx on failure** at `api/src/routes/ai.ts:42,72` (peer-review §5). TanStack Query treats 200 as success.
 
@@ -120,6 +165,6 @@ In each case the fix is to add the missing boundary or signal at the layer where
 
 ## Branch state at time of writing
 
-- **2 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state)
+- **3 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state), `dd305b3` (realtime 429 backoff and visibility)
 - Plus this docs file
-- Remaining Phase 1 items and Phases 3–4 are planned but not implemented
+- Remaining Phase 1 items, the rest of Phase 2, and Phases 3–4 are planned but not implemented
