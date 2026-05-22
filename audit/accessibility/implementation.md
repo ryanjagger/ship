@@ -23,6 +23,7 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Reduced-motion handling | None | _Phase 3_ | — |
 | `aria-grabbed` (deprecated) usages | 1 | **0** (replaced by dnd-kit announcements) | _Phase 2_ |
 | Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | **0** (now Shift+C) | `50eeb37` |
+| Color-only current-week marker on grids | 2 (heatmap, allocation) | **0** (sr-only label + aria-current added) | _Phase 2_ |
 | Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | _Phase 4_ | — |
 | CI workflow running a11y checks | 0 (no `.github/workflows/`) | _Phase 5_ | — |
 
@@ -235,15 +236,20 @@ No visible UI documented the old `c` shortcut (no tooltips, no help text — `gr
 
 **Reproducibility.** Focus the list area; press `c` — expect no creation. Press `Shift+C` — expect the create-item flow. `grep -n "e.key === 'c'" web/src/components/IssuesList.tsx web/src/pages/Projects.tsx` returns 0 hits; `grep -n "e.key === 'C'" web/src/components/IssuesList.tsx web/src/pages/Projects.tsx` returns 1 hit per file.
 
-### 2.5 Grid semantics for heatmap and allocation grid — Status: _TBD_
+### 2.5 Grid semantics for heatmap and allocation grid — Status: **Partially Done** (verified at Phase 2 end)
 
 **Before.** `web/src/components/StatusOverviewHeatmap.tsx` and `web/src/components/AccountabilityGrid.tsx` build columns/rows entirely with `<div>` and no grid roles. SR users cannot navigate by row/column or know the column header for a cell. Plus current-week highlight is color-only (`ring-1 ring-accent/30` + blue text — WCAG 1.4.1).
 
-**Change.** Either add `role="grid"` + `role="row"` + `role="columnheader"` + `role="rowheader"` to the container hierarchy, OR rewrite as `<table>`. Prefer `<table>` if static; ARIA grid if keyboard navigation needs to be custom. Add a non-color "This week" badge on the current-week column header.
+**Change.** Two concrete fixes landed; the full ARIA-table treatment was deferred. Patches in `web/src/components/StatusOverviewHeatmap.tsx` and `web/src/components/AccountabilityGrid.tsx`:
 
-**After.** Heatmap/grid structure announced row-by-column; current-week distinguishable without color.
+1. Current-week / current-sprint header: added an `<span className="sr-only">Current week — </span>` (heatmap) / `Current sprint — ` (allocation) prefix inside the existing text span on the header `<div>`, rendered only when `week.isCurrent` / `sprint.isCurrent` is true. Added `aria-current="date"` to the same header `<div>` on the current column. This converts the WCAG 1.4.1 color-only signal (blue `text-accent` + `ring-accent/30`) into color + text + ARIA state.
+2. Outer container: added `role="region"` and `aria-label="Team status heatmap — rows are programs and people, columns are weeks"` to the `StatusOverviewHeatmap` outermost rendering `<div>` (the `flex h-full flex-col` wrapper). Same treatment on `AccountabilityGrid`'s `scrollContainerRef` div with label `"Team accountability grid — rows are projects within programs, columns are sprints"`. The descriptive `aria-label` gives SR users the structural orientation that a proper `role="table"` would normally provide, without requiring DOM restructuring.
 
-**Reproducibility.** SR pass over `/team/status` and `/team/allocation`; expect "column 3 of 12, row 2 of 8" navigation.
+Full ARIA table semantics (`role="grid"` / `role="row"` / `role="columnheader"` / `role="rowheader"`) were NOT applied. Reason: both components render **column-major** — the DOM is a sticky left-column of row labels next to a flex row of week/sprint columns, where each week column is a vertical stack of (header on top + per-row cells below). The visual rows in the table emerge from CSS layout, not from DOM order. Adding `role="row"` / `role="rowheader"` to that DOM would describe each *column* as a "row" to SR users (who read DOM order, not visual order), which is worse than no role at all. A faithful row-major mapping requires rewriting the JSX so cells for a given row are siblings; that's a substantial refactor on complex visualization components with sticky columns, virtual-scroll considerations, and per-cell click handlers, out of scope for this fix.
+
+**After.** WCAG 1.4.1 color-only current-week signal is resolved: the temporal state is now communicated by color + sr-only text + `aria-current="date"`. The outer `role="region"` + descriptive `aria-label` gives SR users a discoverable landmark and structural orientation when entering the visualization. Full row-by-column grid navigation (announce "column 3 of 12, row 2 of 8") is deferred — tracked in **Deferred**.
+
+**Reproducibility.** `grep -n 'aria-current' web/src/components/StatusOverviewHeatmap.tsx web/src/components/AccountabilityGrid.tsx` returns 1 hit per file. `grep -n 'role="region"' web/src/components/StatusOverviewHeatmap.tsx web/src/components/AccountabilityGrid.tsx` returns 1 hit per file. `grep -n 'sr-only.*current' web/src/components/StatusOverviewHeatmap.tsx web/src/components/AccountabilityGrid.tsx` (case-insensitive) returns 1 hit per file. SR pass on `/team/status` and `/team/allocation` should announce "Current week — W22" (or similar) on the highlighted column header.
 
 ## Phase 3 — Serious (WCAG AA: 1.4.3, 2.3.3)
 
@@ -406,6 +412,7 @@ Each phase will be verified through the audit runner and a manual SR smoke pass.
 Carried forward from the README and peer review:
 
 - **Manual VoiceOver smoke pass for Section 508 attestation.** Required for formal conformance claim; not done as part of the automated pass.
+- **Row-major rendering rewrite of `StatusOverviewHeatmap` and `AccountabilityGrid` to support full ARIA table semantics.** Why deferred: both components render column-major (each week/sprint is a vertical DOM stack of header + per-row cells), so `role="row"` mapping would mislead SR users without a DOM restructure. The restructure is a substantial refactor on complex visualization components with sticky columns, virtual scroll considerations, and per-cell click handlers; out of scope for the audit-remediation pass. The §2.5 fix lands the WCAG 1.4.1 (color-only) and landmark/orientation pieces; full row-by-column SR navigation remains future work.
 - **`prefers-reduced-motion` per-component refactor of `animate-pulse` status cues.** The global CSS rule (§3.3) is the minimum; the deeper refactor of pulse-as-status-indicator on `AccountabilityBanner` and the sync dot is design-system work.
 - **Decorative image alt content for already-uploaded images.** The §4.3 UI fix prevents new bad alt text; backfilling existing documents is a data-tooling task.
 - **`@uswds/uswds` icon glob and 245 tiny chunks** (out of scope — bundle audit, not a11y).

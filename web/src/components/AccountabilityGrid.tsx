@@ -168,6 +168,8 @@ export function AccountabilityGrid({ showArchived = false }: AccountabilityGridP
     <div
       ref={scrollContainerRef}
       className="flex-1 overflow-auto pb-20"
+      role="region"
+      aria-label="Team accountability grid — rows are projects within programs, columns are sprints"
     >
       <div className="inline-flex min-w-full">
         {/* Sticky left column - Sprint info */}
@@ -280,11 +282,13 @@ export function AccountabilityGrid({ showArchived = false }: AccountabilityGridP
                     'flex h-10 w-[140px] flex-col items-center justify-center border-b border-r border-border px-2 sticky top-0 z-10 bg-background',
                     sprint.isCurrent && 'ring-1 ring-inset ring-accent/30'
                   )}
+                  aria-current={sprint.isCurrent ? 'date' : undefined}
                 >
                   <span className={cn(
                     'text-xs font-medium',
                     sprint.isCurrent ? 'text-accent' : 'text-foreground'
                   )}>
+                    {sprint.isCurrent && <span className="sr-only">Current sprint — </span>}
                     {sprint.name}
                   </span>
                   <span className="text-[10px] text-muted">
