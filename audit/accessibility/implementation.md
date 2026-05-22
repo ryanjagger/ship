@@ -392,15 +392,20 @@ Concrete edits at `web/src/components/SelectableList.tsx:134-138`: added `scope=
 
 **Reproducibility.** `grep -n 'scope="col" role="columnheader"' web/src/components/SelectableList.tsx` returns 2 hits. SR pass over `/docs` or `/issues` (which use `SelectableList`): expect "column N, <label>" when moving across cells.
 
-### 4.3 Image alt text UI — Status: _TBD_
+### 4.3 Image alt text UI — Status: **Done**
 
 **Before.** `web/src/components/editor/ResizableImage.tsx:62` renders `alt={node.attrs.alt || ''}`. `web/src/components/editor/ImageUpload.tsx:129` always sets `alt: file.name`. No UI to write meaningful alt text. Every uploaded image is unlabeled (filename is not a description). WCAG 1.1.1.
 
-**Change.** Add an alt-text prompt to the image upload flow (modal or inline input after insert). Allow editing alt on existing images via the resize handles' UI or a properties panel. Default to empty (decorative) rather than filename when the user dismisses without entering text.
+**Change.** Two concrete edits:
 
-**After.** Users can write meaningful alt text; documents become accessible to SR readers.
+1. `ImageUpload.tsx:127`: changed `alt: file.name` to `alt: ''` on the inserted image. Filename is never a useful description (e.g. `IMG_2034.png`); empty alt is the correct default per WCAG 1.1.1 (treat the image as decorative until the author writes a real description). The `title` attribute still carries the filename for visual hover.
+2. `ResizableImage.tsx`: added an inline alt-text input that appears below the image when it is selected in the editor (mirroring the existing "selected" UI surface where the resize handle already lives). The input is bound via TipTap's `updateAttributes({ alt })`, so edits persist into the document's TipTap JSON. Placeholder text "Describe this image for screen readers (leave blank if decorative)" tells authors what's expected.
 
-**Reproducibility.** Upload an image; expect a prompt or visible alt-text input.
+The chosen surface (selected-state inline input) avoids interrupting the upload flow with a blocking `prompt()` dialog while still making alt text a one-click affordance on every image.
+
+**After.** Authors can write meaningful alt text without leaving the editor. Existing images can be re-described by selecting them. New uploads default to empty alt rather than filename, so they are at least valid "decorative" (better than misleading SR users with a filename announcement).
+
+**Reproducibility.** Upload an image into a document. Click the image; expect the alt-text input to appear below. Type a description; reload; expect the description to persist.
 
 ### 4.4 CommandPalette focus save/restore — Status: **Done**
 

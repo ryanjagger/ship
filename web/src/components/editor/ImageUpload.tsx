@@ -126,7 +126,7 @@ async function handleImageUpload(
     .focus()
     .setImage({
       src: dataUrl,
-      alt: file.name,
+      alt: '',
       title: file.name,
     })
     .run();
