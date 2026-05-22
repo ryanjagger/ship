@@ -181,15 +181,23 @@ Did not introduce manual-activation (Space/Enter to commit a focus change) — a
 
 **Reproducibility.** Focus a tab; press ArrowRight; focus moves to next tab and content swaps. Inspect each `aria-controls` value; `document.getElementById(...)` resolves to the tabpanel `<div>`.
 
-### 2.2 Comment context menu: keyboard support — Status: _TBD_
+### 2.2 Comment context menu: keyboard support — Status: **Done** (verified at Phase 2 end)
 
-**Before.** `web/src/components/Editor.tsx:954-978` builds an ad-hoc DOM menu via `document.createElement` on `onContextMenu`. No `role="menu"`, no Escape handling, no focus mgmt, no keyboard activation path. Right-click only.
+**Before.** `web/src/components/Editor.tsx:954-978` built an ad-hoc DOM menu via `document.createElement` on `onContextMenu`. No `role="menu"`, no Escape handling, no focus mgmt, no keyboard activation path. Right-click only.
 
-**Change.** Convert to a React menu component (or wire the existing imperative code) with: `role="menu"` on the container, `role="menuitem"` on items, focus moved to the first item on open, Escape to close + restore focus, ArrowUp/Down to navigate items. Ensure Shift+F10 and the context-menu key trigger the same `onContextMenu` path (browsers fire it natively, so verify only).
+**Change.** Replaced the imperative `document.createElement` block with a state-driven React menu in `web/src/components/Editor.tsx`:
 
-**After.** Comment menu invokable by keyboard via Shift+F10 / context-menu key; navigable by arrow keys; dismissable by Escape.
+1. New state `commentMenuPos: { x; y } | null` and ref `commentMenuFirstItemRef` declared alongside the existing `title`/`titleInputRef` state. The `onContextMenu` handler on `.tiptap-wrapper` now just calls `setCommentMenuPos({ x: e.clientX, y: e.clientY })` after the existing empty-selection guard.
+2. Menu rendered conditionally inside the editor JSX with `role="menu"`, `aria-label="Comment actions"`, `position: fixed` anchored to the stored coords, and Tailwind classes `bg-background border border-border rounded-md shadow-lg p-1` (replacing the inline `rgb(...)` styles).
+3. Single `<button role="menuitem" tabIndex={-1}>` for "Add Comment". A `useEffect` keyed on `commentMenuPos` focuses the button on open. Click invokes `editor.commands.addComment()`, clears state, and returns focus via `editor.commands.focus()`.
+4. Escape (`onKeyDown` on the menu container) closes the menu and restores editor focus. A second `useEffect` registers a `mousedown` listener while the menu is open that closes it on any outside click.
+5. Shift+F10 and the context-menu key trigger the native `onContextMenu` event in Chrome/Firefox/Safari, so no separate keyboard-activation handler is needed — the same React state path opens the menu.
 
-**Reproducibility.** In editor with selection, press Shift+F10; expect menu to open and first item to be focused.
+The menu has only one item ("Add Comment"), so ArrowUp/Down handlers were intentionally omitted (no items to navigate to). The empty-selection guard, the `editor.commands.addComment()` action, and the BubbleMenu mouse affordance are unchanged.
+
+**After.** Comment menu reachable from the keyboard via Shift+F10 / context-menu key; first item is focused on open; Escape closes and returns focus to the editor; outside-click still closes. Menu container exposes `role="menu"` / `aria-label="Comment actions"`, item exposes `role="menuitem"`.
+
+**Reproducibility.** In editor with selection, press Shift+F10; expect menu to open and "Add Comment" to be focused. `grep -n 'document.createElement' web/src/components/Editor.tsx` returns 0 hits in the comment-menu region; `grep -n 'role="menu"\|role="menuitem"' web/src/components/Editor.tsx` shows both roles present.
 
 ### 2.3 KanbanBoard: drop `aria-grabbed`, wire dnd-kit accessibility — Status: _TBD_
 
