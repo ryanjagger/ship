@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { parseConfig } from './config.js';
-import { createReport, finding, notTested, writeReports, type ProbeCheck } from './report.js';
+import { createReport, finding, writeReports, type ProbeCheck } from './report.js';
 import { runAuthProbe } from './probes/auth.js';
 import { runWebSocketProbe } from './probes/websocket.js';
 import { runDependencyProbe } from './probes/dependencies.js';
 import { runInputProbe } from './probes/inputs.js';
 import { runHeadersProbe } from './probes/headers.js';
+import { runRateLimitProbe } from './probes/rate-limit.js';
 
 async function main(): Promise<void> {
   const config = parseConfig();
@@ -87,7 +88,20 @@ async function main(): Promise<void> {
     ));
   }
 
-  checks.push(...placeholderChecks());
+  try {
+    checks.push(...await runRateLimitProbe(config));
+  } catch (error) {
+    checks.push(finding(
+      'runner.rate_limit_probe.unhandled_error',
+      'Rate-limit probe crashed before completion',
+      'runner',
+      'critical',
+      {
+        error: error instanceof Error ? error.stack ?? error.message : String(error),
+      },
+      ['Run `pnpm probe` again and inspect this stack trace.']
+    ));
+  }
 
   const report = createReport(config, checks);
   const paths = await writeReports(config, report);
@@ -95,14 +109,6 @@ async function main(): Promise<void> {
   console.log(`Probe complete. Findings: ${report.summary.findings}; not tested: ${report.summary.notTested}; passed: ${report.summary.passed}.`);
   console.log(`JSON: ${paths.jsonPath}`);
   console.log(`Markdown: ${paths.markdownPath}`);
-}
-
-function placeholderChecks(): ProbeCheck[] {
-  return [
-    notTested('rate_limit.default.not_implemented', 'Rate-limit probes are not implemented in this slice', 'rate-limit', {
-      plannedMode: 'production-safe low-volume checks by default',
-    }),
-  ];
 }
 
 main().catch((error) => {
