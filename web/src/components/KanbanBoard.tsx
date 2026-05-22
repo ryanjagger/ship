@@ -130,12 +130,49 @@ export function KanbanBoard({
 
   const activeIssue = activeId ? issues.find((i) => i.id === activeId) : null;
 
+  const getIssueLabel = (id: string | number) => {
+    const issue = issues.find((i) => i.id === id);
+    return issue ? `#${issue.ticket_number}: ${issue.title}` : String(id);
+  };
+
+  const getColumnLabel = (id: string | number) => {
+    const column = COLUMNS.find((c) => c.id === id);
+    return column ? column.title : String(id);
+  };
+
+  const announcements = {
+    onDragStart({ active }: { active: { id: string | number } }) {
+      return `Picked up issue ${getIssueLabel(active.id)}.`;
+    },
+    onDragOver({ active, over }: { active: { id: string | number }; over: { id: string | number } | null }) {
+      if (over) {
+        return `Issue ${getIssueLabel(active.id)} is over ${getColumnLabel(over.id)}.`;
+      }
+      return `Issue ${getIssueLabel(active.id)} is no longer over a column.`;
+    },
+    onDragEnd({ active, over }: { active: { id: string | number }; over: { id: string | number } | null }) {
+      if (over) {
+        return `Issue ${getIssueLabel(active.id)} was dropped in ${getColumnLabel(over.id)}.`;
+      }
+      return `Issue ${getIssueLabel(active.id)} was dropped outside any column.`;
+    },
+    onDragCancel({ active }: { active: { id: string | number } }) {
+      return `Drag of issue ${getIssueLabel(active.id)} was cancelled.`;
+    },
+  };
+
+  const screenReaderInstructions = {
+    draggable:
+      'To pick up an issue, press Space or Enter. Use arrow keys to move it between columns. Press Space or Enter again to drop. Press Escape to cancel.',
+  };
+
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      accessibility={{ announcements, screenReaderInstructions }}
     >
       <div
         role="application"
@@ -280,7 +317,6 @@ function SortableIssueCard({
       data-issue
       data-dragging={isDragging ? 'true' : undefined}
       data-selected={isSelected ? 'true' : undefined}
-      aria-grabbed={isDragging ? 'true' : 'false'}
       aria-selected={isSelected}
       tabIndex={0}
       role="button"

@@ -21,7 +21,7 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Form fields with linked validation errors | 2 (Login only) | **4** (+ ProjectSetupWizard) | `6bd2cdf` |
 | Tab panels with valid `aria-controls` target | 0 (dangling refs) | _Phase 2_ | — |
 | Reduced-motion handling | None | _Phase 3_ | — |
-| `aria-grabbed` (deprecated) usages | 1 | _Phase 2_ | — |
+| `aria-grabbed` (deprecated) usages | 1 | **0** (replaced by dnd-kit announcements) | _Phase 2_ |
 | Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | _Phase 2_ | — |
 | Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | _Phase 4_ | — |
 | CI workflow running a11y checks | 0 (no `.github/workflows/`) | _Phase 5_ | — |
@@ -199,15 +199,22 @@ The menu has only one item ("Add Comment"), so ArrowUp/Down handlers were intent
 
 **Reproducibility.** In editor with selection, press Shift+F10; expect menu to open and "Add Comment" to be focused. `grep -n 'document.createElement' web/src/components/Editor.tsx` returns 0 hits in the comment-menu region; `grep -n 'role="menu"\|role="menuitem"' web/src/components/Editor.tsx` shows both roles present.
 
-### 2.3 KanbanBoard: drop `aria-grabbed`, wire dnd-kit accessibility — Status: _TBD_
+### 2.3 KanbanBoard: drop `aria-grabbed`, wire dnd-kit accessibility — Status: **Done** (verified at Phase 2 end)
 
-**Before.** `web/src/components/KanbanBoard.tsx:283` uses `aria-grabbed`, deprecated in ARIA 1.1. SR experience for drag-drop is undefined.
+**Before.** `web/src/components/KanbanBoard.tsx:283` set `aria-grabbed={isDragging ? 'true' : 'false'}` on each draggable card. `aria-grabbed` was deprecated in ARIA 1.1; modern screen readers ignore it. The `DndContext` had no `accessibility` prop, so keyboard drag-drop produced no announcement at start, over, end, or cancel.
 
-**Change.** Remove `aria-grabbed`. Import `LiveRegion` and `Announcements` from `@dnd-kit/accessibility` and pass to `DndContext`. Provide `screenReaderInstructions` for keyboard drag operations.
+**Change.** Two concrete patches in `web/src/components/KanbanBoard.tsx`:
 
-**After.** SR users hear "Picked up issue Foo" / "Moved Foo to In Progress" instead of nothing.
+1. Removed the `aria-grabbed` attribute from the draggable card wrapper. Sibling attributes that remain are still load-bearing: `aria-selected` (selection state), `tabIndex={0}` (focus), `role="button"`, `aria-roledescription="draggable issue"`, and the per-card `aria-label` describing the issue. The wrapper `<div>`'s `role="application"` and the wrapper `aria-label` describing the keyboard model also stay.
+2. Added the `accessibility` prop to `<DndContext>` with two keys:
+   - `screenReaderInstructions.draggable`: `"To pick up an issue, press Space or Enter. Use arrow keys to move it between columns. Press Space or Enter again to drop. Press Escape to cancel."` — read once when focus first lands on a draggable.
+   - `announcements`: four callbacks (`onDragStart`, `onDragOver`, `onDragEnd`, `onDragCancel`) that return strings the dnd-kit live region announces. Two helpers — `getIssueLabel(id)` (closes over the `issues` prop, returns `#${ticket_number}: ${title}` or falls back to the id) and `getColumnLabel(id)` (looks up `COLUMNS.title` or falls back to the id) — convert dnd-kit ids into human-readable text. Start announces "Picked up issue …"; over announces "Issue … is over <Column>." or "… is no longer over a column."; end announces "… was dropped in <Column>." or "… was dropped outside any column."; cancel announces "Drag of issue … was cancelled."
 
-**Reproducibility.** Tab to a kanban card, activate with Space, ArrowDown to move; expect SR announcement.
+No new dependency. The implementation.md plan mentioned `@dnd-kit/accessibility`, which is the historical name; the canonical home in modern `@dnd-kit/core` ^6.x is the `accessibility` prop on `DndContext`, which is what we used. The existing `handleDragStart` / `handleDragEnd` handlers (which manage the `activeId` state for the `DragOverlay`) are unchanged — the announcement callbacks are a separate concern.
+
+**After.** Screen-reader users hear "Picked up issue #123: Foo", "Issue #123: Foo is over In Progress", "Issue #123: Foo was dropped in Done" during keyboard drag-and-drop. Static instructions are announced when focus first enters a draggable card.
+
+**Reproducibility.** `grep -n 'aria-grabbed' web/src/components/KanbanBoard.tsx` returns 0 hits. `grep -n 'accessibility=' web/src/components/KanbanBoard.tsx` returns 1 hit on the `DndContext`. Tab to a kanban card; expect VoiceOver to read the static instructions. Press Space, ArrowRight to a different column, Space; expect the start/over/end announcements.
 
 ### 2.4 Single-character global shortcuts — Status: _TBD_
 
