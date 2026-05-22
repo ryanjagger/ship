@@ -4,7 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "probe": "node --import ../api/node_modules/tsx/dist/loader.mjs src/cli.ts",
+    "probe": "tsx src/cli.ts",
     "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 export type ProbeConfig = {
+  repoRoot: string;
   apiUrl: string;
   webUrl?: string;
   email: string;
@@ -36,12 +38,14 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
     process.exit(0);
   }
 
+  const repoRoot = findRepoRoot(process.cwd());
   const apiUrl = normalizeBaseUrl(readValue(argv, '--api-url') ?? process.env.PROBE_API_URL ?? DEFAULT_API_URL);
   const webUrlRaw = readValue(argv, '--web-url') ?? process.env.PROBE_WEB_URL;
-  const outputDir = resolve(readValue(argv, '--output-dir') ?? process.env.PROBE_OUTPUT_DIR ?? 'probe/results');
+  const outputDir = resolve(repoRoot, readValue(argv, '--output-dir') ?? process.env.PROBE_OUTPUT_DIR ?? 'probe/results');
   const timeoutValue = Number(readValue(argv, '--timeout-ms') ?? process.env.PROBE_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
   return {
+    repoRoot,
     apiUrl,
     webUrl: webUrlRaw ? normalizeBaseUrl(webUrlRaw) : undefined,
     email: readValue(argv, '--email') ?? process.env.PROBE_EMAIL ?? DEFAULT_EMAIL,
@@ -53,6 +57,16 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
     runId: readValue(argv, '--run-id') ?? `probe-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`,
     databaseUrl: process.env.DATABASE_URL,
   };
+}
+
+function findRepoRoot(start: string): string {
+  let current = resolve(start);
+  while (true) {
+    if (existsSync(resolve(current, 'pnpm-workspace.yaml'))) return current;
+    const parent = dirname(current);
+    if (parent === current) return resolve(start);
+    current = parent;
+  }
 }
 
 function printHelp(): void {
