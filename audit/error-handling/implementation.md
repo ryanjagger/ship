@@ -10,7 +10,7 @@ The work is structured into four phases (see the plan section at the bottom). Ea
 | --- | --- | --- | --- |
 | `pg.Pool` idle-client error handler | Absent — idle-client errors crashed the API process | `pool.on('error', ...)` logs and continues | `f15e6ee` |
 | Documents list 500 response (README Fix 1) | Rendered "No documents yet", indistinguishable from an empty workspace | Explicit error card + Retry; stale-data banner when cached docs exist; sidebar shows compact error+retry | `8747738` |
-| Realtime `/events` WebSocket reconnect under 429 (README Fix 3) | Fixed 3 s reconnect retried straight into 30/IP/min limit; ~200 silent console errors per audit run; server 429s unlogged | Full-jitter exponential backoff (1 s … 30 s); inferred `rate-limited` state; non-blocking UI indicator; server `console.warn` on every 429 rejection | `dd305b3` |
+| Realtime `/events` WebSocket reconnect under 429 (README Fix 3) | Fixed 3 s reconnect retried straight into 30/IP/min limit; ~200 silent console errors per audit run; server 429s unlogged | Full-jitter exponential backoff (1 s … 30 s); inferred `rate-limited` state; non-blocking UI indicator; server `console.warn` on every 429 rejection. Verified end-to-end in Playwright. | `dd305b3`, `f3889fc` |
 
 ## Implementation
 
@@ -110,7 +110,32 @@ The `/collaboration/wiki:<id>` Yjs WebSocket (driven by y-websocket's `Websocket
 - Rate-limit log: from a Node REPL on the dev box, open `> 30` WebSockets to `ws://localhost:3001/events` in under a minute. The API server's stdout should print `[Collaboration] 429 rate-limit /events ip=... attempts=...` for each rejection past the 30th.
 - UI indicator: stop the API process and reload the app. After the second close (~1–3 s in), the bottom-center pill should appear; restart the API and confirm it disappears on the next successful open.
 
-**Commit.** `dd305b3`
+**Commit.** `dd305b3` (initial), `f3889fc` (didOpen fix — see "Verification" below)
+
+**Verification.** Drove the change through Playwright against `pnpm dev` (web on `:5173`, API on `:3000`). Logged in as `dev@ship.local`, landed on `/docs`, then ran a flood-and-close scenario from the page itself:
+
+1. Opened 35–60 fresh `WebSocket('ws://localhost:3000/events')` instances in one tick to saturate the server's 30/IP/min budget.
+2. Reached into the React fiber tree to find `RealtimeEventsProvider`'s `wsRef.current` (the app's own `/events` WebSocket) and called `.close()` on it so the hook would attempt to reconnect into the now-saturated budget.
+3. Sampled the indicator pill text every 500 ms for 6 s, then captured a screenshot.
+
+Results across multiple runs:
+
+| Observation | Expected | Actual |
+| --- | --- | --- |
+| Pill renders after close | Within ~1 s | t = 500 ms: "Realtime reconnecting…" |
+| Pill transitions to rate-limited | Around attempt 2 (~3–5 s) | t = 5000 ms: "Realtime updates limited — reconnecting with backoff." |
+| Pill clears on recovery | After successful reconnect | Pill removed once a reconnect attempt opened (when the 60 s rate-limit window cleared) |
+| Reconnect backoff distribution | Attempt 1 delay ∈ [0, 1000) ms; attempt 6 ∈ [0, 30000) ms (capped) | Attempt 1: 348 / 545 / 548 ms across runs; attempt 6: 12 651 ms |
+| Hook `console.log` volume | First attempt + every 5th | Across ~110 browser-emitted 429 errors, the hook logged 4 lines total (attempts 1, 1, 1, 6) |
+| Hook `console.error` volume | Zero (we no longer log onerror or onclose) | Zero — all remaining 429 lines in the console are browser-internal handshake errors, which JS cannot suppress |
+| TanStack Query devtools / other UI unaffected | No layout shift | Pill is `position: fixed` with `pointer-events-none`; no displacement |
+
+Evidence screenshots saved under `audit/error-handling/evidence/` (gitignored, kept for local reference):
+
+- `05-realtime-rate-limited-indicator.png` — pill close-up showing "Realtime updates limited — reconnecting with backoff."
+- `06-realtime-rate-limited-fullpage.png` — full viewport with pill anchored bottom-center
+
+**Bug caught during verification.** The first verification run showed the pill rendering but staying as "Realtime reconnecting…" indefinitely instead of transitioning to "Realtime updates limited…". Root cause: the original `wasConnected` check read `ws.readyState === WebSocket.CLOSED` inside `onclose`, which is always `true` (readyState always becomes `CLOSED` before `onclose` fires). Replaced with a per-connection `let didOpen = false` flag set inside `onopen` and read inside `onclose`. The follow-up commit `f3889fc` also removed the now-unused `lastConnectAtRef`. Re-ran the Playwright scenario to confirm the transition fires at the expected time.
 
 ## Deferred (planned)
 
@@ -165,6 +190,6 @@ In each case the fix is to add the missing boundary or signal at the layer where
 
 ## Branch state at time of writing
 
-- **3 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state), `dd305b3` (realtime 429 backoff and visibility)
+- **4 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state), `dd305b3` (realtime 429 backoff and visibility), `f3889fc` (realtime didOpen fix found in Playwright verification)
 - Plus this docs file
 - Remaining Phase 1 items, the rest of Phase 2, and Phases 3–4 are planned but not implemented
