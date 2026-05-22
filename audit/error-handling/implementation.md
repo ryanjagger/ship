@@ -12,6 +12,8 @@ The work is structured into four phases (see the plan section at the bottom). Ea
 | Documents list 500 response (README Fix 1) | Rendered "No documents yet", indistinguishable from an empty workspace | Explicit error card + Retry; stale-data banner when cached docs exist; sidebar shows compact error+retry | `8747738` |
 | Realtime `/events` WebSocket reconnect under 429 (README Fix 3) | Fixed 3 s reconnect retried straight into 30/IP/min limit; ~200 silent console errors per audit run; server 429s unlogged | Full-jitter exponential backoff (1 s … 30 s); inferred `rate-limited` state; non-blocking UI indicator; server `console.warn` on every 429 rejection. Verified end-to-end in Playwright. | `dd305b3`, `f3889fc` |
 | AI analysis routes returned 200 on failure (peer-review §5) | `res.json({ error: 'ai_unavailable' })` — TanStack Query treated failures as success | `res.status(503).json(...)` so HTTP layer reflects the failure | `16a5f3b` |
+| `warning` color missing from Tailwind palette | `bg-warning` / `bg-warning/10` in indicator + stale-data banner emitted no CSS | Added `warning: '#d97706'` to `web/tailwind.config.js` | `9bab3d4` |
+| Realtime reconnect after logout (review feedback on `dd305b3`) | `disconnect()` closed the WS, but the still-pending `onclose` closure read a stale truthy `user` and scheduled a fresh reconnect — opening an unauthenticated socket against the just-cleared session | `shouldReconnectRef` is the single source of truth; flipped to `false` in `disconnect()` before close, checked in `onclose`. Verified in Playwright. | `570d6ec` |
 
 ## Implementation
 
@@ -125,6 +127,27 @@ The `/collaboration/wiki:<id>` Yjs WebSocket (driven by y-websocket's `Websocket
 
 **Commit.** `16a5f3b`
 
+#### 4. Reconnect-after-logout via `shouldReconnectRef` (follow-up to `dd305b3`)
+
+**Before.** After fixing the rate-limit backoff in commit `dd305b3`, code review surfaced a subtler bug in the same hook. The `onclose` handler still gated its reconnect decision on the `user` value captured at the time `connect()` ran. When the user logged out (or the provider unmounted), `disconnect()` cleared the timer and called `wsRef.current.close()`, but the resulting `onclose` event was handled by the closure registered earlier — one whose `user` was still truthy. The handler fell through the `if (!user)` guard and scheduled a new `setTimeout(connect, …)` (a different timer than the one `disconnect` just cleared). The reconnect then opened an unauthenticated WebSocket against the just-cleared session.
+
+**Change.** Introduced `shouldReconnectRef = useRef(false)` in the provider as the single source of truth for reconnect intent. `connect()` flips it to `true` at the top; `disconnect()` flips it to `false` **before** clearing the timer and closing the socket so even a synchronous `onclose` reads the right value. The `onclose` handler now branches on `shouldReconnectRef.current` instead of the closure-captured `user`. Since `connect` no longer references `user`, its `useCallback` deps were dropped to `[]` (the existing `useEffect([user, connect, disconnect])` continues to re-run on user changes via the `user` dep itself).
+
+**After.** Logout / unmount reliably tear the realtime connection down. No leftover reconnect timer fires; no unauthenticated WebSocket gets opened.
+
+**Verification.** Drove the change through Playwright. Logged in, confirmed the events WebSocket reached `readyState === 1` via a React fiber walk into `RealtimeEventsProvider`. Located the auth context's `logout` callback the same way, called it, then waited 5 seconds while sampling the console:
+
+```
+[LOG] [RealtimeEvents] Connected
+[LOG] === TEST: about to call logout ===
+[LOG] === TEST: logout returned, waiting 5s ===
+[LOG] === TEST: 5s elapsed, afterWsState=null ===
+```
+
+No `[RealtimeEvents] Reconnecting in Xms (attempt N)` line appeared between the logout marker and the 5s-elapsed marker — pre-fix, one would have fired within the first second. The fiber walk after the 5s wait found no `/events` WebSocket attached to the provider (`afterWsState: null`), confirming the connection was fully released.
+
+**Commit.** `570d6ec`
+
 **Verification.** Drove the change through Playwright against `pnpm dev` (web on `:5173`, API on `:3000`). Logged in as `dev@ship.local`, landed on `/docs`, then ran a flood-and-close scenario from the page itself:
 
 1. Opened 35–60 fresh `WebSocket('ws://localhost:3000/events')` instances in one tick to saturate the server's 30/IP/min budget.
@@ -202,6 +225,6 @@ In each case the fix is to add the missing boundary or signal at the layer where
 
 ## Branch state at time of writing
 
-- **5 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state), `dd305b3` (realtime 429 backoff and visibility), `f3889fc` (realtime didOpen fix found in Playwright verification), `16a5f3b` (AI routes return 503)
+- **7 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state), `dd305b3` (realtime 429 backoff and visibility), `f3889fc` (realtime didOpen fix found in Playwright verification), `16a5f3b` (AI routes return 503), `9bab3d4` (Tailwind warning color), `570d6ec` (realtime reconnect-after-logout fix)
 - Plus this docs file
 - Remaining Phase 1 items, the rest of Phase 2, and Phases 3–4 are planned but not implemented
