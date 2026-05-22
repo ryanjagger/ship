@@ -25,7 +25,7 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | `aria-grabbed` (deprecated) usages | 1 | **0** (replaced by dnd-kit announcements) | _Phase 2_ |
 | Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | **0** (now Shift+C) | `50eeb37` |
 | Color-only current-week marker on grids | 2 (heatmap, allocation) | **0** (sr-only label + aria-current added) | _Phase 2_ |
-| Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | _Phase 4_ | — |
+| Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | **0** (11 → `<div>`, 5 → `htmlFor`-linked) | `39a4c67` |
 | CI workflow running a11y checks | 0 (no `.github/workflows/`) | _Phase 5_ | — |
 
 Status legend used in the per-fix sections below: **Done** (committed), **In progress**, **Deferred** (carried forward with rationale).
