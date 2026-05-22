@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { getVisibilityContext, VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { TEMPLATE_HEADINGS, extractText, hasContent } from '../utils/document-content.js';
+// hasContent is now computed in SQL via `document_has_content()` — see migration
+// 039 and peer-review.md #9. No longer imported from utils/document-content.
 
 type RouterType = ReturnType<typeof Router>;
 const router: RouterType = Router();
@@ -1185,14 +1186,17 @@ router.get('/accountability-grid-v2', authMiddleware, async (req: Request, res: 
       [workspaceId, showArchived]
     );
 
-    // Get ALL weekly plans in the workspace for the week range
+    // Get ALL weekly plans in the workspace for the week range.
+    // `document_has_content(content)` is computed server-side so the API does
+    // not have to pull full TipTap JSON just to check whether the plan is
+    // filled in (peer-review.md #9).
     const plansResult = await pool.query(
       `SELECT
          (properties->>'person_id') as person_id,
          (properties->>'project_id') as project_id,
          (properties->>'week_number')::int as week_number,
          id,
-         content
+         document_has_content(content) as has_content
        FROM documents
        WHERE workspace_id = $1
          AND document_type = 'weekly_plan'
@@ -1208,7 +1212,7 @@ router.get('/accountability-grid-v2', authMiddleware, async (req: Request, res: 
          (properties->>'project_id') as project_id,
          (properties->>'week_number')::int as week_number,
          id,
-         content
+         document_has_content(content) as has_content
        FROM documents
        WHERE workspace_id = $1
          AND document_type = 'weekly_retro'
@@ -1220,11 +1224,11 @@ router.get('/accountability-grid-v2', authMiddleware, async (req: Request, res: 
     // Helper to calculate plan/retro status based on timing
     const calculateStatus = (
       docId: string | null,
-      docContent: unknown,
+      docHasContent: boolean,
       weekStartDate: Date,
       type: 'plan' | 'retro'
     ): 'done' | 'due' | 'late' | 'future' => {
-      if (docId && hasContent(docContent)) {
+      if (docId && docHasContent) {
         return 'done';
       }
 
@@ -1252,15 +1256,15 @@ router.get('/accountability-grid-v2', authMiddleware, async (req: Request, res: 
       }
     };
 
-    // Build plan/retro maps: `${projectId}_${personId}_${weekNumber}` -> { id, content }
-    const plans = new Map<string, { id: string; content: unknown }>();
+    // Build plan/retro maps: `${projectId}_${personId}_${weekNumber}` -> { id, hasContent }
+    const plans = new Map<string, { id: string; hasContent: boolean }>();
     for (const row of plansResult.rows) {
-      plans.set(`${row.project_id}_${row.person_id}_${row.week_number}`, { id: row.id, content: row.content });
+      plans.set(`${row.project_id}_${row.person_id}_${row.week_number}`, { id: row.id, hasContent: row.has_content });
     }
 
-    const retros = new Map<string, { id: string; content: unknown }>();
+    const retros = new Map<string, { id: string; hasContent: boolean }>();
     for (const row of retrosResult.rows) {
-      retros.set(`${row.project_id}_${row.person_id}_${row.week_number}`, { id: row.id, content: row.content });
+      retros.set(`${row.project_id}_${row.person_id}_${row.week_number}`, { id: row.id, hasContent: row.has_content });
     }
 
     // Build program -> projects structure
@@ -1305,9 +1309,9 @@ router.get('/accountability-grid-v2', authMiddleware, async (req: Request, res: 
               week.number,
               {
                 planId: planData?.id || null,
-                planStatus: calculateStatus(planData?.id || null, planData?.content, weekStartDate, 'plan'),
+                planStatus: calculateStatus(planData?.id || null, planData?.hasContent ?? false, weekStartDate, 'plan'),
                 retroId: retroData?.id || null,
-                retroStatus: calculateStatus(retroData?.id || null, retroData?.content, weekStartDate, 'retro'),
+                retroStatus: calculateStatus(retroData?.id || null, retroData?.hasContent ?? false, weekStartDate, 'retro'),
               },
             ];
           })
@@ -1455,12 +1459,14 @@ router.get('/reviews', authMiddleware, async (req: Request, res: Response) => {
       [workspaceId, fromSprint, toSprint]
     );
 
-    // Get weekly plans (to check content existence)
+    // Get weekly plans (to check content existence).
+    // `document_has_content(content)` is computed server-side; see peer-review.md #9.
     const plansResult = await pool.query(
       `SELECT
          (properties->>'person_id') as person_id,
          (properties->>'week_number')::int as week_number,
-         id, content
+         id,
+         document_has_content(content) as has_content
        FROM documents
        WHERE workspace_id = $1
          AND document_type = 'weekly_plan'
@@ -1474,7 +1480,8 @@ router.get('/reviews', authMiddleware, async (req: Request, res: Response) => {
       `SELECT
          (properties->>'person_id') as person_id,
          (properties->>'week_number')::int as week_number,
-         id, content
+         id,
+         document_has_content(content) as has_content
        FROM documents
        WHERE workspace_id = $1
          AND document_type = 'weekly_retro'
@@ -1483,14 +1490,15 @@ router.get('/reviews', authMiddleware, async (req: Request, res: Response) => {
       [workspaceId, fromSprint, toSprint]
     );
 
-    // Build plan/retro content maps: personId_weekNumber -> { hasContent, docId }
+    // Build plan/retro content maps: personId_weekNumber -> { hasContent, docId }.
+    // Prefer the doc that has content if multiple rows exist for the same key.
     const planContent = new Map<string, { hasContent: boolean; docId: string }>();
     for (const row of plansResult.rows) {
       if (row.person_id && row.week_number) {
         const key = `${row.person_id}_${row.week_number}`;
         const existing = planContent.get(key);
-        if (!existing || hasContent(row.content)) {
-          planContent.set(key, { hasContent: hasContent(row.content), docId: row.id });
+        if (!existing || row.has_content) {
+          planContent.set(key, { hasContent: row.has_content, docId: row.id });
         }
       }
     }
@@ -1500,8 +1508,8 @@ router.get('/reviews', authMiddleware, async (req: Request, res: Response) => {
       if (row.person_id && row.week_number) {
         const key = `${row.person_id}_${row.week_number}`;
         const existing = retroContent.get(key);
-        if (!existing || hasContent(row.content)) {
-          retroContent.set(key, { hasContent: hasContent(row.content), docId: row.id });
+        if (!existing || row.has_content) {
+          retroContent.set(key, { hasContent: row.has_content, docId: row.id });
         }
       }
     }
@@ -1835,14 +1843,15 @@ router.get('/accountability-grid-v3', authMiddleware, async (req: Request, res: 
       }
     }
 
-    // Get ALL weekly plans in the workspace for the week range
+    // Get ALL weekly plans in the workspace for the week range.
+    // `document_has_content(content)` is computed server-side; see peer-review.md #9.
     const plansResult = await pool.query(
       `SELECT
          (properties->>'person_id') as person_id,
          (properties->>'project_id') as project_id,
          (properties->>'week_number')::int as week_number,
          id,
-         content
+         document_has_content(content) as has_content
        FROM documents
        WHERE workspace_id = $1
          AND document_type = 'weekly_plan'
@@ -1858,7 +1867,7 @@ router.get('/accountability-grid-v3', authMiddleware, async (req: Request, res: 
          (properties->>'project_id') as project_id,
          (properties->>'week_number')::int as week_number,
          id,
-         content
+         document_has_content(content) as has_content
        FROM documents
        WHERE workspace_id = $1
          AND document_type = 'weekly_retro'
@@ -1869,13 +1878,13 @@ router.get('/accountability-grid-v3', authMiddleware, async (req: Request, res: 
 
     const calculateStatus = (
       docId: string | null,
-      docContent: unknown,
+      docHasContent: boolean,
       weekStartDate: Date,
       type: 'plan' | 'retro',
       approvalState: string | null
     ): 'done' | 'due' | 'late' | 'future' | 'changes_requested' => {
       if (approvalState === 'changes_requested') return 'changes_requested';
-      if (docId && hasContent(docContent)) return 'done';
+      if (docId && docHasContent) return 'done';
 
       const now = new Date();
       now.setUTCHours(0, 0, 0, 0);
@@ -1903,15 +1912,15 @@ router.get('/accountability-grid-v3', authMiddleware, async (req: Request, res: 
       }
     };
 
-    // Build plan/retro maps: `${projectId}_${personId}_${weekNumber}` -> { id, content }
-    const plans = new Map<string, { id: string; content: unknown }>();
+    // Build plan/retro maps: `${projectId}_${personId}_${weekNumber}` -> { id, hasContent }
+    const plans = new Map<string, { id: string; hasContent: boolean }>();
     for (const row of plansResult.rows) {
-      plans.set(`${row.project_id}_${row.person_id}_${row.week_number}`, { id: row.id, content: row.content });
+      plans.set(`${row.project_id}_${row.person_id}_${row.week_number}`, { id: row.id, hasContent: row.has_content });
     }
 
-    const retros = new Map<string, { id: string; content: unknown }>();
+    const retros = new Map<string, { id: string; hasContent: boolean }>();
     for (const row of retrosResult.rows) {
-      retros.set(`${row.project_id}_${row.person_id}_${row.week_number}`, { id: row.id, content: row.content });
+      retros.set(`${row.project_id}_${row.person_id}_${row.week_number}`, { id: row.id, hasContent: row.has_content });
     }
 
     // Build person data: for each week, get their allocation and corresponding plan/retro status
@@ -1935,9 +1944,9 @@ router.get('/accountability-grid-v3', authMiddleware, async (req: Request, res: 
               projectName: allocation?.projectName || null,
               projectColor: allocation?.projectColor || null,
               planId: planData?.id || null,
-              planStatus: projectId ? calculateStatus(planData?.id || null, planData?.content, weekStartDate, 'plan', planApprovalState) : null,
+              planStatus: projectId ? calculateStatus(planData?.id || null, planData?.hasContent ?? false, weekStartDate, 'plan', planApprovalState) : null,
               retroId: retroData?.id || null,
-              retroStatus: projectId ? calculateStatus(retroData?.id || null, retroData?.content, weekStartDate, 'retro', reviewApprovalState) : null,
+              retroStatus: projectId ? calculateStatus(retroData?.id || null, retroData?.hasContent ?? false, weekStartDate, 'retro', reviewApprovalState) : null,
             },
           ];
         })
