@@ -166,15 +166,20 @@ Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests (`pnpm te
 
 These are structural/keyboard issues — the controls are technically reachable but not announced, not operable without a mouse, or not navigable with the keyboard model the user expects.
 
-### 2.1 TabBar / tabpanel wiring + roving tabindex — Status: _TBD_
+### 2.1 TabBar / tabpanel wiring + roving tabindex — Status: **Done** (verified at Phase 2 end)
 
 **Before.** `web/src/components/ui/TabBar.tsx:25` sets `aria-controls={\`tabpanel-${tab.id}\`}`, but `web/src/pages/UnifiedDocumentPage.tsx:500-512` renders tab content in a plain `<div>` with no `id`, no `role="tabpanel"`, no `aria-labelledby`. The reference dangles. Also missing: roving `tabIndex={selected ? 0 : -1}` and ArrowLeft/ArrowRight handlers.
 
-**Change.** In `UnifiedDocumentPage.tsx`: wrap each tab's content in `<div id="tabpanel-{id}" role="tabpanel" aria-labelledby="tab-{id}" tabIndex={0}>`. In `TabBar.tsx`: add roving tabindex; bind ArrowLeft/Right (and Home/End) to move focus between tabs; ensure each tab has `id="tab-{id}"` matching the `aria-labelledby` from the panel.
+**Change.** Two concrete patches:
 
-**After.** Tabs follow the WAI-ARIA Authoring Practices tabs pattern. Audit-runner `aria-controls` integrity check (added in §5.1) passes.
+1. `web/src/components/ui/TabBar.tsx`: added roving tabindex (`tabIndex={activeTab === tab.id ? 0 : -1}`) so only the active tab is in the Tab order; inactive tabs are reachable via arrow keys. Added an `onKeyDown` handler bound per tab that responds to `ArrowLeft` / `ArrowRight` (with wrap-around via `(currentIndex + delta + tabs.length) % tabs.length`), `Home` (index 0), and `End` (index `tabs.length - 1`). The handler calls `onTabChange(newId)` and then moves DOM focus via `document.getElementById(\`tab-${newId}\`)?.focus()` — this is the automatic-activation variant of the WAI-ARIA tabs pattern, which is the standard choice for tabs that simply swap content (no async load gated on activation). `event.preventDefault()` is called for handled keys so page scroll doesn't fire on Home/End. The bottom-bar indicator div, classes, and prop interface are unchanged — TabBar is additive-compatible.
+2. `web/src/pages/UnifiedDocumentPage.tsx`: hoisted `const activeTabId = activeTab || tabs[0]?.id;` above the JSX so it's the single source of truth for both the `TabBar` `activeTab` prop and the panel attributes. Promoted the tab content wrapper from `<div className="flex-1 overflow-hidden">` to a real tabpanel: `id={\`tabpanel-${activeTabId}\`}`, `role="tabpanel"`, `aria-labelledby={\`tab-${activeTabId}\`}`, `tabIndex={0}`, and `focus:outline-none` appended to the className so the panel-level focus ring doesn't clash with the inner content's own focus rings (which remain).
 
-**Reproducibility.** Focus a tab; press ArrowRight; focus moves to next tab. Inspect each `aria-controls` value; `document.getElementById(...)` resolves.
+Did not introduce manual-activation (Space/Enter to commit a focus change) — automatic activation is the more common pattern for content-swap tabs and matches what the existing `onClick` behavior implies. TabBar is only consumed by `UnifiedDocumentPage` (`grep` confirmed), so the prop-interface contract is unchanged.
+
+**After.** Tabs follow the WAI-ARIA Authoring Practices tabs pattern. `aria-controls` references resolve. Keyboard users can ArrowLeft/Right through tabs, Home/End to jump, and Tab into the panel content.
+
+**Reproducibility.** Focus a tab; press ArrowRight; focus moves to next tab and content swaps. Inspect each `aria-controls` value; `document.getElementById(...)` resolves to the tabpanel `<div>`.
 
 ### 2.2 Comment context menu: keyboard support — Status: _TBD_
 
