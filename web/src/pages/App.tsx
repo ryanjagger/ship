@@ -36,6 +36,7 @@ import { SelectionPersistenceProvider } from '@/contexts/SelectionPersistenceCon
 import { ActionItemsModal } from '@/components/ActionItemsModal';
 import { AccountabilityBanner } from '@/components/AccountabilityBanner';
 import { ProjectContextSidebar } from '@/components/sidebars/ProjectContextSidebar';
+import { RealtimeStatusIndicator } from '@/components/RealtimeStatusIndicator';
 
 type Mode = 'docs' | 'issues' | 'projects' | 'programs' | 'sprints' | 'team' | 'settings' | 'dashboard' | 'project-context';
 
@@ -568,6 +569,9 @@ export function AppLayout() {
         warningType={warningType}
         onStayLoggedIn={resetSessionTimer}
       />
+
+      {/* Realtime connection indicator (only renders when reconnecting / rate-limited) */}
+      <RealtimeStatusIndicator />
 
       {/* Upload Navigation Warning Modal */}
       <UploadNavigationWarning />

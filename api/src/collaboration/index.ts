@@ -618,7 +618,9 @@ export function setupCollaboration(server: Server) {
                        'unknown';
 
       if (isConnectionRateLimited(clientIp)) {
-        socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+        const recentCount = (connectionAttempts.get(clientIp) || []).length;
+        console.warn(`[Collaboration] 429 rate-limit /events ip=${clientIp} attempts=${recentCount}/${RATE_LIMIT.MAX_CONNECTIONS_PER_IP} window=${RATE_LIMIT.CONNECTION_WINDOW_MS}ms`);
+        socket.write('HTTP/1.1 429 Too Many Requests\r\nRetry-After: 60\r\n\r\n');
         socket.destroy();
         return;
       }
@@ -650,7 +652,9 @@ export function setupCollaboration(server: Server) {
                      'unknown';
 
     if (isConnectionRateLimited(clientIp)) {
-      socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+      const recentCount = (connectionAttempts.get(clientIp) || []).length;
+      console.warn(`[Collaboration] 429 rate-limit ${url.pathname} ip=${clientIp} attempts=${recentCount}/${RATE_LIMIT.MAX_CONNECTIONS_PER_IP} window=${RATE_LIMIT.CONNECTION_WINDOW_MS}ms`);
+      socket.write('HTTP/1.1 429 Too Many Requests\r\nRetry-After: 60\r\n\r\n');
       socket.destroy();
       return;
     }
