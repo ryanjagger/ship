@@ -22,7 +22,7 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Tab panels with valid `aria-controls` target | 0 (dangling refs) | _Phase 2_ | — |
 | Reduced-motion handling | None | _Phase 3_ | — |
 | `aria-grabbed` (deprecated) usages | 1 | **0** (replaced by dnd-kit announcements) | _Phase 2_ |
-| Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | **0** (now Shift+C) | `PHASE2_SHA` |
+| Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | **0** (now Shift+C) | `50eeb37` |
 | Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | _Phase 4_ | — |
 | CI workflow running a11y checks | 0 (no `.github/workflows/`) | _Phase 5_ | — |
 
