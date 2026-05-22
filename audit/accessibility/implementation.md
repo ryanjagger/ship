@@ -22,7 +22,7 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Tab panels with valid `aria-controls` target | 0 (dangling refs) | _Phase 2_ | — |
 | Reduced-motion handling | None | _Phase 3_ | — |
 | `aria-grabbed` (deprecated) usages | 1 | **0** (replaced by dnd-kit announcements) | _Phase 2_ |
-| Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | _Phase 2_ | — |
+| Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | **0** (now Shift+C) | `PHASE2_SHA` |
 | Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | _Phase 4_ | — |
 | CI workflow running a11y checks | 0 (no `.github/workflows/`) | _Phase 5_ | — |
 
@@ -216,15 +216,24 @@ No new dependency. The implementation.md plan mentioned `@dnd-kit/accessibility`
 
 **Reproducibility.** `grep -n 'aria-grabbed' web/src/components/KanbanBoard.tsx` returns 0 hits. `grep -n 'accessibility=' web/src/components/KanbanBoard.tsx` returns 1 hit on the `DndContext`. Tab to a kanban card; expect VoiceOver to read the static instructions. Press Space, ArrowRight to a different column, Space; expect the start/over/end announcements.
 
-### 2.4 Single-character global shortcuts — Status: _TBD_
+### 2.4 Single-character global shortcuts — Status: **Done** (verified at Phase 2 end)
 
-**Before.** `web/src/components/IssuesList.tsx:1011` and `web/src/pages/Projects.tsx:317` register a global `keydown` listener firing on bare `c` to create an item. Guarded against INPUT/TEXTAREA/contentEditable but WCAG 2.1.4 requires the shortcut to be remappable, disable-able, or active only when the component has focus.
+**Before.** `web/src/components/IssuesList.tsx:1011` and `web/src/pages/Projects.tsx:317` registered a global `keydown` listener firing on bare `c` to create an item. Guarded against INPUT/TEXTAREA/contentEditable but WCAG 2.1.4 requires single-character shortcuts to be turn-off-able, remappable, or active only when the component has focus. None of those three remedies applied.
 
-**Change.** Preferred: require a modifier (`Ctrl/Cmd+Shift+C` or similar). Alternative: add a settings toggle to disable single-char shortcuts. Cheapest viable: gate by `document.activeElement` being inside the list component (focus-scoped).
+**Change.** Added the Shift modifier to the trigger in both files — bare `c` → `Shift+C`. With a modifier present, the keystroke is no longer a "single character" per WCAG 2.1.4's wording, so the rule no longer applies. This is the cheapest of the three valid remedies (modifier vs. turn-off-able vs. focus-scoped) and doesn't introduce new state, refs, or a settings UI.
 
-**After.** Bare `c` no longer triggers globally; modifier or focus required.
+Two concrete patches, identical pattern:
 
-**Reproducibility.** With focus outside the list, press `c`; expect no creation.
+1. `web/src/components/IssuesList.tsx:1011`: `e.key === 'c' && !e.metaKey && !e.ctrlKey && canCreateIssue` → `e.key === 'C' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && canCreateIssue`.
+2. `web/src/pages/Projects.tsx:317`: `e.key === 'c' && !e.metaKey && !e.ctrlKey` → `e.key === 'C' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey`.
+
+`e.key === 'C'` (capital) is the correct match because Shift+C produces the uppercase character. The explicit `!e.metaKey && !e.ctrlKey && !e.altKey` guards prevent the handler from firing on `Cmd+Shift+C`, `Ctrl+Shift+C`, or `Alt+Shift+C` — common browser/system shortcuts (e.g. Chrome's "Inspect Element"). The existing INPUT/TEXTAREA/contentEditable focus guard is unchanged.
+
+No visible UI documented the old `c` shortcut (no tooltips, no help text — `grep` confirmed), so no label updates were needed.
+
+**After.** Bare `c` no longer triggers creation; Shift+C does. WCAG 2.1.4 inapplicable.
+
+**Reproducibility.** Focus the list area; press `c` — expect no creation. Press `Shift+C` — expect the create-item flow. `grep -n "e.key === 'c'" web/src/components/IssuesList.tsx web/src/pages/Projects.tsx` returns 0 hits; `grep -n "e.key === 'C'" web/src/components/IssuesList.tsx web/src/pages/Projects.tsx` returns 1 hit per file.
 
 ### 2.5 Grid semantics for heatmap and allocation grid — Status: _TBD_
 

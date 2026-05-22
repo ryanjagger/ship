@@ -313,8 +313,8 @@ export function ProjectsPage() {
         return;
       }
 
-      // "c" to create project
-      if (e.key === 'c' && !e.metaKey && !e.ctrlKey) {
+      // Shift+C to create project
+      if (e.key === 'C' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         handleCreateProject();
       }

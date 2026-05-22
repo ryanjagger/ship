@@ -1007,8 +1007,8 @@ export function IssuesList({
         return;
       }
 
-      // "c" to create issue
-      if (e.key === 'c' && !e.metaKey && !e.ctrlKey && canCreateIssue) {
+      // Shift+C to create issue
+      if (e.key === 'C' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && canCreateIssue) {
         e.preventDefault();
         handleCreateIssue();
       }
