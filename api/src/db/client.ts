@@ -25,6 +25,12 @@ const pool = new Pool({
   statement_timeout: 30000, // 30 seconds max query duration
 });
 
+// Without this, an error on an idle client (RDS failover, network blip,
+// admin pg_terminate_backend) crashes the process with an unhandled exception.
+pool.on('error', (err, _client) => {
+  console.error('[db] idle client error:', err);
+});
+
 // Graceful shutdown - close pool connections on process termination
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, closing database pool...');
