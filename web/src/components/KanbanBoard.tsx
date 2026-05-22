@@ -98,6 +98,14 @@ export function KanbanBoard({
     setActiveId(event.active.id as string);
   };
 
+  // over.id is either a column id (dropped on the column body) or an issue id
+  // (dropped on another card). Resolve to the destination column either way.
+  const resolveColumnIdFromOver = (overId: string | number): string | null => {
+    if (COLUMNS.some((col) => col.id === overId)) return overId as string;
+    const overIssue = issues.find((i) => i.id === overId);
+    return overIssue ? overIssue.state : null;
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveId(null);
@@ -109,19 +117,7 @@ export function KanbanBoard({
     const activeIssue = issues.find((i) => i.id === active.id);
     if (!activeIssue) return;
 
-    // Determine target column
-    let targetColumn: string | null = null;
-
-    // Check if dropped on a column
-    if (COLUMNS.some((col) => col.id === over.id)) {
-      targetColumn = over.id as string;
-    } else {
-      // Dropped on another issue - find its column
-      const overIssue = issues.find((i) => i.id === over.id);
-      if (overIssue) {
-        targetColumn = overIssue.state;
-      }
-    }
+    const targetColumn = resolveColumnIdFromOver(over.id);
 
     if (targetColumn && targetColumn !== activeIssue.state) {
       onUpdateIssue(activeIssue.id, { state: targetColumn });
@@ -140,19 +136,30 @@ export function KanbanBoard({
     return column ? column.title : String(id);
   };
 
+  const describeOverColumn = (overId: string | number): string | null => {
+    const columnId = resolveColumnIdFromOver(overId);
+    return columnId ? getColumnLabel(columnId) : null;
+  };
+
   const announcements = {
     onDragStart({ active }: { active: { id: string | number } }) {
       return `Picked up issue ${getIssueLabel(active.id)}.`;
     },
     onDragOver({ active, over }: { active: { id: string | number }; over: { id: string | number } | null }) {
       if (over) {
-        return `Issue ${getIssueLabel(active.id)} is over ${getColumnLabel(over.id)}.`;
+        const columnLabel = describeOverColumn(over.id);
+        if (columnLabel) {
+          return `Issue ${getIssueLabel(active.id)} is over ${columnLabel}.`;
+        }
       }
       return `Issue ${getIssueLabel(active.id)} is no longer over a column.`;
     },
     onDragEnd({ active, over }: { active: { id: string | number }; over: { id: string | number } | null }) {
       if (over) {
-        return `Issue ${getIssueLabel(active.id)} was dropped in ${getColumnLabel(over.id)}.`;
+        const columnLabel = describeOverColumn(over.id);
+        if (columnLabel) {
+          return `Issue ${getIssueLabel(active.id)} was dropped in ${columnLabel}.`;
+        }
       }
       return `Issue ${getIssueLabel(active.id)} was dropped outside any column.`;
     },
