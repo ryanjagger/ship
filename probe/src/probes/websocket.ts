@@ -215,7 +215,7 @@ async function checkCollaborationMalformedMessage(config: ProbeConfig, cookieHea
         ]);
       }
 
-      if (observation.closed || observation.destroyed) {
+      if (wasRejected(observation)) {
         return pass('websocket.collaboration.malformed_empty_binary', 'Malformed collaboration message closed or rejected without crashing API', 'websocket', {
           path,
           observation,
@@ -263,7 +263,7 @@ async function checkCollaborationOversizedMessage(config: ProbeConfig, cookieHea
         ]);
       }
 
-      if (observation.closed || observation.destroyed) {
+      if (wasRejected(observation)) {
         return pass('websocket.collaboration.oversized_message', 'Oversized WebSocket message was rejected without crashing API', 'websocket', {
           path,
           payloadBytes: WS_MAX_MESSAGE_SIZE + 1,
@@ -366,7 +366,7 @@ function classifyStability(args: {
     ]);
   }
 
-  if (args.acceptableOpen || args.observation.closed || args.observation.destroyed) {
+  if (args.acceptableOpen || wasRejected(args.observation)) {
     return pass(args.id, args.title, 'websocket', {
       path: args.path,
       observation: args.observation,
@@ -386,6 +386,10 @@ function classifyStability(args: {
     `Open WebSocket path ${args.path} with a valid session cookie`,
     'Send the documented invalid WebSocket message',
   ]);
+}
+
+function wasRejected(observation: FrameObservation): boolean {
+  return observation.closed || observation.destroyed || observation.closeCode !== undefined;
 }
 
 async function createProbeDocument(config: ProbeConfig, client: ProbeHttpClient): Promise<{ document: ProbeDocument } | { check: ProbeCheck }> {
