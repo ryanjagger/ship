@@ -24,7 +24,7 @@ searchRouter.get('/mentions', authMiddleware, async (req: Request, res: Response
     const sanitizedQuery = escapeLikePattern(searchQuery);
 
     // Check if user is admin for visibility filtering
-    const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
+    const isAdmin = await isWorkspaceAdmin(userId, workspaceId, req.isWorkspaceAdmin);
 
     // Search for people (person documents linked via properties.user_id)
     // Person documents are always workspace-visible, so no visibility filter needed
@@ -91,7 +91,7 @@ searchRouter.get('/learnings', authMiddleware, async (req: Request, res: Respons
     const sanitizedQuery = escapeLikePattern(searchQuery);
 
     // Check if user is admin for visibility filtering
-    const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
+    const isAdmin = await isWorkspaceAdmin(userId, workspaceId, req.isWorkspaceAdmin);
 
     // Search for learning wiki documents
     // Match documents where:

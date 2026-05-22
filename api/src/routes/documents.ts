@@ -98,7 +98,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
     const workspaceId = req.workspaceId!;
 
     // Check if user is admin (admins can see all documents)
-    const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
+    const isAdmin = await isWorkspaceAdmin(userId, workspaceId, req.isWorkspaceAdmin);
 
     let query = `
       SELECT id, workspace_id, document_type, title, parent_id, position,
@@ -622,7 +622,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     // Check permission for visibility changes
     if (data.visibility !== undefined && data.visibility !== existing.visibility) {
       const isCreator = existing.created_by === userId;
-      const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
+      const isAdmin = await isWorkspaceAdmin(userId, workspaceId, req.isWorkspaceAdmin);
 
       if (!isCreator && !isAdmin) {
         res.status(403).json({ error: 'Only the creator or admin can change document visibility' });
@@ -725,7 +725,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     // Restrict reports_to changes on person documents to workspace admins
     if (existing.document_type === 'person' && data.properties?.reports_to !== undefined) {
-      const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
+      const isAdmin = await isWorkspaceAdmin(userId, workspaceId, req.isWorkspaceAdmin);
       if (!isAdmin) {
         res.status(403).json({ error: 'Only workspace admins can set the reports_to field' });
         return;

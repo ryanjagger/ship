@@ -20,7 +20,7 @@ router.get('/:id/backlinks', authMiddleware, async (req: Request, res: Response)
     const workspaceId = req.workspaceId!;
 
     // Get visibility context for filtering
-    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId, req.isWorkspaceAdmin);
 
     // Verify the document exists and user can access it
     const docResult = await pool.query(
@@ -82,7 +82,7 @@ router.post('/:id/links', authMiddleware, async (req: Request, res: Response) =>
     const { target_ids } = parsed.data;
 
     // Get visibility context for filtering
-    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId, req.isWorkspaceAdmin);
 
     // Verify the source document exists and user can access it
     const docResult = await pool.query(

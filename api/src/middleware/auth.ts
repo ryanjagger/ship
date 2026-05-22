@@ -12,6 +12,10 @@ declare global {
       workspaceId?: string;
       isSuperAdmin?: boolean;
       isApiToken?: boolean; // True when authenticated via API token
+      // Whether the authenticated user is a workspace admin (super-admin counts).
+      // Cached here by authMiddleware so route-level visibility helpers do not
+      // need to re-query workspace_memberships. See peer-review.md #1.
+      isWorkspaceAdmin?: boolean;
     }
   }
 }
@@ -26,14 +30,22 @@ async function validateApiToken(token: string): Promise<{
   userId: string;
   workspaceId: string;
   isSuperAdmin: boolean;
+  isWorkspaceAdmin: boolean;
   tokenId: string;
 } | null> {
   const tokenHash = hashToken(token);
 
+  // LEFT JOIN workspace_memberships so we can compute isWorkspaceAdmin in the
+  // same round trip — avoids a second query in route-level visibility helpers
+  // (peer-review.md #1).
   const result = await pool.query(
-    `SELECT t.id, t.user_id, t.workspace_id, t.expires_at, t.revoked_at, u.is_super_admin
+    `SELECT t.id, t.user_id, t.workspace_id, t.expires_at, t.revoked_at,
+            u.is_super_admin,
+            m.role AS workspace_role
      FROM api_tokens t
      JOIN users u ON t.user_id = u.id
+     LEFT JOIN workspace_memberships m
+       ON m.workspace_id = t.workspace_id AND m.user_id = t.user_id
      WHERE t.token_hash = $1`,
     [tokenHash]
   );
@@ -58,6 +70,7 @@ async function validateApiToken(token: string): Promise<{
     userId: tokenRow.user_id,
     workspaceId: tokenRow.workspace_id,
     isSuperAdmin: tokenRow.is_super_admin,
+    isWorkspaceAdmin: tokenRow.is_super_admin || tokenRow.workspace_role === 'admin',
     tokenId: tokenRow.id,
   };
 }
@@ -90,6 +103,7 @@ export async function authMiddleware(
       req.userId = tokenData.userId;
       req.workspaceId = tokenData.workspaceId;
       req.isSuperAdmin = tokenData.isSuperAdmin;
+      req.isWorkspaceAdmin = tokenData.isWorkspaceAdmin;
       req.isApiToken = true;
 
       next();
@@ -179,10 +193,14 @@ export async function authMiddleware(
       return;
     }
 
-    // Verify user still has access to the workspace (unless super-admin)
-    if (session.workspace_id && !session.is_super_admin) {
+    // Verify user still has access to the workspace and capture admin role
+    // (super-admins skip this check and are treated as workspace admins).
+    let isWorkspaceAdmin = false;
+    if (session.is_super_admin) {
+      isWorkspaceAdmin = true;
+    } else if (session.workspace_id) {
       const membershipResult = await pool.query(
-        'SELECT id FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',
+        'SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',
         [session.workspace_id, session.user_id]
       );
 
@@ -199,6 +217,8 @@ export async function authMiddleware(
         });
         return;
       }
+
+      isWorkspaceAdmin = membershipResult.rows[0].role === 'admin';
     }
 
     // Update last_activity and refresh the cookie at most once per minute.
@@ -227,6 +247,7 @@ export async function authMiddleware(
     req.userId = session.user_id;
     req.workspaceId = session.workspace_id;
     req.isSuperAdmin = session.is_super_admin;
+    req.isWorkspaceAdmin = isWorkspaceAdmin;
 
     next();
   } catch (error) {
