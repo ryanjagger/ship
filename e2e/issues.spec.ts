@@ -168,14 +168,14 @@ test.describe('Issues (Phase 5)', () => {
     await expect(page).toHaveURL(/state=/)
   })
 
-  test('keyboard shortcut C creates new issue', async ({ page }) => {
+  test('keyboard shortcut Shift+C creates new issue', async ({ page }) => {
     await page.goto('/issues')
 
     // Wait for page to be fully loaded
     await expect(page.getByRole('heading', { name: 'Issues', level: 1 })).toBeVisible({ timeout: 5000 })
 
-    // Press C to create new issue
-    await page.keyboard.press('c')
+    // Press Shift+C to create new issue (WCAG 2.1.4 requires modifier for single-char shortcuts)
+    await page.keyboard.press('Shift+C')
 
     // Should navigate to new issue editor - unified document routing
     await expect(page).toHaveURL(/\/documents\/[a-f0-9-]+/, { timeout: 5000 })

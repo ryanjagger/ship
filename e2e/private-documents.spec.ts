@@ -296,7 +296,7 @@ test.describe('Private Documents', () => {
     await page.waitForLoadState('networkidle');
 
     // Should see the visibility dropdown with current value "Workspace"
-    const visibilitySection = page.locator('label:has-text("Visibility")').locator('..');
+    const visibilitySection = page.getByText('Visibility', { exact: true }).locator('..');
     await expect(visibilitySection.getByRole('button')).toBeVisible();
     await expect(visibilitySection.getByText('Workspace')).toBeVisible();
 
