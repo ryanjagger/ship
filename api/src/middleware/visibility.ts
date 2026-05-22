@@ -1,9 +1,16 @@
 import { pool } from '../db/client.js';
 
 /**
- * Check if user is a workspace admin
+ * Check if user is a workspace admin.
+ * Pass `cachedIsAdmin` (typically `req.isWorkspaceAdmin`, populated by
+ * authMiddleware) to skip the DB query.
  */
-export async function isWorkspaceAdmin(userId: string, workspaceId: string): Promise<boolean> {
+export async function isWorkspaceAdmin(
+  userId: string,
+  workspaceId: string,
+  cachedIsAdmin?: boolean,
+): Promise<boolean> {
+  if (cachedIsAdmin !== undefined) return cachedIsAdmin;
   const result = await pool.query(
     'SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',
     [workspaceId, userId]
@@ -15,6 +22,11 @@ export async function isWorkspaceAdmin(userId: string, workspaceId: string): Pro
  * Get visibility filter context for SQL queries.
  * Returns the isAdmin boolean that should be used with visibility filter SQL.
  *
+ * Pass `cachedIsAdmin` (typically `req.isWorkspaceAdmin`, populated by
+ * authMiddleware) to skip the DB query — authMiddleware already knows the
+ * caller's admin status from the membership lookup it does at request entry.
+ * See peer-review.md #1.
+ *
  * The visibility filter pattern is:
  *   (visibility = 'workspace' OR created_by = $userId OR $isAdmin = TRUE)
  *
@@ -25,9 +37,10 @@ export async function isWorkspaceAdmin(userId: string, workspaceId: string): Pro
  */
 export async function getVisibilityContext(
   userId: string,
-  workspaceId: string
+  workspaceId: string,
+  cachedIsAdmin?: boolean,
 ): Promise<{ isAdmin: boolean }> {
-  const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
+  const isAdmin = await isWorkspaceAdmin(userId, workspaceId, cachedIsAdmin);
   return { isAdmin };
 }
 

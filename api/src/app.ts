@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -135,6 +136,12 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
 
   // Apply rate limiting to all API routes
   app.use('/api/', apiLimiter);
+
+  // gzip/deflate response compression. Big win for JSON payloads over WAN
+  // (see audit/api-reponse-time/peer-review.md #3). `compression` skips bodies
+  // smaller than 1 KB by default, so small responses are unaffected.
+  app.use(compression());
+
   app.use(cors({
     origin: corsOrigin,
     credentials: true,
