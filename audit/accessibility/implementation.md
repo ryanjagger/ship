@@ -8,20 +8,23 @@ The audit and peer review together identified 4 originally-flagged violations pl
 
 | Area | Before | After | Commit |
 | --- | --- | --- | --- |
-| Lighthouse low-water-mark (Settings) | 94 | _TBD_ | _TBD_ |
-| axe Critical violations | 1 | _TBD_ | _TBD_ |
-| axe Serious violations | 3 | _TBD_ | _TBD_ |
-| Pages with `<main>` landmark | 9/10 (Login missing) | _TBD_ | _TBD_ |
-| Selects missing accessible name | 3 (Settings) | _TBD_ | _TBD_ |
-| `text-accent` on `bg-background` text usages | ~20+ | _TBD_ | _TBD_ |
-| Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | _TBD_ | _TBD_ |
-| TipTap surfaces with accessible name | 0 (body + title) | _TBD_ | _TBD_ |
-| Tab panels with valid `aria-controls` target | 0 (dangling refs) | _TBD_ | _TBD_ |
-| Reduced-motion handling | None | _TBD_ | _TBD_ |
-| `aria-grabbed` (deprecated) usages | 1 | _TBD_ | _TBD_ |
-| Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | _TBD_ | _TBD_ |
-| Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | _TBD_ | _TBD_ |
-| CI workflow running a11y checks | 0 (no `.github/workflows/`) | _TBD_ | _TBD_ |
+| Lighthouse low-water-mark (Settings) | 94 | **100** | `087d67c` |
+| Login Lighthouse | 98 | **100** | `74ce704` |
+| axe Critical violations | 1 | **0** | `087d67c` |
+| axe Serious violations | 3 | 3 (all Phase 3 contrast) | — |
+| Pages with `<main>` landmark | 9/10 (Login missing) | **10/10** | `74ce704` |
+| Selects missing accessible name | 3 (Settings) | **0** | `087d67c` |
+| `text-accent` on `bg-background` text usages | ~20+ | _Phase 3_ | — |
+| Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | _Phase 3_ | — |
+| TipTap surfaces with accessible name | 0 (body + title) | **2/2** | `c0908cb` |
+| Icon-only buttons relying on `title` for SR name | 2 (workspace, sign-out) | **0** | `31339df` |
+| Form fields with linked validation errors | 2 (Login only) | **4** (+ ProjectSetupWizard) | `6bd2cdf` |
+| Tab panels with valid `aria-controls` target | 0 (dangling refs) | _Phase 2_ | — |
+| Reduced-motion handling | None | _Phase 3_ | — |
+| `aria-grabbed` (deprecated) usages | 1 | _Phase 2_ | — |
+| Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | _Phase 2_ | — |
+| Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | _Phase 4_ | — |
+| CI workflow running a11y checks | 0 (no `.github/workflows/`) | _Phase 5_ | — |
 
 Status legend used in the per-fix sections below: **Done** (committed), **In progress**, **Deferred** (carried forward with rationale).
 
@@ -43,7 +46,7 @@ Did not touch the isCheckingSetup loading state at `:174` — that's an ephemera
 
 **Workflow note for later fixes.** The audit-runner uses `vite preview` against the pre-built `web/dist` (per `e2e/fixtures/isolated-env.ts` — `vite dev` was banned for memory reasons), and the audit-runner config skips the `globalSetup` that the main e2e config uses to rebuild. **Every fix in this implementation must run `pnpm build:web` before re-running the runner**, or the audit will silently report the pre-fix state.
 
-### 1.2 Settings selects: accessible names — Status: **Done** (verified at Phase 1 end)
+### 1.2 Settings selects: accessible names — Status: **Done**
 
 **Before.** `web/src/pages/WorkspaceSettings.tsx:324` (member role), `:420` (invite role), `:601` (token expiry) render `<select>` elements without `aria-label` or an associated `<label>` (or with a `<label>` that is not `htmlFor`-linked). axe reports 1 Critical violation; Lighthouse drops Settings to 94.
 
@@ -57,7 +60,7 @@ Did not touch the isCheckingSetup loading state at `:174` — that's an ephemera
 
 **Reproducibility.** Re-run the audit runner; check Settings page section in `results.json`.
 
-### 1.3 WorkspaceSettings: label association for Token Name / Expires and invite email — Status: **Done** (verified at Phase 1 end)
+### 1.3 WorkspaceSettings: label association for Token Name / Expires and invite email — Status: **Done**
 
 **Before.** `web/src/pages/WorkspaceSettings.tsx:589-610` renders `<label>Token Name</label>` and `<label>Expires</label>` without `htmlFor` and without wrapping the input — visually labeled, programmatically unlabeled. `:412-419` renders the invite email input with only `placeholder="Email address"` (placeholder is not a name per WCAG 3.3.2).
 
@@ -71,7 +74,7 @@ Did not touch the isCheckingSetup loading state at `:174` — that's an ephemera
 
 **Reproducibility.** Audit runner Settings page; manual focus + VoiceOver check that announces the visible label.
 
-### 1.4 TipTap title textarea + duplicate `<h1>` — Status: **Done** (verified at Phase 1 end)
+### 1.4 TipTap title textarea + duplicate `<h1>` — Status: **Done**
 
 **Before.** `web/src/components/Editor.tsx:927-949` renders the editable title as a `<textarea>` with no `aria-label`, no `<label>`, only `placeholder="Untitled"`. A small `<h1>` at `:843` duplicates the title text in the compact header. Result: SR users hear an `<h1>` at small visual size; the obvious-looking title input is unnamed.
 
@@ -86,7 +89,7 @@ Did not introduce `sr-only` hidden h1 elements or `aria-labelledby` cross-refere
 
 **Reproducibility.** Open `/documents/:id`; inspect textarea accessible name in DevTools accessibility panel; expect "Document title".
 
-### 1.5 TipTap editor surface accessible name — Status: **Done** (verified at Phase 1 end)
+### 1.5 TipTap editor surface accessible name — Status: **Done**
 
 **Before.** `web/src/components/Editor.tsx:620-627` sets `editorProps.attributes` with only `class`. The resulting `contenteditable` `<div>` at `:981` has no `aria-label`, `role="textbox"`, or `aria-multiline`. VoiceOver announces "edit text, blank". Lighthouse and axe miss this because ProseMirror's element doesn't match standard rules — so the audit gave Docs/Issues/Programs/Projects "100" Lighthouse despite the unlabeled primary content surface.
 
@@ -102,7 +105,7 @@ Did not use `aria-labelledby` against the title textarea — `aria-label` is the
 
 **Reproducibility.** DevTools accessibility tree on `.ProseMirror`; expect non-empty accessible name.
 
-### 1.6 Icon-only buttons: workspace switcher and avatar/logout — Status: **Done** (verified at Phase 1 end)
+### 1.6 Icon-only buttons: workspace switcher and avatar/logout — Status: **Done**
 
 **Before.** `web/src/pages/App.tsx:302-308` (workspace switcher) and `:410-416` (avatar/logout) use only `title=` for tooltip. `title` is announced inconsistently across SRs and only on hover, not focus. The avatar button's accessible name is the user's initial (e.g. "R"), and the workspace switcher's name is the first character of the workspace name — neither conveys what the button does.
 
@@ -117,7 +120,7 @@ Did not use `aria-labelledby` against the title textarea — `aria-label` is the
 
 **Reproducibility.** Audit-runner "Unnamed buttons" check on App layout; expect 0. DevTools accessibility panel on each button; expect the `aria-label` text as the computed name.
 
-### 1.7 ProjectSetupWizard: `aria-describedby` + `aria-invalid` on field errors — Status: **Done** (verified at Phase 1 end)
+### 1.7 ProjectSetupWizard: `aria-describedby` + `aria-invalid` on field errors — Status: **Done**
 
 **Before.** `web/src/components/ProjectSetupWizard.tsx:96-112` and `:120-144` render error `<p>` adjacent to inputs without linking them. `aria-invalid` is also not set. Login does this correctly (`Login.tsx:252-253`) — the wizard just needs the same pattern.
 
@@ -131,6 +134,33 @@ Using `undefined` (not `'false'`) on the non-error path keeps the attribute abse
 **After.** Error text is announced when the input receives focus, and `aria-invalid` lets SR users know the field is in an error state.
 
 **Reproducibility.** Trigger validation in the wizard; tab back to the field; expect VoiceOver to announce error text.
+
+### Phase 1 verification (2026-05-22)
+
+After all five Phase 1 commits landed (`74ce704`, `087d67c`, `c0908cb`, `31339df`, `6bd2cdf`), ran `pnpm build:web` followed by `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts`. Full route summary from `audit/accessibility/results.json`:
+
+| Route | LH before | LH after | Critical | Serious | SR proxy |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Login | 98 | **100** | 0 | 0 | Pass |
+| My Week | 95 | 95 | 0 | 1 (contrast, Phase 3) | Pass |
+| Docs | 100 | 100 | 0 | 0 | Pass |
+| Issues | 100 | 100 | 0 | 0 | Pass |
+| Programs | 100 | 100 | 0 | 0 | Pass |
+| Projects | 100 | 100 | 0 | 0 | Pass |
+| Team Allocation | 96 | 96 | 0 | 1 (contrast, Phase 3) | Pass |
+| Team Directory | 100 | 100 | 0 | 0 | Pass |
+| Team Status | 96 | 96 | 0 | 1 (contrast, Phase 3) | Pass |
+| Settings | 94 | **100** | **1 → 0** | 0 | Pass |
+
+Phase 1 deltas: axe Critical 1 → 0, Settings Lighthouse 94 → 100, Login Lighthouse 98 → 100. The three remaining Serious violations are all `color-contrast` on the `text-accent`/`bg-background` current-week labels — scheduled for Phase 3.
+
+Items 1.4 (TipTap title), 1.5 (TipTap body), 1.6 (icon-only buttons), and 1.7 (ProjectSetupWizard errors) do not move the automated numbers because:
+
+- axe has no rule for ProseMirror's `contenteditable` accessible name (peer-review §1), so 1.4 and 1.5 are invisible to the runner — the fix is verified by `grep` on the source: `'aria-label': 'Document body'` and `role: 'textbox'` at `Editor.tsx:625, :627`, `aria-label="Document title"` at `:944`.
+- Replacing `title=` with `aria-label=` doesn't change Lighthouse score (1.6) — `title` was already a fallback accessible-name source. The improvement is announcement consistency across screen readers and on focus rather than only on hover. Verified by `grep` at `App.tsx:306, :415`.
+- ProjectSetupWizard error linking (1.7) only manifests when validation fails post-submit — the runner doesn't synthesize form failures. Verified by `grep` at `ProjectSetupWizard.tsx:108-109, :113, :132-133, :147`.
+
+Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests (`pnpm test`).
 
 ## Phase 2 — Serious (WCAG A: 1.3.1, 2.1.1, 2.1.4)
 
