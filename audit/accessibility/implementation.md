@@ -102,15 +102,20 @@ Did not use `aria-labelledby` against the title textarea — `aria-label` is the
 
 **Reproducibility.** DevTools accessibility tree on `.ProseMirror`; expect non-empty accessible name.
 
-### 1.6 Icon-only buttons: workspace switcher and avatar/logout — Status: _TBD_
+### 1.6 Icon-only buttons: workspace switcher and avatar/logout — Status: **Done** (verified at Phase 1 end)
 
-**Before.** `web/src/pages/App.tsx:302-308` (workspace switcher) and `:410-416` (avatar/logout) use only `title=` for tooltip. `title` is announced inconsistently across SRs and only on hover, not focus. The avatar button's accessible name is the user's initial (e.g. "R").
+**Before.** `web/src/pages/App.tsx:302-308` (workspace switcher) and `:410-416` (avatar/logout) use only `title=` for tooltip. `title` is announced inconsistently across SRs and only on hover, not focus. The avatar button's accessible name is the user's initial (e.g. "R"), and the workspace switcher's name is the first character of the workspace name — neither conveys what the button does.
 
-**Change.** Replace `title="..."` with `aria-label="..."` on both buttons. Keep `title` if the visual tooltip is desired, but `aria-label` becomes the accessible name.
+**Change.** Two concrete patches in `web/src/pages/App.tsx`:
 
-**After.** Both buttons announce as e.g. "Switch workspace" / "Sign out" instead of "R".
+1. Workspace switcher button: added `aria-label={currentWorkspace?.name ? \`Switch workspace (current: ${currentWorkspace.name})\` : 'Select workspace'}`. The accessible name names the *action* (switch) and folds in current context (workspace name) so SR users hear what they're activating, not just where they are.
+2. Avatar/logout button: added `aria-label={\`Sign out (${user?.name ?? 'user'})\`}`. Sign-out is the verb; the user's name is parenthetical context so the announcement begins with the action.
 
-**Reproducibility.** Audit-runner "Unnamed buttons" check on App layout; expect 0.
+`title` is preserved on both buttons as the visual hover tooltip — the problem was using `title` as the *accessible name* source (inconsistent across SRs, hover-only), not the tooltip itself. With `aria-label` present, browsers compute the accessible name from `aria-label` and `title` reverts to its visual-tooltip role only.
+
+**After.** SR announces "Switch workspace (current: Engineering), button" and "Sign out (Ryan Jagger), button" instead of the rendered initial.
+
+**Reproducibility.** Audit-runner "Unnamed buttons" check on App layout; expect 0. DevTools accessibility panel on each button; expect the `aria-label` text as the computed name.
 
 ### 1.7 ProjectSetupWizard: `aria-describedby` + `aria-invalid` on field errors — Status: _TBD_
 
