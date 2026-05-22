@@ -102,8 +102,9 @@ test.describe('Status Overview Heatmap', () => {
     // Should navigate to a document page
     await expect(page).toHaveURL(/\/documents\//, { timeout: 10000 })
 
-    // Should see Weekly Plan title
-    await expect(page.getByRole('heading', { name: /Week \d+ Plan/ })).toBeVisible({ timeout: 5000 })
+    // Should see Weekly Plan title (compact-header <h1> demoted to <div> in a11y triage;
+    // assert via the title textbox which exposes aria-label="Document title")
+    await expect(page.getByLabel('Document title')).toHaveValue(/Week \d+ Plan/, { timeout: 5000 })
   })
 
   test('clicking retro cell navigates to weekly retro document', async ({ page }) => {
@@ -123,8 +124,9 @@ test.describe('Status Overview Heatmap', () => {
     // Should navigate to a document page
     await expect(page).toHaveURL(/\/documents\//, { timeout: 10000 })
 
-    // Should see Weekly Retro title
-    await expect(page.getByRole('heading', { name: /Week \d+ Retro/ })).toBeVisible({ timeout: 5000 })
+    // Should see Weekly Retro title (compact-header <h1> demoted to <div> in a11y triage;
+    // assert via the title textbox which exposes aria-label="Document title")
+    await expect(page.getByLabel('Document title')).toHaveValue(/Week \d+ Retro/, { timeout: 5000 })
   })
 
   test('Show archived checkbox is present', async ({ page }) => {
