@@ -1,0 +1,347 @@
+# Accessibility Audit — Implementation Notes
+
+Companion to `README.md` (audit baseline, 2026-05-19) and `peer-review.md` (reviewer pass, supersedes the README's findings list). Documents what was fixed, how, and how to reproduce the result. Branch: `implement/accessibility`.
+
+The audit and peer review together identified 4 originally-flagged violations plus ~20 issues that the automated Lighthouse + axe pass missed. This document tracks remediation in five phases, ordered by WCAG severity and blast radius.
+
+## Summary
+
+| Area | Before | After | Commit |
+| --- | --- | --- | --- |
+| Lighthouse low-water-mark (Settings) | 94 | _TBD_ | _TBD_ |
+| axe Critical violations | 1 | _TBD_ | _TBD_ |
+| axe Serious violations | 3 | _TBD_ | _TBD_ |
+| Pages with `<main>` landmark | 9/10 (Login missing) | _TBD_ | _TBD_ |
+| Selects missing accessible name | 3 (Settings) | _TBD_ | _TBD_ |
+| `text-accent` on `bg-background` text usages | ~20+ | _TBD_ | _TBD_ |
+| Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | _TBD_ | _TBD_ |
+| TipTap surfaces with accessible name | 0 (body + title) | _TBD_ | _TBD_ |
+| Tab panels with valid `aria-controls` target | 0 (dangling refs) | _TBD_ | _TBD_ |
+| Reduced-motion handling | None | _TBD_ | _TBD_ |
+| `aria-grabbed` (deprecated) usages | 1 | _TBD_ | _TBD_ |
+| Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | _TBD_ | _TBD_ |
+| Decorative `<label>` (no `htmlFor`, no wrapped control) | ~25 | _TBD_ | _TBD_ |
+| CI workflow running a11y checks | 0 (no `.github/workflows/`) | _TBD_ | _TBD_ |
+
+Status legend used in the per-fix sections below: **Done** (committed), **In progress**, **Deferred** (carried forward with rationale).
+
+## Phase 1 — Critical (WCAG A, name/role/value)
+
+These are the items where a screen-reader user cannot identify, name, or operate a control. Phase 1 covers the four originally-flagged violations plus the five most consequential additions from the peer review.
+
+### 1.1 Login page `<main>` landmark — Status: **Done**
+
+**Before.** `web/src/pages/Login.tsx:181` wrapped the form in a plain `<div>`. Only `AppLayout` (post-auth) provided `<main id="main-content">` at `App.tsx:544`, so the pre-auth route had no main landmark and Lighthouse dropped Login to 98.
+
+**Change.** Converted the outer wrapper at `web/src/pages/Login.tsx:181` from `<div>` to `<main>` (and the matching closing tag at `:370`). No `id="main-content"` needed — the skip link only renders inside the authenticated `AppLayout` (`App.tsx:265-269`), and Login has no skip link of its own.
+
+Did not touch the isCheckingSetup loading state at `:174` — that's an ephemeral pre-render branch, not a primary content surface, and adding a second `<main>` would create two landmarks during the brief loading window.
+
+**After (verified 2026-05-22).** Login Lighthouse 98 → **100**, `failingAudits: []`, axe violations 0, screen-reader proxy `mainCount: 1` (was 0), `status: "Pass"`.
+
+**Reproducibility.** `pnpm build:web` first (the audit-runner config has no `globalSetup`, so it serves whatever is in `web/dist`), then `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts`. Inspect `audit/accessibility/results.json`: `lighthouse.Login.score === 100`, `axe.Login.violations === []`.
+
+**Workflow note for later fixes.** The audit-runner uses `vite preview` against the pre-built `web/dist` (per `e2e/fixtures/isolated-env.ts` — `vite dev` was banned for memory reasons), and the audit-runner config skips the `globalSetup` that the main e2e config uses to rebuild. **Every fix in this implementation must run `pnpm build:web` before re-running the runner**, or the audit will silently report the pre-fix state.
+
+### 1.2 Settings selects: accessible names — Status: _TBD_
+
+**Before.** `web/src/pages/WorkspaceSettings.tsx:324` (member role), `:420` (invite role), `:601` (token expiry) render `<select>` elements without `aria-label` or an associated `<label>` (or with a `<label>` that is not `htmlFor`-linked). axe reports 1 Critical violation; Lighthouse drops Settings to 94.
+
+**Change.** Add `aria-label` to each `<select>`, or associate the adjacent `<label>` via `htmlFor`/`id`. Prefer `htmlFor`/`id` where a visible label exists (visible label and accessible name agree, per WCAG 2.5.3).
+
+**After.** axe Critical = 0; Settings Lighthouse → 100.
+
+**Reproducibility.** Re-run the audit runner; check Settings page section in `results.json`.
+
+### 1.3 WorkspaceSettings: label association for Token Name / Expires and invite email — Status: _TBD_
+
+**Before.** `web/src/pages/WorkspaceSettings.tsx:589-610` renders `<label>Token Name</label>` and `<label>Expires</label>` without `htmlFor` and without wrapping the input — visually labeled, programmatically unlabeled. `:412-419` renders the invite email input with only `placeholder="Email address"` (placeholder is not a name per WCAG 3.3.2).
+
+**Change.** Add `id` to each input and `htmlFor` on each `<label>`. For the invite email input, add a wrapping `<label>` or `aria-label="Invite email address"`.
+
+**After.** Every form control in WorkspaceSettings has a programmatic accessible name.
+
+**Reproducibility.** Audit runner Settings page; manual focus + VoiceOver check that announces the visible label.
+
+### 1.4 TipTap title textarea + duplicate `<h1>` — Status: _TBD_
+
+**Before.** `web/src/components/Editor.tsx:927-949` renders the editable title as a `<textarea>` with no `aria-label`, no `<label>`, only `placeholder="Untitled"`. A small `<h1>` at `:843` duplicates the title text in the compact header. Result: SR users hear an `<h1>` at small visual size; the obvious-looking title input is unnamed.
+
+**Change.** Add `aria-label="Document title"` to the textarea at `:927`. Remove the small duplicate `<h1>` at `:843` (or hide visually + keep for SR — prefer removal, since the textarea content is the source of truth).
+
+**After.** One semantic title source, programmatically labeled. Affects Docs, Issues, Programs, Projects pages (every page that wraps the Editor).
+
+**Reproducibility.** Open `/documents/:id`; inspect textarea accessible name in DevTools accessibility panel; expect "Document title".
+
+### 1.5 TipTap editor surface accessible name — Status: _TBD_
+
+**Before.** `web/src/components/Editor.tsx:620-627` sets `editorProps.attributes` with only `class`. The resulting `contenteditable` `<div>` at `:981` has no `aria-label`, `role="textbox"`, or `aria-multiline`. VoiceOver announces "edit text, blank". Lighthouse and axe miss this because ProseMirror's element doesn't match standard rules — so the audit gave Docs/Issues/Programs/Projects "100" Lighthouse despite the unlabeled primary content surface.
+
+**Change.** Add to `editorProps.attributes`:
+```ts
+attributes: {
+  class: '...existing...',
+  'aria-label': 'Document body',
+  'aria-multiline': 'true',
+  role: 'textbox',
+}
+```
+(Or `aria-labelledby` pointing at the title textarea's `id` once added in §1.4.)
+
+**After.** Editor surface announced as "Document body, edit text, multi line" by VoiceOver. Affects every editor-bearing page.
+
+**Reproducibility.** DevTools accessibility tree on `.ProseMirror`; expect non-empty accessible name.
+
+### 1.6 Icon-only buttons: workspace switcher and avatar/logout — Status: _TBD_
+
+**Before.** `web/src/pages/App.tsx:302-308` (workspace switcher) and `:410-416` (avatar/logout) use only `title=` for tooltip. `title` is announced inconsistently across SRs and only on hover, not focus. The avatar button's accessible name is the user's initial (e.g. "R").
+
+**Change.** Replace `title="..."` with `aria-label="..."` on both buttons. Keep `title` if the visual tooltip is desired, but `aria-label` becomes the accessible name.
+
+**After.** Both buttons announce as e.g. "Switch workspace" / "Sign out" instead of "R".
+
+**Reproducibility.** Audit-runner "Unnamed buttons" check on App layout; expect 0.
+
+### 1.7 ProjectSetupWizard: `aria-describedby` + `aria-invalid` on field errors — Status: _TBD_
+
+**Before.** `web/src/components/ProjectSetupWizard.tsx:96-112` and `:120-144` render error `<p>` adjacent to inputs without linking them. `aria-invalid` is also not set. Login does this correctly (`Login.tsx:252-253`) — the wizard just needs the same pattern.
+
+**Change.** Add `id="field-X-error"` to each error `<p>`. Set `aria-describedby="field-X-error"` and `aria-invalid={hasError}` on the corresponding input.
+
+**After.** Error text is announced when the input receives focus, and `aria-invalid` lets SR users know the field is in an error state.
+
+**Reproducibility.** Trigger validation in the wizard; tab back to the field; expect VoiceOver to announce error text.
+
+## Phase 2 — Serious (WCAG A: 1.3.1, 2.1.1, 2.1.4)
+
+These are structural/keyboard issues — the controls are technically reachable but not announced, not operable without a mouse, or not navigable with the keyboard model the user expects.
+
+### 2.1 TabBar / tabpanel wiring + roving tabindex — Status: _TBD_
+
+**Before.** `web/src/components/ui/TabBar.tsx:25` sets `aria-controls={\`tabpanel-${tab.id}\`}`, but `web/src/pages/UnifiedDocumentPage.tsx:500-512` renders tab content in a plain `<div>` with no `id`, no `role="tabpanel"`, no `aria-labelledby`. The reference dangles. Also missing: roving `tabIndex={selected ? 0 : -1}` and ArrowLeft/ArrowRight handlers.
+
+**Change.** In `UnifiedDocumentPage.tsx`: wrap each tab's content in `<div id="tabpanel-{id}" role="tabpanel" aria-labelledby="tab-{id}" tabIndex={0}>`. In `TabBar.tsx`: add roving tabindex; bind ArrowLeft/Right (and Home/End) to move focus between tabs; ensure each tab has `id="tab-{id}"` matching the `aria-labelledby` from the panel.
+
+**After.** Tabs follow the WAI-ARIA Authoring Practices tabs pattern. Audit-runner `aria-controls` integrity check (added in §5.1) passes.
+
+**Reproducibility.** Focus a tab; press ArrowRight; focus moves to next tab. Inspect each `aria-controls` value; `document.getElementById(...)` resolves.
+
+### 2.2 Comment context menu: keyboard support — Status: _TBD_
+
+**Before.** `web/src/components/Editor.tsx:954-978` builds an ad-hoc DOM menu via `document.createElement` on `onContextMenu`. No `role="menu"`, no Escape handling, no focus mgmt, no keyboard activation path. Right-click only.
+
+**Change.** Convert to a React menu component (or wire the existing imperative code) with: `role="menu"` on the container, `role="menuitem"` on items, focus moved to the first item on open, Escape to close + restore focus, ArrowUp/Down to navigate items. Ensure Shift+F10 and the context-menu key trigger the same `onContextMenu` path (browsers fire it natively, so verify only).
+
+**After.** Comment menu invokable by keyboard via Shift+F10 / context-menu key; navigable by arrow keys; dismissable by Escape.
+
+**Reproducibility.** In editor with selection, press Shift+F10; expect menu to open and first item to be focused.
+
+### 2.3 KanbanBoard: drop `aria-grabbed`, wire dnd-kit accessibility — Status: _TBD_
+
+**Before.** `web/src/components/KanbanBoard.tsx:283` uses `aria-grabbed`, deprecated in ARIA 1.1. SR experience for drag-drop is undefined.
+
+**Change.** Remove `aria-grabbed`. Import `LiveRegion` and `Announcements` from `@dnd-kit/accessibility` and pass to `DndContext`. Provide `screenReaderInstructions` for keyboard drag operations.
+
+**After.** SR users hear "Picked up issue Foo" / "Moved Foo to In Progress" instead of nothing.
+
+**Reproducibility.** Tab to a kanban card, activate with Space, ArrowDown to move; expect SR announcement.
+
+### 2.4 Single-character global shortcuts — Status: _TBD_
+
+**Before.** `web/src/components/IssuesList.tsx:1011` and `web/src/pages/Projects.tsx:317` register a global `keydown` listener firing on bare `c` to create an item. Guarded against INPUT/TEXTAREA/contentEditable but WCAG 2.1.4 requires the shortcut to be remappable, disable-able, or active only when the component has focus.
+
+**Change.** Preferred: require a modifier (`Ctrl/Cmd+Shift+C` or similar). Alternative: add a settings toggle to disable single-char shortcuts. Cheapest viable: gate by `document.activeElement` being inside the list component (focus-scoped).
+
+**After.** Bare `c` no longer triggers globally; modifier or focus required.
+
+**Reproducibility.** With focus outside the list, press `c`; expect no creation.
+
+### 2.5 Grid semantics for heatmap and allocation grid — Status: _TBD_
+
+**Before.** `web/src/components/StatusOverviewHeatmap.tsx` and `web/src/components/AccountabilityGrid.tsx` build columns/rows entirely with `<div>` and no grid roles. SR users cannot navigate by row/column or know the column header for a cell. Plus current-week highlight is color-only (`ring-1 ring-accent/30` + blue text — WCAG 1.4.1).
+
+**Change.** Either add `role="grid"` + `role="row"` + `role="columnheader"` + `role="rowheader"` to the container hierarchy, OR rewrite as `<table>`. Prefer `<table>` if static; ARIA grid if keyboard navigation needs to be custom. Add a non-color "This week" badge on the current-week column header.
+
+**After.** Heatmap/grid structure announced row-by-column; current-week distinguishable without color.
+
+**Reproducibility.** SR pass over `/team/status` and `/team/allocation`; expect "column 3 of 12, row 2 of 8" navigation.
+
+## Phase 3 — Serious (WCAG AA: 1.4.3, 2.3.3)
+
+### 3.1 `accent-text` color token + repo-wide replacement — Status: _TBD_
+
+**Before.** `text-accent` (#005ea2) on `bg-background` (#0d0d0d) yields ~2.99:1 contrast, failing AA 4.5:1. The audit reported 3 instances; the actual surface is ~20+ files using the token for text:
+
+- `web/src/components/ui/Combobox.tsx:138` (check-mark indicator color)
+- `MultiPersonCombobox.tsx`, `ProjectCombobox.tsx`, `ProgramCombobox.tsx`, `PersonCombobox.tsx` check states
+- `web/src/components/DashboardSidebar.tsx:36, :51` active-link styling
+- `web/src/components/StandupFeed.tsx:317` mentions
+- `web/src/components/document-tabs/ProgramWeeksTab.tsx:120`
+- `web/src/components/IssuesList.tsx:1062, :1175` "Create an issue" link
+- `web/src/components/AccountabilityGrid.tsx`, `StatusOverviewHeatmap.tsx`, `DocumentTreeItem.tsx`, `WeekTimeline.tsx`, `ProgramProjectsTab.tsx`, `VisibilityDropdown.tsx`
+- Per-page current-week labels on My Week, Team Allocation, Team Status
+
+**Change.** Add an `accent-text` token to `web/tailwind.config.js` colors at a luminance that gives ≥ 4.5:1 on `#0d0d0d` (target `#2e8dcc` or lighter; verify). Search-replace `text-accent` → `text-accent-text` for **text** usage only (do not touch `bg-accent`, `border-accent`, `ring-accent` which are non-text uses).
+
+**After.** All `text-accent`-as-text instances meet AA contrast. `bg-accent` (filled controls) unchanged.
+
+**Reproducibility.** `grep -r "text-accent" web/src` returns 0 results outside of intentional non-text or comments. Audit runner contrast check passes on My Week, Team Allocation, Team Status.
+
+### 3.2 My Week future-row dimming — Status: _TBD_
+
+**Before.** `web/src/pages/MyWeekPage.tsx:339` applies `isFuture && 'opacity-40'` to rows, dimming text below AA. Opacity on a text container changes effective foreground luminance against any non-uniform background.
+
+**Change.** Replace `opacity-40` with an explicit muted text color (e.g. `text-muted`) and add a status pill ("Upcoming") so the temporal state is communicated by copy + color, not by transparency.
+
+**After.** Future rows readable at AA; temporal state expressed in text content.
+
+**Reproducibility.** Audit runner contrast check on My Week; expect 0 contrast violations on future rows.
+
+### 3.3 Global `prefers-reduced-motion` — Status: _TBD_
+
+**Before.** `grep -r 'prefers-reduced-motion\|motion-reduce\|motion-safe' web/src` returns 0 hits. Visible animations include `animate-pulse` on banners and sync indicator, `animate-in slide-in-from-right-4 fade-in` on toasts, `animate-spin` on loaders, `transition-all duration-500` on the celebration banner.
+
+**Change.** Add to `web/src/index.css`:
+```css
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+```
+Audit `animate-pulse` usages on banners (`AccountabilityBanner.tsx:30, :56`) and the sync dot (`Editor.tsx:865`) — these are status indicators, not loading; consider replacing pulse with a static color cue regardless of `prefers-reduced-motion`.
+
+**After.** Users with `prefers-reduced-motion: reduce` get a still UI; vestibular-safe.
+
+**Reproducibility.** macOS System Settings → Accessibility → Display → Reduce motion = ON; reload app; expect no visible pulse/spin/slide.
+
+## Phase 4 — Moderate / Polish
+
+### 4.1 Decorative `<label>` refactor — Status: _TBD_
+
+**Before.** ~25 `<label>` elements used as styled typography with no `htmlFor` and no wrapped control. Examples: `PropertiesPanel.tsx:281, :319, :367, :375`; `ProjectRetro.tsx:200, :255, :266, :283, :331`; `WikiSidebar.tsx:94`; `WeeklyReviewSubNav.tsx:143, :166, :177, :213`; `DocumentTypeSelector.tsx:30`.
+
+**Change.** Convert each to `<div>`, `<span>`, or `<p>` with the same Tailwind classes. SRs stop announcing "label" inappropriately and form-association heuristics stop misfiring.
+
+**After.** `<label>` reserved for actual form associations.
+
+**Reproducibility.** `grep -rn '<label' web/src` reviewed; every remaining `<label>` has `htmlFor` or wraps a control.
+
+### 4.2 SelectableList table/grid semantics conflict — Status: _TBD_
+
+**Before.** `web/src/components/SelectableList.tsx:117-130` puts `role="grid"` on a `<table>`, suppressing native `<th>` column-header announcement. `<th>` at `:134, :136` lacks `scope="col"`. The empty selection-column header at `:134` has only `aria-label="Selection"`.
+
+**Change.** Pick one model:
+- **Option A (preferred for static lists):** drop `role="grid"`; let native `<table>` semantics announce. Add `scope="col"` to `<th>`.
+- **Option B (if grid keyboard model is desired):** keep `role="grid"`, explicitly add `role="columnheader"` to `<th>`, ensure roving tabindex + arrow-key navigation is implemented.
+
+Decide based on whether the list needs ARIA-grid keyboard navigation. Default to Option A.
+
+**After.** `<th>` cells announced as column headers. No conflicting roles.
+
+**Reproducibility.** SR pass over a selectable list; expect "column 2, Title".
+
+### 4.3 Image alt text UI — Status: _TBD_
+
+**Before.** `web/src/components/editor/ResizableImage.tsx:62` renders `alt={node.attrs.alt || ''}`. `web/src/components/editor/ImageUpload.tsx:129` always sets `alt: file.name`. No UI to write meaningful alt text. Every uploaded image is unlabeled (filename is not a description). WCAG 1.1.1.
+
+**Change.** Add an alt-text prompt to the image upload flow (modal or inline input after insert). Allow editing alt on existing images via the resize handles' UI or a properties panel. Default to empty (decorative) rather than filename when the user dismisses without entering text.
+
+**After.** Users can write meaningful alt text; documents become accessible to SR readers.
+
+**Reproducibility.** Upload an image; expect a prompt or visible alt-text input.
+
+### 4.4 CommandPalette focus save/restore — Status: _TBD_
+
+**Before.** `web/src/components/CommandPalette.tsx:42-101` implements a focus trap but does not save the previously-focused element on open or restore it on close. After Cmd+K → Escape, focus is dropped on document body.
+
+**Change.** On open: `previousActiveElement.current = document.activeElement as HTMLElement`. On close: `previousActiveElement.current?.focus()`.
+
+**After.** Cmd+K then Escape returns focus to where the user was.
+
+**Reproducibility.** Focus a tree item; Cmd+K; Escape; expect the original item to be focused.
+
+### 4.5 Sync-status live region: quiet routine ticks — Status: _TBD_
+
+**Before.** `web/src/components/Editor.tsx:854` uses `role="status" aria-live="polite" aria-atomic="true"` wrapping the four-state sync indicator. Text content flips between "Saving"/"Saved"/"Cached"/"Offline" frequently during typing, causing NVDA/JAWS to read repeatedly.
+
+**Change.** Default to `aria-live="off"`; flip to `polite` only on transitions out of `synced` (i.e. when the user goes offline or sync fails). Debounce or omit re-announcements when bouncing between Saving ↔ Saved during routine typing.
+
+**After.** SR users hear sync status when it matters (disconnect) and silence during normal typing.
+
+**Reproducibility.** SR pass while typing; expect quiet. Disconnect network; expect "Offline" announcement.
+
+## Phase 5 — Infrastructure
+
+### 5.1 Audit-runner improvements — Status: _TBD_
+
+**Before.** `audit/accessibility/audit-runner.spec.ts:170-171` treats `placeholder` as an accessible name in `hasName`. Tab-reachability is reported as `168/169` but no activation testing is done. No `aria-controls` integrity check exists. The ProseMirror editor surface is not checked for accessible name. Default axe rules don't enable `color-contrast-enhanced` (AAA).
+
+**Change.**
+- Remove `placeholder` from the `hasName` heuristic — placeholder is not an accessible name (WCAG 3.3.2).
+- Add an `aria-controls` integrity check: for every element with `aria-controls`, assert `document.getElementById(value)` resolves.
+- Add a dedicated check that `.ProseMirror` (or `[contenteditable="true"]`) has an accessible name via `aria-label` / `aria-labelledby`.
+- After Tab to each focusable, press Enter or Space and assert no error is thrown (sanity check, not full activation coverage).
+- Add an optional pass with `color-contrast-enhanced` enabled for AAA spot-checks.
+
+**After.** Runner catches the TabBar, title textarea, invite email, and ProseMirror issues automatically; future regressions are gated.
+
+**Reproducibility.** `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts` reports the additional checks in `results.json`.
+
+### 5.2 GitHub Actions workflow for accessibility — Status: _TBD_
+
+**Before.** `e2e/accessibility-remediation.spec.ts` exists with ~60 axe-based tests (`wcag22aa` tags on Login, Docs, Issues at lines 1517-1563) but `.github/workflows/` does not exist. The tests don't run in CI.
+
+**Change.** Create `.github/workflows/accessibility.yml`:
+- Trigger on pull_request and push to master.
+- Run `pnpm install`, `pnpm db:seed` (against a Postgres service container), `pnpm build`.
+- Run the audit-runner spec and `e2e/accessibility-remediation.spec.ts`.
+- Fail if any Lighthouse score < 100 on audited routes or any Critical/Serious axe violation surfaces.
+
+**After.** PRs that regress accessibility on the audited routes fail CI.
+
+**Reproducibility.** Open a PR with a regression (e.g. remove the `<main>` landmark); expect CI failure.
+
+## End-to-end verification
+
+Each phase will be verified through the audit runner and a manual SR smoke pass. Format mirrors the bundle-size doc:
+
+| Route / Surface | Check | Result |
+| --- | --- | --- |
+| Login | Lighthouse, axe, VoiceOver | _TBD_ |
+| My Week | Contrast, opacity replacement | _TBD_ |
+| Docs / Issues / Programs / Projects | Editor + title accessible name | _TBD_ |
+| `/team/allocation` | Grid semantics, contrast | _TBD_ |
+| `/team/status` | Grid semantics, contrast | _TBD_ |
+| Settings | Selects, labels | _TBD_ |
+| TabBar | aria-controls integrity, roving focus | _TBD_ |
+| CommandPalette | Focus save/restore | _TBD_ |
+| Kanban | dnd-kit announcements | _TBD_ |
+| Image upload | Alt-text UI | _TBD_ |
+| Reduced motion | macOS toggle off → on | _TBD_ |
+
+## Deferred
+
+Carried forward from the README and peer review:
+
+- **Manual VoiceOver smoke pass for Section 508 attestation.** Required for formal conformance claim; not done as part of the automated pass.
+- **`prefers-reduced-motion` per-component refactor of `animate-pulse` status cues.** The global CSS rule (§3.3) is the minimum; the deeper refactor of pulse-as-status-indicator on `AccountabilityBanner` and the sync dot is design-system work.
+- **Decorative image alt content for already-uploaded images.** The §4.3 UI fix prevents new bad alt text; backfilling existing documents is a data-tooling task.
+- **`@uswds/uswds` icon glob and 245 tiny chunks** (out of scope — bundle audit, not a11y).
+
+## Methodology
+
+- Audit runner: `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts`.
+- Lighthouse: 13.3.0, accessibility category only, desktop viewport 1440x1000, installed at `/private/tmp/ship-a11y-tools/node_modules` (override via `LIGHTHOUSE_NODE_MODULES`).
+- axe: `@axe-core/playwright` with `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` tags.
+- Keyboard: Tab traversal plus targeted arrow-key checks for grid widgets (added in §5.1).
+- Manual VoiceOver checks for accessible-name surfaces that the automated proxy cannot evaluate (TipTap editor body, title textarea, image alt).
+- Raw evidence per phase committed to `audit/accessibility/results.json` (re-generated by the audit runner).
+
+## Branch state at time of writing
+
+- Branch: `implement/accessibility`
+- Baseline scores: 1 Critical, 3 Serious axe violations; Lighthouse 94 (Settings) to 100 across audited pages.
+- No implementation commits yet — this document is the plan; per-fix sections will be updated with **Status: Done / Commit: SHA** as work lands.

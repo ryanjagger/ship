@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-19T21:26:42.511Z",
+  "generatedAt": "2026-05-22T15:48:44.502Z",
   "routes": [
     {
       "name": "Login",
@@ -64,58 +64,8 @@
   ],
   "lighthouse": {
     "Login": {
-      "score": 98,
-      "failingAudits": [
-        {
-          "id": "landmark-one-main",
-          "title": "Document does not have a main landmark.",
-          "scoreDisplayMode": "binary",
-          "description": "One main landmark helps screen reader users navigate a web page. [Learn more about landmarks](https://dequeuniversity.com/rules/axe/4.11/landmark-one-main).",
-          "details": {
-            "type": "table",
-            "headings": [
-              {
-                "key": "node",
-                "valueType": "node",
-                "subItemsHeading": {
-                  "key": "relatedNode",
-                  "valueType": "node"
-                },
-                "label": "Failing Elements"
-              }
-            ],
-            "items": [
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-0-HTML",
-                  "path": "1,HTML",
-                  "selector": "html",
-                  "boundingRect": {
-                    "top": 0,
-                    "bottom": 1000,
-                    "left": 0,
-                    "right": 1440,
-                    "width": 1440,
-                    "height": 1000
-                  },
-                  "snippet": "<html lang=\"en\">",
-                  "nodeLabel": "html",
-                  "explanation": "Fix all of the following:\n  Document does not have a main landmark"
-                }
-              }
-            ],
-            "debugData": {
-              "type": "debugdata",
-              "impact": "moderate",
-              "tags": [
-                "cat.semantics",
-                "best-practice"
-              ]
-            }
-          }
-        }
-      ]
+      "score": 100,
+      "failingAudits": []
     },
     "My Week": {
       "score": 95,
@@ -191,12 +141,12 @@
                     "top": 730,
                     "bottom": 745,
                     "left": 401,
-                    "right": 422,
-                    "width": 21,
+                    "right": 416,
+                    "width": 15,
                     "height": 15
                   },
                   "snippet": "<span class=\"text-xs font-medium text-accent\">",
-                  "nodeLabel": "Tue",
+                  "nodeLabel": "Fri",
                   "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.82 (foreground color: #005ea2, background color: #0c1114, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
                 },
                 "subItems": {
@@ -217,7 +167,7 @@
                           "height": 46
                         },
                         "snippet": "<button class=\"flex items-center gap-3 rounded-lg border px-4 py-2.5 border-accent/30 bg-…\">",
-                        "nodeLabel": "Tue5/19\n+ Write update"
+                        "nodeLabel": "Fri5/22\n+ Write update"
                       }
                     },
                     {
@@ -251,12 +201,12 @@
                     "top": 782,
                     "bottom": 797,
                     "left": 401,
-                    "right": 427,
-                    "width": 26,
+                    "right": 420,
+                    "width": 19,
                     "height": 15
                   },
                   "snippet": "<span class=\"text-xs font-medium text-muted\">",
-                  "nodeLabel": "Wed",
+                  "nodeLabel": "Sat",
                   "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 1.84 (foreground color: #3f3f3f, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
                 },
                 "subItems": {
@@ -292,13 +242,13 @@
                   "boundingRect": {
                     "top": 782,
                     "bottom": 797,
-                    "left": 431,
-                    "right": 457,
+                    "left": 424,
+                    "right": 450,
                     "width": 26,
                     "height": 15
                   },
                   "snippet": "<span class=\"text-xs text-muted ml-1\">",
-                  "nodeLabel": "5/20",
+                  "nodeLabel": "5/23",
                   "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 1.84 (foreground color: #3f3f3f, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
                 },
                 "subItems": {
@@ -462,7 +412,7 @@
                           "height": 40
                         },
                         "snippet": "<div class=\"group flex h-10 w-[180px] flex-col items-center justify-center border-b bo…\">",
-                        "nodeLabel": "Week 13\nMay 14-20"
+                        "nodeLabel": "Week 13\nMay 17-23"
                       }
                     }
                   ]
@@ -551,7 +501,7 @@
                           "height": 40
                         },
                         "snippet": "<div class=\"flex h-10 w-[100px] flex-col items-center justify-center border-b border-r…\">",
-                        "nodeLabel": "Week 13\nMay 14-20"
+                        "nodeLabel": "Week 13\nMay 17-23"
                       }
                     }
                   ]
@@ -609,8 +559,8 @@
                   "boundingRect": {
                     "top": 256,
                     "bottom": 285,
-                    "left": 893,
-                    "right": 987,
+                    "left": 890,
+                    "right": 984,
                     "width": 94,
                     "height": 29
                   },
@@ -661,7 +611,7 @@
           "nodes": [
             {
               "target": [
-                ".bg-accent\\/20.py-0\\.5.px-1\\.5"
+                ".bg-accent\\/20.py-0\\.5.text-accent"
               ],
               "html": "<span class=\"text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded\">Current</span>",
               "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.55 (foreground color: #005ea2, background color: #0a1d2b, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
@@ -782,13 +732,13 @@
         "a Ship Core RedesignShip Core",
         "button Create retro",
         "button Due today+ Create plan for this week",
-        "button + Create retro for this week",
-        "button Thu5/14+ Write update",
-        "button Fri5/15+ Write update",
-        "button Sat5/16+ Write update",
+        "button Due today+ Create retro for this week",
         "button Sun5/17+ Write update",
         "button Mon5/18+ Write update",
         "button Tue5/19+ Write update",
+        "button Wed5/20+ Write update",
+        "button Thu5/21+ Write update",
+        "button Fri5/22+ Write update",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
         "button T",
@@ -874,53 +824,53 @@
         "button Done",
         "button Cancelled",
         "table Issues list",
-        "button Select item ac71f54b-ae9c-4115-8f2e-541a80355de9",
-        "button Select item 9d823334-65da-41f0-9d84-057f67c4aaae",
-        "button Select item 250afd80-1777-4df0-94d9-fefe6e9045cc",
-        "button Select item b3ce4e79-0cde-4320-9dcc-a506f4446b4d",
-        "button Select item 101aac0e-8261-4887-8d78-88860628861a",
-        "button Select item ab42a44d-c57f-474b-a23c-71df2bbd5221",
-        "button Select item 0e192d1f-d37e-467d-87c9-4bcc39bbd7d1",
-        "button Select item 277e33e3-43eb-4f2b-a086-8a12f0ad9528",
-        "button Select item e00b2e72-3960-43f5-8f6e-78e81c395639",
-        "button Select item 1d0440ff-3f88-44dc-bdf9-b7c8c5fbc561",
-        "button Select item cb5265bb-d8bc-4c54-8ad3-d222e7a15678",
-        "button Select item b141ff95-0be2-409f-bd11-86b0ab8716f1",
-        "button Select item 63636485-21a2-477c-9e0f-5400b0c93d5a",
-        "button Select item e1ddf800-2589-4c63-8520-f1dd4ef7f067",
-        "button Select item 771dbdfa-895a-431e-b9b1-d3913de8724c",
-        "button Select item e8c21e8c-5374-4f26-a9e3-4862f1b92fc4",
-        "button Select item 691bc2d1-c719-4efa-8b45-2fa682a4dccf",
-        "button Select item d878313e-af6c-4bb5-b6d6-c6ab38d57ee3",
-        "button Select item 6aaae52e-52a7-446b-b409-29f22aa4b335",
-        "button Select item c56b4594-1992-45bf-b47f-98a90ecb178e",
-        "button Select item bac31da9-4c61-4569-860f-cccc53cb849a",
-        "button Select item 690c24d0-1975-47b0-bbe4-e8e1d1ee07ac",
-        "button Select item 855a4c08-a10e-4a63-af88-21675411b52f",
-        "button Select item dc844a23-fbca-4f14-9488-27f24f09f076",
-        "button Select item 1fea92e1-cc5a-4709-9740-e804b7227b0d",
-        "button Select item ca09a218-dc23-48e4-b2c8-23e232a6f53a",
-        "button Select item 0abec412-6196-4b60-b3a4-6ffbb83954ec",
-        "button Select item f689fc85-ba70-4b73-8f3c-6090f796018d",
-        "button Select item 40a2c2a2-12d4-4ec1-bd6d-fbc963626998",
-        "button Select item 5782d002-0060-42cc-afc5-d61c2f88765d",
-        "button Select item 32d959a3-79dd-4fa6-9a16-6154c7b38191",
-        "button Select item 1f1e74e3-59ef-4afc-8263-0b85986caadc",
-        "button Select item 57d92855-347d-4396-b6e6-51f01f65c825",
-        "button Select item 4dcc0078-883f-4204-a5c0-f3bd48bcd6e7",
-        "button Select item 02c264b8-1ce4-4f78-8040-1a3f1e889335",
-        "button Select item f9b66d65-133d-43e6-bda9-81baaaaae8c5",
-        "button Select item 75d3120e-b7b5-4413-9604-a0c97b2e9ff1",
-        "button Select item 07f071ca-d204-48eb-9390-ead0be933de7",
-        "button Select item 8962d488-c539-4509-938d-4be6a54ad566",
-        "button Select item c643c5c6-203a-4c62-a96c-624be501a29d",
-        "button Select item 7a50b2f1-6d1e-4d91-acc7-f3c920f87df8",
-        "button Select item 179db1dc-6ead-4eae-876a-5dab1c62ee3d",
-        "button Select item 41ed5cd3-241c-4152-9c69-5c480b571a1a",
-        "button Select item 48ad23b3-48d2-4082-8b9f-16b32814bb43",
-        "button Select item e7d306c1-8982-4a97-9bcb-913925f127bb",
-        "button Select item 88d3a79f-92ae-4e71-9010-ec8695d6d542",
-        "button Select item 2b69b678-2af9-4f1e-868e-301f273b434e",
+        "button Select item 6f728739-e880-4fdb-a052-243020fdbf58",
+        "button Select item 710e251c-1844-4f24-9e1a-20ec4e8c8a3a",
+        "button Select item 64964050-f840-454c-a8a3-ae9468522279",
+        "button Select item cd302f00-8bed-4355-90c1-b84d2bb1f8c1",
+        "button Select item 5052c3db-2d35-4cc2-83d4-4983ac72dbaa",
+        "button Select item eb6d2968-fe5d-45e6-b61d-c93a5c63fdeb",
+        "button Select item 5bbd572b-c660-4e9f-903b-9c68642ab950",
+        "button Select item cc737fa9-510c-48cb-93aa-3b1ec2751047",
+        "button Select item cebfaf93-9891-435c-b11a-98185be1888d",
+        "button Select item c756c0f0-bb73-476e-8b65-e6075207e96f",
+        "button Select item f71056d1-3142-49d4-a26b-d737256f937d",
+        "button Select item 6a180c26-4470-440c-bd58-0f716f557e80",
+        "button Select item 6e491192-20cb-43b9-b94e-ddbfe5ae1745",
+        "button Select item ada59cf1-b520-4242-a9f1-81749be9580a",
+        "button Select item d66a80b4-661e-452e-9b84-40891afe3c0c",
+        "button Select item 92d02bc6-78b1-4988-96d2-252a5edcb61d",
+        "button Select item 633d540c-9045-43a9-a0c9-64e9cac753ba",
+        "button Select item bcc6f672-6e97-4812-85aa-e77771ce7f57",
+        "button Select item d1ea762b-1757-4f13-ad34-9014f122daa9",
+        "button Select item 5d517a50-3b72-48c2-bee1-f8ab36425531",
+        "button Select item 9c0d9ff8-787c-4ab8-b780-edd959016bb0",
+        "button Select item 37fb0ec0-c7de-401f-8672-19c72e0bf70b",
+        "button Select item 1af01bd0-3720-4a41-95aa-cff0efdeee01",
+        "button Select item f99f404f-2409-4cb5-9802-7a1e330dd77c",
+        "button Select item 7315165c-f483-4057-84b3-a5b0c7aaa7a8",
+        "button Select item fa046e4f-c2ec-4a29-93ff-61e82b8433b6",
+        "button Select item 07a393fe-232f-4a4a-b85a-58ba16a77c4f",
+        "button Select item de64e45f-efa3-471a-9d82-48eecccfa16f",
+        "button Select item ed110f4c-3c28-4a55-b597-fc12f70cceda",
+        "button Select item f232ac61-aa10-40a0-87fd-f0e84db83c1a",
+        "button Select item e4c98a49-f349-43d5-b356-58f21a860c74",
+        "button Select item a813bb2f-0949-4b81-a060-f27862a62346",
+        "button Select item 5153f9f6-b770-4b00-a749-9d7052b87203",
+        "button Select item 164f2003-cb28-41d4-bb01-da5d7eb2fc49",
+        "button Select item 362e86dd-cf6e-40ed-87a0-933884f7837b",
+        "button Select item 37898f65-b611-4fed-a14d-4821b73b6841",
+        "button Select item 27eb55dd-524a-40a2-bbd2-fa325e1df3f1",
+        "button Select item 541fe9d3-02f8-492c-bf47-7e4d15c3cb33",
+        "button Select item 2902a5ad-dd25-4201-a491-f56dfb9cc1a2",
+        "button Select item f01f26ae-a30d-4274-a752-eab4e5687f9c",
+        "button Select item 6673a470-9ba3-40f9-bbfd-fb9a2d480ff7",
+        "button Select item 03d7bcd6-724d-4cb2-b145-8ede56daf76d",
+        "button Select item 4bd25c34-6379-438b-8598-031ce739abf6",
+        "button Select item f40eb279-5e4b-4bd6-ae35-4cf4ec5cbacc",
+        "button Select item 55772818-451e-499b-9c3b-c824107ad7ac",
+        "button Select item 6cc47de0-1b85-4d95-b9e2-243271cbc085",
+        "button Select item ade45fe9-c92d-48c0-9c84-46305b7632b3",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
         "button T",
@@ -1040,11 +990,11 @@
         "button Customize columns",
         "button New Program",
         "table Programs list",
-        "button Select item 24141cd9-41ef-47b9-a3ce-d85ec61e366d",
-        "button Select item a7319976-4f7c-41dd-9ae6-7969f1669dc8",
-        "button Select item 1e3fcb02-70cb-49b4-9123-7db801bcf0ab",
-        "button Select item b4cf197c-6198-4bb2-901d-646a84f7b247",
-        "button Select item 4b16f759-f53a-41a8-806d-ff695357d4a0",
+        "button Select item 3a0ce50e-b249-4359-9b22-38fe7456b974",
+        "button Select item 01b8e0d3-3b64-4049-9b0e-9235da91294d",
+        "button Select item 2e22dec3-f3dd-4809-8f73-f9a658b64b31",
+        "button Select item 9a71f45f-6bbb-41c4-83d6-3a134745749e",
+        "button Select item 913de42e-1c47-44f0-b4c1-4b2f4a55690f",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
         "button T",
@@ -1085,10 +1035,10 @@
         "button Completed0",
         "button Archived0",
         "table Projects list",
-        "button Select item 8c8f5fcf-75d8-4b8c-a04f-3f5c0870e64d",
-        "button Select item 24c080ec-df6d-450c-84ce-21d3c3ba95da",
-        "button Select item a0c86359-01c8-434c-836e-2e1ddae63098",
-        "button Select item 5e62393f-1294-4dbd-8904-d54ee241c7bf",
+        "button Select item 62bd209a-cb67-4271-89c6-c7be9e59fe18",
+        "button Select item f864f7e4-443d-4a5f-ac91-8ffb982dadef",
+        "button Select item 91515b14-621a-4b10-b982-90d05aa19979",
+        "button Select item 7ff3a776-9baf-47d5-abfb-559b5e650371",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
         "button T",
@@ -1259,7 +1209,7 @@
     {
       "route": "Login",
       "h1Count": 1,
-      "mainCount": 0,
+      "mainCount": 1,
       "navCount": 0,
       "unnamedButtons": 0,
       "unnamedLinks": 0,
