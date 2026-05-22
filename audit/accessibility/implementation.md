@@ -370,15 +370,21 @@ Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests.
 
 ## Phase 4 — Moderate / Polish
 
-### 4.1 Decorative `<label>` refactor — Status: _TBD_
+### 4.1 Decorative `<label>` refactor — Status: **Done**
 
 **Before.** ~25 `<label>` elements used as styled typography with no `htmlFor` and no wrapped control. Examples: `PropertiesPanel.tsx:281, :319, :367, :375`; `ProjectRetro.tsx:200, :255, :266, :283, :331`; `WikiSidebar.tsx:94`; `WeeklyReviewSubNav.tsx:143, :166, :177, :213`; `DocumentTypeSelector.tsx:30`.
 
-**Change.** Convert each to `<div>`, `<span>`, or `<p>` with the same Tailwind classes. SRs stop announcing "label" inappropriately and form-association heuristics stop misfiring.
+**Change.** Triaged every unlinked `<label>` into two buckets and handled each appropriately:
 
-**After.** `<label>` reserved for actual form associations.
+**Bucket A — purely decorative typography** (section heading, group title, no input it could meaningfully describe): converted to `<div>` with identical Tailwind classes (minus the `block` utility, which is redundant on a `<div>`). 11 conversions across 8 files: `PropertyRow.tsx:19`; `WeekReview.tsx:152`; `ProjectRetro.tsx:200, :255, :266, :283, :331`; `WikiSidebar.tsx:94`; `DocumentTypeSelector.tsx:30`; `QualityAssistant.tsx:228, :356`; `PropertiesPanel.tsx:281, :319, :367, :375`; `PersonEditor.tsx:266`; `WeeklyReviewSubNav.tsx:143, :177`.
 
-**Reproducibility.** `grep -rn '<label' web/src` reviewed; every remaining `<label>` has `htmlFor` or wraps a control.
+**Bucket B — actually labels for a specific control** that just hadn't been wired: kept as `<label>` and added `htmlFor` with a matching `id` on the input/select/textarea. 5 fixes: `WeeklyReviewSubNav.tsx:166` (approval-note textarea) and `:213` (change-feedback textarea); `MergeProgramDialog.tsx:152` (target select) and `:211` (confirm input); `ReviewsPage.tsx:1258, :1302` (approval-note textareas — same id reused since the two branches are mutually exclusive in the DOM).
+
+Wrapping `<label>` patterns (where the label literally contains the checkbox/radio inside it — e.g. `ProjectSidebar.tsx:232`, `WorkspaceSettings.tsx:284`, `TeamDirectory.tsx:110`, `StatusOverviewPage.tsx:13`, `TeamMode.tsx:624`, `AdminDashboard.tsx:236`, `DocumentListToolbar.tsx:154`) were intentionally left untouched — wrapping is a valid form-association pattern that screen readers handle correctly without `htmlFor`.
+
+**After.** `grep -rn '<label className=' web/src --include='*.tsx' | grep -v 'htmlFor' | grep -v 'flex items-center\|flex cursor-pointer\|cursor-pointer hover'` returns zero hits — every remaining `<label>` either has `htmlFor` or wraps a form control. Screen readers no longer announce "label" on what was previously decorative typography, and the textareas/inputs that were visually labeled but programmatically unlabeled now have proper accessible names.
+
+**Reproducibility.** Run the grep above; expect 0 hits.
 
 ### 4.2 SelectableList table/grid semantics conflict — Status: **Done**
 

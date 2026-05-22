@@ -1255,8 +1255,9 @@ function ReviewPanel({
                 </button>
               ))}
             </div>
-            <label className="text-xs text-muted mb-1 block">Approval Note (optional)</label>
+            <label htmlFor="reviews-approval-note" className="text-xs text-muted mb-1 block">Approval Note (optional)</label>
             <textarea
+              id="reviews-approval-note"
               value={approvalComment}
               onChange={e => setApprovalComment(e.target.value)}
               placeholder="Add context for this decision..."
@@ -1299,8 +1300,9 @@ function ReviewPanel({
         ) : (
           /* Plan actions: Approve + Request Changes */
           <div>
-            <label className="text-xs text-muted mb-1 block">Approval Note (optional)</label>
+            <label htmlFor="reviews-approval-note" className="text-xs text-muted mb-1 block">Approval Note (optional)</label>
             <textarea
+              id="reviews-approval-note"
               value={approvalComment}
               onChange={e => setApprovalComment(e.target.value)}
               placeholder="Add context for this decision..."
