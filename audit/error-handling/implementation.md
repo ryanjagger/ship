@@ -11,6 +11,7 @@ The work is structured into four phases (see the plan section at the bottom). Ea
 | `pg.Pool` idle-client error handler | Absent — idle-client errors crashed the API process | `pool.on('error', ...)` logs and continues | `f15e6ee` |
 | Documents list 500 response (README Fix 1) | Rendered "No documents yet", indistinguishable from an empty workspace | Explicit error card + Retry; stale-data banner when cached docs exist; sidebar shows compact error+retry | `8747738` |
 | Realtime `/events` WebSocket reconnect under 429 (README Fix 3) | Fixed 3 s reconnect retried straight into 30/IP/min limit; ~200 silent console errors per audit run; server 429s unlogged | Full-jitter exponential backoff (1 s … 30 s); inferred `rate-limited` state; non-blocking UI indicator; server `console.warn` on every 429 rejection. Verified end-to-end in Playwright. | `dd305b3`, `f3889fc` |
+| AI analysis routes returned 200 on failure (peer-review §5) | `res.json({ error: 'ai_unavailable' })` — TanStack Query treated failures as success | `res.status(503).json(...)` so HTTP layer reflects the failure | `16a5f3b` |
 
 ## Implementation
 
@@ -112,6 +113,18 @@ The `/collaboration/wiki:<id>` Yjs WebSocket (driven by y-websocket's `Websocket
 
 **Commit.** `dd305b3` (initial), `f3889fc` (didOpen fix — see "Verification" below)
 
+#### 3. AI routes return 503 on failure instead of 200 (peer-review §5)
+
+**Before.** `api/src/routes/ai.ts:42,72` caught analysis errors and called `res.json({ error: 'ai_unavailable' })` with no status. The HTTP response was `200 OK` with an error body. TanStack Query's `mutateAsync` and any caller that branches on `res.ok` treats a 200 as success — `onError`/retry never runs, the mutation is recorded as successful, and only a body-shape inspection inside the success handler exposes the failure.
+
+**Change.** Both catch handlers now use `res.status(503).json({ error: 'ai_unavailable' })`. The body shape is unchanged; only the HTTP status differs. Existing callers — `web/src/components/PlanQualityBanner.tsx:189,433` (branches on `r.ok` before parsing) and `web/src/components/sidebars/QualityAssistant.tsx:196,327` (uses an `isError` helper that checks the body shape) — both continue to behave the same way from the user's perspective; the failures simply stop masquerading as successes at the network layer.
+
+**After.** Mutations and queries against the AI routes now fail correctly when the analysis service errors. Network panel shows 503, not 200. Future code that uses these endpoints will get the right HTTP-layer signal without having to know the magic `ai_unavailable` string.
+
+**Reproducibility.** Stop the AI analysis service (or pass a malformed payload that throws inside `analyzePlan`/`analyzeRetro`), POST to either endpoint, and confirm the response is HTTP 503 with `{"error":"ai_unavailable"}` rather than HTTP 200.
+
+**Commit.** `16a5f3b`
+
 **Verification.** Drove the change through Playwright against `pnpm dev` (web on `:5173`, API on `:3000`). Logged in as `dev@ship.local`, landed on `/docs`, then ran a flood-and-close scenario from the page itself:
 
 1. Opened 35–60 fresh `WebSocket('ws://localhost:3000/events')` instances in one tick to saturate the server's 30/IP/min budget.
@@ -154,7 +167,6 @@ Carrying the rest of Phase 1 and Phases 2–4 from the plan:
 - **Title save failure UI** (README Fix 2). Consume the new save state in `Editor`/`UnifiedDocumentPage`; show `Save failed` with Retry/Revert; decouple from the global `Saved` indicator.
 - **Body persist failure UI** (peer-review §"overstated"). Same shape as the title fix but for `persistDocument` failures at `api/src/collaboration/index.ts:176-178`. Currently invisible.
 - **Replace native `alert()` with toasts** in `web/src/components/Editor.tsx:404,418,423` (peer-review §4). `ToastProvider` is already wired at `web/src/main.tsx:257`.
-- **AI routes return non-2xx on failure** at `api/src/routes/ai.ts:42,72` (peer-review §5). TanStack Query treats 200 as success.
 
 ### Phase 3 — provider-tree resilience
 
@@ -190,6 +202,6 @@ In each case the fix is to add the missing boundary or signal at the layer where
 
 ## Branch state at time of writing
 
-- **4 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state), `dd305b3` (realtime 429 backoff and visibility), `f3889fc` (realtime didOpen fix found in Playwright verification)
+- **5 implementation commits** on `implement/error-handling`: `f15e6ee` (pg pool error handler), `8747738` (documents list error state), `dd305b3` (realtime 429 backoff and visibility), `f3889fc` (realtime didOpen fix found in Playwright verification), `16a5f3b` (AI routes return 503)
 - Plus this docs file
 - Remaining Phase 1 items, the rest of Phase 2, and Phases 3–4 are planned but not implemented
