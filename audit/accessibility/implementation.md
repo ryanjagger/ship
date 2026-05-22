@@ -251,6 +251,32 @@ Full ARIA table semantics (`role="grid"` / `role="row"` / `role="columnheader"` 
 
 **Reproducibility.** `grep -n 'aria-current' web/src/components/StatusOverviewHeatmap.tsx web/src/components/AccountabilityGrid.tsx` returns 1 hit per file. `grep -n 'role="region"' web/src/components/StatusOverviewHeatmap.tsx web/src/components/AccountabilityGrid.tsx` returns 1 hit per file. `grep -n 'sr-only.*current' web/src/components/StatusOverviewHeatmap.tsx web/src/components/AccountabilityGrid.tsx` (case-insensitive) returns 1 hit per file. SR pass on `/team/status` and `/team/allocation` should announce "Current week — W22" (or similar) on the highlighted column header.
 
+### Phase 2 verification (2026-05-22)
+
+After all Phase 2 commits landed (`cf1bc3b`, `407f81b`, `485b592`, `50eeb37`, `f77cbdf`, `e04eac8`), ran `pnpm build:web` followed by `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts`. Route summary from `audit/accessibility/results.json` (unchanged from Phase 1 end — these fixes are structural/keyboard, outside Lighthouse/axe automated coverage):
+
+| Route | LH | Critical | Serious | SR proxy |
+| --- | ---: | ---: | ---: | --- |
+| Login | 100 | 0 | 0 | Pass |
+| My Week | 95 | 0 | 1 (color-contrast, Phase 3) | Pass |
+| Docs / Issues / Programs / Projects | 100 | 0 | 0 | Pass |
+| Team Allocation | 96 | 0 | 1 (color-contrast, Phase 3) | Pass |
+| Team Directory | 100 | 0 | 0 | Pass |
+| Team Status | 96 | 0 | 1 (color-contrast, Phase 3) | Pass |
+| Settings | 100 | 0 | 0 | Pass |
+
+Phase 2 deltas in the automated numbers: none. This is expected — the five fixes target keyboard navigation, structural ARIA, and screen-reader announcement, all of which are outside the rule coverage of axe and Lighthouse's accessibility category:
+
+- **2.1 TabBar roving tabindex + tabpanel attributes** — axe's `aria-valid-attr-value` doesn't dereference `aria-controls` ids; the dangling reference passed automated checks even pre-fix. Verified by `grep` at `TabBar.tsx:44, :46` (roving tabindex + onKeyDown) and `UnifiedDocumentPage.tsx:503-505` (panel attributes).
+- **2.2 Comment context menu** — the imperative DOM menu was invisible to axe (created on-demand outside the render tree); the React menu is verified by `grep` at `Editor.tsx:189` (state hook), `:987` (`role="menu"`), `:1001` (`role="menuitem"`).
+- **2.3 KanbanBoard announcements** — `aria-grabbed` removal eliminates a deprecated-ARIA warning that axe doesn't flag at the Serious level. The `accessibility` prop's announcements are live-region behavior, not static attributes. Verified by `grep` at `KanbanBoard.tsx:164` (`screenReaderInstructions`), `:175` (`accessibility={{...}}`).
+- **2.4 Shift+C shortcut** — WCAG 2.1.4 has no automated axe rule. Verified by `grep` at `IssuesList.tsx:1011` and `Projects.tsx:317` (`e.key === 'C' && e.shiftKey`).
+- **2.5 Grid sr-only marker + region landmarks** — `aria-current="date"` and `role="region"` are valid attributes that axe accepts unconditionally. WCAG 1.4.1 (color-only signal) has no automated axe rule that detects context-specific color reliance. Verified by `grep` at `StatusOverviewHeatmap.tsx:313, :406` and `AccountabilityGrid.tsx:171, :285`.
+
+The three remaining Serious violations are all `color-contrast` on the `text-accent`/`bg-background` current-week labels (My Week, Team Allocation, Team Status) — Phase 3 territory.
+
+Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests.
+
 ## Phase 3 — Serious (WCAG AA: 1.4.3, 2.3.3)
 
 ### 3.1 `accent-text` color token + repo-wide replacement — Status: _TBD_
