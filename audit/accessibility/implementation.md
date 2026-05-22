@@ -433,6 +433,24 @@ The chosen surface (selected-state inline input) avoids interrupting the upload 
 
 **Reproducibility.** SR pass while typing (synced state); expect no announcement. Disconnect the network; expect "Offline" to be read once.
 
+### Phase 4 verification (2026-05-22)
+
+After all five Phase 4 commits landed (`48e9ae2`, `4f60130`, `ba77d10`, `7e0e7cc`, `39a4c67`), ran `pnpm build:web` followed by `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts`. Audit summary unchanged from Phase 3 end:
+
+| Route | LH | Critical | Serious |
+| --- | ---: | ---: | ---: |
+| All 10 routes | **100** | **0** | **0** |
+
+Phase 4 deltas in the automated numbers: none. As with Phase 2, all five fixes target screen-reader behavior, keyboard focus management, and semantic correctness — outside what axe/Lighthouse measure:
+
+- **4.1 Decorative `<label>` refactor** — axe has no rule that flags unlinked decorative `<label>` elements. Verified by `grep -rn '<label className=' web/src --include='*.tsx' | grep -v 'htmlFor' | grep -v 'flex items-center\|flex cursor-pointer\|cursor-pointer hover'` → 0 hits.
+- **4.2 SelectableList columnheader roles** — axe accepts `role="grid"` without explicit columnheader roles on `<th>` (it doesn't probe for screen-reader-correct grid semantics). Verified by `grep` at `SelectableList.tsx:134, :136` (both `<th>` cells now have `scope="col" role="columnheader"`).
+- **4.3 Image alt-text UI** — alt-text editing UI is interactive; the runner doesn't open documents or click images. Verified by `grep` at `ResizableImage.tsx` (inline `<input id="image-alt-input">` bound via `updateAttributes({ alt })`) and `ImageUpload.tsx:128` (`alt: ''` default).
+- **4.4 CommandPalette focus restore** — Cmd+K → Escape doesn't fire in the audit runner. Verified by reading `CommandPalette.tsx:40-50` (new `previousActiveElementRef` + `useEffect` saving/restoring focus across the `open` transition).
+- **4.5 Sync-status live region** — `aria-live="off"` is a valid value that axe accepts unconditionally. Verified by `grep` at `Editor.tsx:876` (`aria-live={isDegraded ? 'polite' : 'off'}`).
+
+Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests.
+
 ## Phase 5 — Infrastructure
 
 ### 5.1 Audit-runner improvements — Status: _TBD_
