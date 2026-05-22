@@ -121,9 +121,11 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
 
+    // NOTE: d.content is intentionally omitted from this list SELECT — the list
+    // view does not render TipTap content, and including it inflates the
+    // payload by ~80% (see audit/api-reponse-time/peer-review.md #4).
     let query = `
       SELECT d.id, d.title, d.properties, d.ticket_number,
-             d.content,
              d.created_at, d.updated_at, d.created_by,
              d.started_at, d.completed_at, d.cancelled_at, d.reopened_at,
              d.converted_from_id,
