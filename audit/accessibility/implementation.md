@@ -11,16 +11,17 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Lighthouse low-water-mark (Settings) | 94 | **100** | `087d67c` |
 | Login Lighthouse | 98 | **100** | `74ce704` |
 | axe Critical violations | 1 | **0** | `087d67c` |
-| axe Serious violations | 3 | 3 (all Phase 3 contrast; 3.1 expected to resolve at Phase 3 end) | — |
+| axe Serious violations | 3 | **0** | `bd39119` |
+| Lighthouse all-route low-water-mark | 94 | **100** | `bd39119` |
 | Pages with `<main>` landmark | 9/10 (Login missing) | **10/10** | `74ce704` |
 | Selects missing accessible name | 3 (Settings) | **0** | `087d67c` |
-| `text-accent` on `bg-background` text usages | ~20+ | **0** (replaced with `text-accent-text`) | _Phase 3.1_ |
+| `text-accent` on `bg-background` text usages | ~20+ | **0** (43 files, 76 substitutions → `text-accent-text`) | `bd39119` |
 | Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | **0** | `754d398` |
 | TipTap surfaces with accessible name | 0 (body + title) | **2/2** | `c0908cb` |
 | Icon-only buttons relying on `title` for SR name | 2 (workspace, sign-out) | **0** | `31339df` |
 | Form fields with linked validation errors | 2 (Login only) | **4** (+ ProjectSetupWizard) | `6bd2cdf` |
 | Tab panels with valid `aria-controls` target | 0 (dangling refs) | _Phase 2_ | — |
-| Reduced-motion handling | None | **Global CSS rule (5 declarations, universal selector)** | _Phase 3_ |
+| Reduced-motion handling | None | **Global CSS rule (4 declarations, universal selector)** | `f361196` |
 | `aria-grabbed` (deprecated) usages | 1 | **0** (replaced by dnd-kit announcements) | _Phase 2_ |
 | Single-character global keyboard shortcuts | 2 (`c` on Issues, Projects) | **0** (now Shift+C) | `50eeb37` |
 | Color-only current-week marker on grids | 2 (heatmap, allocation) | **0** (sr-only label + aria-current added) | _Phase 2_ |
@@ -340,6 +341,32 @@ Did NOT gate individual animations in TSX (no per-call-site `motion-safe:`/`moti
 **After.** With the rule in place, users with `prefers-reduced-motion: reduce` get a still UI: `animate-pulse`, `animate-spin`, `animate-in slide-in-from-right`, `transition-all duration-500`, and every other animated or transitioned property snap to instant. WCAG 2.3.3 satisfied.
 
 **Reproducibility.** `grep -n 'prefers-reduced-motion' web/src/index.css` returns 1 hit; `grep -rn 'prefers-reduced-motion' web/src` returns just the index.css hit (no orphan rules elsewhere). Manual: macOS System Settings → Accessibility → Display → Reduce motion = ON; reload app; expect no visible pulse/spin/slide on AccountabilityBanner, toasts, loaders, or the celebration banner.
+
+### Phase 3 verification (2026-05-22)
+
+After all Phase 3 commits landed (`754d398`, `3257cbc`, `bd39119`, `f361196`), ran `pnpm build:web` followed by `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts`. Route summary from `audit/accessibility/results.json`:
+
+| Route | LH before | LH after | Critical | Serious |
+| --- | ---: | ---: | ---: | ---: |
+| Login | 100 | **100** | 0 | 0 |
+| My Week | 95 | **100** | 0 | **1 → 0** |
+| Docs | 100 | **100** | 0 | 0 |
+| Issues | 100 | **100** | 0 | 0 |
+| Programs | 100 | **100** | 0 | 0 |
+| Projects | 100 | **100** | 0 | 0 |
+| Team Allocation | 96 | **100** | 0 | **1 → 0** |
+| Team Directory | 100 | **100** | 0 | 0 |
+| Team Status | 96 | **100** | 0 | **1 → 0** |
+| Settings | 100 | **100** | 0 | 0 |
+
+**Every audited route now scores Lighthouse 100. axe Critical: 0. axe Serious: 0.**
+
+Phase 3 deltas:
+- **3.1 `text-accent` → `text-accent-text` token replacement** is the primary driver of the cleared contrast violations. 43 TSX files and 76 substitutions; new `accent-text` token (`#4a9eda`) verified at ≈6.27:1 contrast on `#0d0d0d`. My Week, Team Allocation, and Team Status current-week labels now meet AA. Each of those three routes also picked up the Lighthouse points the contrast violations were costing.
+- **3.2 My Week opacity → `text-muted` + "Upcoming" pill** removes the per-row contrast drop on future days and adds a non-color temporal signal. Not visible in axe (the runner doesn't compute container-opacity-derived contrast), but verified by `grep`.
+- **3.3 `prefers-reduced-motion` global CSS rule** addresses WCAG 2.3.3; not visible in axe (no automated rule for vestibular safety), but verified by `grep` at `web/src/index.css:1034`. Manual: macOS Reduce motion ON, reload — confirmed `animate-pulse` / `animate-spin` snap still.
+
+Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests.
 
 ## Phase 4 — Moderate / Polish
 
