@@ -191,10 +191,10 @@ export function renderMarkdown(report: ProbeReport): string {
   lines.push(`| WebSocket validation failures | ${summarizeFindings(report, 'websocket')} |`);
   lines.push(`| Input sanitization failures | ${summarizeFindings(report, 'inputs')} |`);
   lines.push(`| High/Critical CVEs in dependencies | ${summarizeFindings(report, 'dependencies')} |`);
-  lines.push(`| CORS/CSP misconfiguration | ${summarizeFindings(report, 'headers')} |`);
+  lines.push(`| CORS/CSP misconfiguration | ${summarizeFindingsByIdPrefix(report, 'headers', ['headers.cors.', 'headers.security_headers.'])} |`);
   lines.push(`| Secrets exposure risk | ${summarizeFindings(report, 'secrets')} |`);
   lines.push(`| Rate limiting absent on endpoints | ${summarizeFindings(report, 'rate-limit')} |`);
-  lines.push(`| Verbose error leakage | ${summarizeFindings(report, 'headers')} |`);
+  lines.push(`| Verbose error leakage | ${summarizeFindingsByIdPrefix(report, 'headers', ['headers.verbose_errors'])} |`);
   lines.push('');
 
   lines.push('## Checks');
@@ -227,6 +227,16 @@ export function renderMarkdown(report: ProbeReport): string {
 
 function summarizeFindings(report: ProbeReport, surface: ProbeSurface): string {
   const findings = report.checks.filter((check) => check.surface === surface && check.status === 'finding');
+  if (findings.length === 0) return 'None found';
+  return findings.map((check) => `${check.severity}: ${check.title}`).join('<br>');
+}
+
+function summarizeFindingsByIdPrefix(report: ProbeReport, surface: ProbeSurface, prefixes: string[]): string {
+  const findings = report.checks.filter((check) => {
+    return check.surface === surface &&
+      check.status === 'finding' &&
+      prefixes.some((prefix) => check.id.startsWith(prefix));
+  });
   if (findings.length === 0) return 'None found';
   return findings.map((check) => `${check.severity}: ${check.title}`).join('<br>');
 }

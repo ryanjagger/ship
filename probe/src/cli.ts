@@ -6,6 +6,7 @@ import { runAuthProbe } from './probes/auth.js';
 import { runWebSocketProbe } from './probes/websocket.js';
 import { runDependencyProbe } from './probes/dependencies.js';
 import { runInputProbe } from './probes/inputs.js';
+import { runHeadersProbe } from './probes/headers.js';
 
 async function main(): Promise<void> {
   const config = parseConfig();
@@ -71,6 +72,21 @@ async function main(): Promise<void> {
     ));
   }
 
+  try {
+    checks.push(...await runHeadersProbe(config));
+  } catch (error) {
+    checks.push(finding(
+      'runner.headers_probe.unhandled_error',
+      'Headers, verbose-error, or secrets probe crashed before completion',
+      'runner',
+      'critical',
+      {
+        error: error instanceof Error ? error.stack ?? error.message : String(error),
+      },
+      ['Run `pnpm probe` again and inspect this stack trace.']
+    ));
+  }
+
   checks.push(...placeholderChecks());
 
   const report = createReport(config, checks);
@@ -83,12 +99,6 @@ async function main(): Promise<void> {
 
 function placeholderChecks(): ProbeCheck[] {
   return [
-    notTested('headers.cors_csp.not_implemented', 'CORS/CSP and verbose-error probes are not implemented in this slice', 'headers', {
-      plannedChecks: ['cors-origin', 'content-security-policy', 'stack-trace-leakage'],
-    }),
-    notTested('secrets.live_http.not_implemented', 'Live HTTP secrets exposure probes are not implemented in this slice', 'secrets', {
-      plannedPaths: ['/.env', '/api/.env', '/config.json', '/assets/*.map'],
-    }),
     notTested('rate_limit.default.not_implemented', 'Rate-limit probes are not implemented in this slice', 'rate-limit', {
       plannedMode: 'production-safe low-volume checks by default',
     }),
