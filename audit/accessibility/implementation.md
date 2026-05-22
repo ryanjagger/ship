@@ -15,7 +15,7 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Pages with `<main>` landmark | 9/10 (Login missing) | **10/10** | `74ce704` |
 | Selects missing accessible name | 3 (Settings) | **0** | `087d67c` |
 | `text-accent` on `bg-background` text usages | ~20+ | _Phase 3_ | — |
-| Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | **0** | _Phase 3_ |
+| Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | **0** | `754d398` |
 | TipTap surfaces with accessible name | 0 (body + title) | **2/2** | `c0908cb` |
 | Icon-only buttons relying on `title` for SR name | 2 (workspace, sign-out) | **0** | `31339df` |
 | Form fields with linked validation errors | 2 (Login only) | **4** (+ ProjectSetupWizard) | `6bd2cdf` |
