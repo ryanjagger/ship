@@ -124,16 +124,17 @@ test.describe('Phase 1: Critical Violations', () => {
       await docLink.click()
       await page.waitForLoadState('networkidle')
 
-      // Editor sync status MUST have role="status" and aria-live="polite"
-      // Note: Multiple status regions exist (sync status, pending count, etc.), so we target specifically
+      // Editor sync status MUST have role="status" + aria-atomic="true".
+      // aria-live is gated by commit 4f60130: "polite" only when sync is degraded
+      // (disconnected/cached); "off" while synced/connecting so screen readers
+      // don't read "Saving"/"Saved" on every keystroke during routine typing.
       const syncStatus = page.locator('[data-testid="sync-status"]')
       await expect(syncStatus).toHaveCount(1)
 
-      // Verify it has the proper status role
       expect(await syncStatus.getAttribute('role')).toBe('status')
 
       const ariaLive = await syncStatus.getAttribute('aria-live')
-      expect(ariaLive).toBe('polite')
+      expect(['polite', 'off']).toContain(ariaLive)
 
       const ariaAtomic = await syncStatus.getAttribute('aria-atomic')
       expect(ariaAtomic).toBe('true')
