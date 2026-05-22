@@ -43,21 +43,29 @@ Did not touch the isCheckingSetup loading state at `:174` — that's an ephemera
 
 **Workflow note for later fixes.** The audit-runner uses `vite preview` against the pre-built `web/dist` (per `e2e/fixtures/isolated-env.ts` — `vite dev` was banned for memory reasons), and the audit-runner config skips the `globalSetup` that the main e2e config uses to rebuild. **Every fix in this implementation must run `pnpm build:web` before re-running the runner**, or the audit will silently report the pre-fix state.
 
-### 1.2 Settings selects: accessible names — Status: _TBD_
+### 1.2 Settings selects: accessible names — Status: **Done** (verified at Phase 1 end)
 
 **Before.** `web/src/pages/WorkspaceSettings.tsx:324` (member role), `:420` (invite role), `:601` (token expiry) render `<select>` elements without `aria-label` or an associated `<label>` (or with a `<label>` that is not `htmlFor`-linked). axe reports 1 Critical violation; Lighthouse drops Settings to 94.
 
-**Change.** Add `aria-label` to each `<select>`, or associate the adjacent `<label>` via `htmlFor`/`id`. Prefer `htmlFor`/`id` where a visible label exists (visible label and accessible name agree, per WCAG 2.5.3).
+**Change.** Three concrete patches in `web/src/pages/WorkspaceSettings.tsx`:
+
+1. Member role `<select>` (rendered per row inside `members.map`): added `aria-label={\`Role for ${member.name}\`}`. Per-row interpolation rather than `htmlFor`/`id`, since N selects share a column and a single `id` cannot disambiguate.
+2. Invite role `<select>` (Send Invite form): added `aria-label="Invite role"`. The visible context ("Send Invite" button) is not an associated label, so `aria-label` is the minimum complete name.
+3. Token expiry `<select>`: visible `<label>Expires</label>` already exists; added `id="token-expires-select"` to the select and `htmlFor="token-expires-select"` to the label. Visible text and accessible name agree (WCAG 2.5.3). Co-fix with 1.3.
 
 **After.** axe Critical = 0; Settings Lighthouse → 100.
 
 **Reproducibility.** Re-run the audit runner; check Settings page section in `results.json`.
 
-### 1.3 WorkspaceSettings: label association for Token Name / Expires and invite email — Status: _TBD_
+### 1.3 WorkspaceSettings: label association for Token Name / Expires and invite email — Status: **Done** (verified at Phase 1 end)
 
 **Before.** `web/src/pages/WorkspaceSettings.tsx:589-610` renders `<label>Token Name</label>` and `<label>Expires</label>` without `htmlFor` and without wrapping the input — visually labeled, programmatically unlabeled. `:412-419` renders the invite email input with only `placeholder="Email address"` (placeholder is not a name per WCAG 3.3.2).
 
-**Change.** Add `id` to each input and `htmlFor` on each `<label>`. For the invite email input, add a wrapping `<label>` or `aria-label="Invite email address"`.
+**Change.** Three concrete patches in `web/src/pages/WorkspaceSettings.tsx`:
+
+1. Token Name: added `id="token-name-input"` to the `<input>` and `htmlFor="token-name-input"` to the adjacent `<label>`.
+2. Expires: handled in 1.2.3 above (`id="token-expires-select"` on the select, `htmlFor` on the label). Not double-fixed.
+3. Invite email `<input>`: added `aria-label="Invite email address"`. Placeholder is preserved for visual continuity but no longer relied on as the accessible name. Wrapping in a visible `<label>` would change the horizontal flex layout; `aria-label` is the targeted fix.
 
 **After.** Every form control in WorkspaceSettings has a programmatic accessible name.
 

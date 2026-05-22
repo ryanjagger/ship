@@ -325,6 +325,7 @@ function MembersTab({
                         value={member.role || 'member'}
                         onChange={(e) => onUpdateRole(member.userId, e.target.value as 'admin' | 'member')}
                         disabled={isLastAdmin}
+                        aria-label={`Role for ${member.name}`}
                         className={cn(
                           'px-2 py-1 rounded text-sm bg-background border border-border',
                           isLastAdmin && 'opacity-50 cursor-not-allowed'
@@ -414,12 +415,14 @@ function InvitesTab({
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
             placeholder="Email address"
+            aria-label="Invite email address"
             className="flex-1 max-w-md px-3 py-2 bg-background border border-border rounded-md text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent"
             required
           />
           <select
             value={inviteRole}
             onChange={(e) => setInviteRole(e.target.value as 'admin' | 'member')}
+            aria-label="Invite role"
             className="px-3 py-2 bg-background border border-border rounded-md text-foreground"
           >
             <option value="member">Member</option>
@@ -586,8 +589,9 @@ function ApiTokensTab({
 
         <form onSubmit={handleCreate} className="flex gap-3 items-end">
           <div className="flex-1 max-w-xs">
-            <label className="block text-xs text-muted mb-1">Token Name</label>
+            <label htmlFor="token-name-input" className="block text-xs text-muted mb-1">Token Name</label>
             <input
+              id="token-name-input"
               type="text"
               value={tokenName}
               onChange={(e) => setTokenName(e.target.value)}
@@ -597,8 +601,9 @@ function ApiTokensTab({
             />
           </div>
           <div className="w-32">
-            <label className="block text-xs text-muted mb-1">Expires</label>
+            <label htmlFor="token-expires-select" className="block text-xs text-muted mb-1">Expires</label>
             <select
+              id="token-expires-select"
               value={expiresInDays}
               onChange={(e) => setExpiresInDays(e.target.value)}
               className="w-full px-3 py-2 bg-background border border-border rounded-md text-foreground"
