@@ -44,7 +44,7 @@ export function AppLayout() {
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const location = useLocation();
   const navigate = useNavigate();
-  const { documents, createDocument, updateDocument, deleteDocument } = useDocuments();
+  const { documents, isError: documentsError, refreshDocuments, createDocument, updateDocument, deleteDocument } = useDocuments();
   const { programs, updateProgram } = usePrograms();
   const { issues, createIssue, updateIssue } = useIssues();
   const { projects, createProject, updateProject } = useProjects();
@@ -490,6 +490,8 @@ export function AppLayout() {
               {activeMode === 'docs' && (
                 <DocumentsTree
                   documents={documents}
+                  isError={documentsError}
+                  onRetry={() => { void refreshDocuments(); }}
                   activeId={activeDocumentId}
                   onSelect={(id) => navigate(`/documents/${id}`)}
                 />
@@ -603,7 +605,7 @@ function RailIcon({ icon, label, active, onClick, showBadge }: { icon: React.Rea
 
 const SIDEBAR_ITEM_LIMIT = 10;
 
-function DocumentsTree({ documents, activeId, onSelect }: { documents: WikiDocument[]; activeId?: string; onSelect: (id: string) => void }) {
+function DocumentsTree({ documents, isError, onRetry, activeId, onSelect }: { documents: WikiDocument[]; isError?: boolean; onRetry?: () => void; activeId?: string; onSelect: (id: string) => void }) {
   // Split documents by visibility and build separate trees
   const { privateTree, workspaceTree } = useMemo(() => {
     // Group documents by visibility (root documents determine the section)
@@ -614,6 +616,23 @@ function DocumentsTree({ documents, activeId, onSelect }: { documents: WikiDocum
       workspaceTree: buildDocumentTree(workspaceDocs),
     };
   }, [documents]);
+
+  if (isError && documents.length === 0) {
+    return (
+      <div className="px-3 py-2 text-sm" role="alert">
+        <div className="text-foreground">Couldn’t load documents</div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1 text-accent hover:underline"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    );
+  }
 
   if (documents.length === 0) {
     return <div className="px-3 py-2 text-sm text-muted">No documents yet</div>;
