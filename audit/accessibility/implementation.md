@@ -404,15 +404,15 @@ Decide based on whether the list needs ARIA-grid keyboard navigation. Default to
 
 **Reproducibility.** Upload an image; expect a prompt or visible alt-text input.
 
-### 4.4 CommandPalette focus save/restore — Status: _TBD_
+### 4.4 CommandPalette focus save/restore — Status: **Done**
 
-**Before.** `web/src/components/CommandPalette.tsx:42-101` implements a focus trap but does not save the previously-focused element on open or restore it on close. After Cmd+K → Escape, focus is dropped on document body.
+**Before.** `web/src/components/CommandPalette.tsx` implemented a focus trap but did not save the previously-focused element on open or restore it on close. After Cmd+K → Escape, focus was dropped on the document body.
 
-**Change.** On open: `previousActiveElement.current = document.activeElement as HTMLElement`. On close: `previousActiveElement.current?.focus()`.
+**Change.** Added a `previousActiveElementRef` and a small `useEffect` that runs on the `open` transition: when `open` becomes `true`, snapshot `document.activeElement`; when `open` becomes `false`, call `.focus()` on the snapshotted element and clear the ref. The effect is registered before the existing focus-trap effect so the snapshot is taken before the trap's `focusin` listener moves focus into the dialog.
 
-**After.** Cmd+K then Escape returns focus to where the user was.
+**After.** Cmd+K → Escape restores focus to whatever the user was on (tree item, button, etc.). Eliminates the "focus on body" trap that screen-reader / keyboard-only users hit after dismissing the palette.
 
-**Reproducibility.** Focus a tree item; Cmd+K; Escape; expect the original item to be focused.
+**Reproducibility.** Focus a tree item or button; press Cmd+K; press Escape; expect the original element to be re-focused (visible focus ring returns).
 
 ### 4.5 Sync-status live region: quiet routine ticks — Status: _TBD_
 

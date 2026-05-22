@@ -37,6 +37,16 @@ export function CommandPalette({ open, onOpenChange, currentDocument, onConvertD
   const [documents, setDocuments] = useState<SearchableDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const previousActiveElementRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      previousActiveElementRef.current = document.activeElement as HTMLElement | null;
+    } else if (previousActiveElementRef.current) {
+      previousActiveElementRef.current.focus();
+      previousActiveElementRef.current = null;
+    }
+  }, [open]);
 
   // Focus trap implementation for WCAG 2.4.3 Focus Order
   useEffect(() => {
