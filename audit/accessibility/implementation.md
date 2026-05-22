@@ -417,11 +417,19 @@ The chosen surface (selected-state inline input) avoids interrupting the upload 
 
 **Before.** `web/src/components/CommandPalette.tsx` implemented a focus trap but did not save the previously-focused element on open or restore it on close. After Cmd+K → Escape, focus was dropped on the document body.
 
-**Change.** Added a `previousActiveElementRef` and a small `useEffect` that runs on the `open` transition: when `open` becomes `true`, snapshot `document.activeElement`; when `open` becomes `false`, call `.focus()` on the snapshotted element and clear the ref. The effect is registered before the existing focus-trap effect so the snapshot is taken before the trap's `focusin` listener moves focus into the dialog.
+**Initial (broken) attempt.** First pass placed the capture inside `CommandPalette.tsx` as a `useEffect` keyed on `open`. This is **race-condition-broken**: `<Command.Input autoFocus>` calls `.focus()` during the React commit phase, which runs *before* any `useEffect` (even `useLayoutEffect`). By the time the snapshot effect ran, `document.activeElement` was already the palette input, not the launcher. On close, focus would be restored to the now-unmounted input — and dropped on `<body>`.
 
-**After.** Cmd+K → Escape restores focus to whatever the user was on (tree item, button, etc.). Eliminates the "focus on body" trap that screen-reader / keyboard-only users hit after dismissing the palette.
+**Change (corrected).** Moved the capture to the synchronous Cmd+K keydown handler in `web/src/pages/App.tsx`, where the launcher is still the active element. The handler now:
 
-**Reproducibility.** Focus a tree item or button; press Cmd+K; press Escape; expect the original element to be re-focused (visible focus ring returns).
+1. Checks the current `open` state via a ref (`commandPaletteOpenRef`) so the listener doesn't have to re-bind every state change.
+2. If transitioning false → true, snapshots `document.activeElement` into `commandPalettePreviousFocusRef` **before** calling `setCommandPaletteOpen(open => !open)`. This runs in the same synchronous tick as the user's Cmd+K, before React schedules the palette mount.
+3. A separate `useEffect` watches `commandPaletteOpen` and, when it transitions back to false, focuses the snapshotted element and clears the ref. This catches every close path (Escape, outside-click, command selection), since they all funnel through `setCommandPaletteOpen(false)`.
+
+The `useRef` mirror of `open` is used so the keydown listener can read the current state without a stale-closure problem and without the listener re-binding on every transition.
+
+**After.** Cmd+K → Escape (or selection, or outside click) restores focus to whatever the user was on (tree item, button, etc.). Eliminates the "focus on body" trap.
+
+**Reproducibility.** Focus a tree item or button; press Cmd+K; press Escape; expect the original element to be re-focused (visible focus ring returns). Same expectation for outside-click and for command-selection dismissal paths.
 
 ### 4.5 Sync-status live region: quiet routine ticks — Status: **Done**
 

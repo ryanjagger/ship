@@ -53,6 +53,9 @@ export function AppLayout() {
     return localStorage.getItem('ship:leftSidebarCollapsed') === 'true';
   });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const commandPaletteOpenRef = useRef(commandPaletteOpen);
+  commandPaletteOpenRef.current = commandPaletteOpen;
+  const commandPalettePreviousFocusRef = useRef<HTMLElement | null>(null);
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
   const [projectSetupWizardOpen, setProjectSetupWizardOpen] = useState(false);
   const [actionItemsModalOpen, setActionItemsModalOpen] = useState(false);
@@ -138,12 +141,26 @@ export function AppLayout() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
+        // Capture launcher synchronously, BEFORE setState triggers the palette mount
+        // and its <Command.Input autoFocus> moves focus away.
+        if (!commandPaletteOpenRef.current) {
+          commandPalettePreviousFocusRef.current = document.activeElement as HTMLElement | null;
+        }
         setCommandPaletteOpen(open => !open);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Restore focus on close. All close paths (Escape, outside-click, selection)
+  // end at setCommandPaletteOpen(false), so this catches every route.
+  useEffect(() => {
+    if (!commandPaletteOpen && commandPalettePreviousFocusRef.current) {
+      commandPalettePreviousFocusRef.current.focus();
+      commandPalettePreviousFocusRef.current = null;
+    }
+  }, [commandPaletteOpen]);
 
   // Get current document type and ID for /documents/:id routes
   const { currentDocumentType, currentDocumentId, currentDocumentProjectId } = useCurrentDocument();
