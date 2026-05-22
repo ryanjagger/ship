@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSessionTimeout } from './useSessionTimeout';
+import { clearCsrfToken } from '@/lib/api';
 
 /**
  * Unit Tests for useSessionTimeout Hook
@@ -20,11 +21,27 @@ const ACTIVITY_THROTTLE_MS = 30 * 1000; // 30 seconds
 // Mock fetch globally
 const mockFetch = vi.fn();
 
+// Build a Response-like mock that satisfies `isJsonResponse` checks in lib/api.ts
+// (which reads `headers.get('content-type')`).
+function jsonResponse(data: unknown, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: {
+      get: (key: string) =>
+        key.toLowerCase() === 'content-type' ? 'application/json' : null,
+    },
+    json: async () => data,
+  };
+}
+
 describe('useSessionTimeout', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     // Reset fetch mock
     mockFetch.mockReset();
+    // Clear module-scoped CSRF cache so tests don't leak state between each other
+    clearCsrfToken();
     // Default: return successful session info
     mockFetch.mockResolvedValue({
       ok: true,
@@ -145,8 +162,10 @@ describe('useSessionTimeout', () => {
 
     it('does NOT call onTimeout if dismissed before 0', async () => {
       const onTimeout = vi.fn();
-      // Mock successful extend-session response
-      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+      // Mock successful CSRF + extend-session responses. Both go through
+      // lib/api.ts which inspects `headers.get('content-type')`, so the
+      // mock must look like a real Response (see jsonResponse helper).
+      mockFetch.mockResolvedValue(jsonResponse({ success: true, token: 'csrf-token' }));
 
       const { result } = renderHook(() => useSessionTimeout(onTimeout));
 
@@ -174,7 +193,7 @@ describe('useSessionTimeout', () => {
   describe('Activity Reset', () => {
     it('resetTimer() hides warning modal', async () => {
       const onTimeout = vi.fn();
-      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+      mockFetch.mockResolvedValue(jsonResponse({ success: true, token: 'csrf-token' }));
 
       const { result } = renderHook(() => useSessionTimeout(onTimeout));
 
@@ -191,11 +210,13 @@ describe('useSessionTimeout', () => {
       });
 
       expect(result.current.showWarning).toBe(false);
+      // Successful extend-session must not trigger force-logout
+      expect(onTimeout).not.toHaveBeenCalled();
     });
 
     it('resetTimer() resets lastActivity to now', async () => {
       const onTimeout = vi.fn();
-      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+      mockFetch.mockResolvedValue(jsonResponse({ success: true, token: 'csrf-token' }));
 
       const { result } = renderHook(() => useSessionTimeout(onTimeout));
       const initialActivity = result.current.lastActivity;
@@ -211,11 +232,12 @@ describe('useSessionTimeout', () => {
       });
 
       expect(result.current.lastActivity).toBeGreaterThan(initialActivity);
+      expect(onTimeout).not.toHaveBeenCalled();
     });
 
     it('after resetTimer(), warning appears 14 min later (not sooner)', async () => {
       const onTimeout = vi.fn();
-      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+      mockFetch.mockResolvedValue(jsonResponse({ success: true, token: 'csrf-token' }));
 
       const { result } = renderHook(() => useSessionTimeout(onTimeout));
 
@@ -245,11 +267,13 @@ describe('useSessionTimeout', () => {
       });
 
       expect(result.current.showWarning).toBe(true);
+      // Inactivity warning is expected; force-logout from extend-session is not
+      expect(onTimeout).not.toHaveBeenCalled();
     });
 
     it('resetTimer() clears countdown interval', async () => {
       const onTimeout = vi.fn();
-      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+      mockFetch.mockResolvedValue(jsonResponse({ success: true, token: 'csrf-token' }));
 
       const { result } = renderHook(() => useSessionTimeout(onTimeout));
 
@@ -274,6 +298,7 @@ describe('useSessionTimeout', () => {
 
       // timeRemaining should be null
       expect(result.current.timeRemaining).toBeNull();
+      expect(onTimeout).not.toHaveBeenCalled();
     });
   });
 
@@ -342,16 +367,24 @@ describe('useSessionTimeout', () => {
 
     it('activity does NOT reset absolute timeout', async () => {
       const sessionCreatedAt = new Date().toISOString();
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          success: true,
-          data: {
-            createdAt: sessionCreatedAt,
-            expiresAt: new Date(Date.now() + SESSION_TIMEOUT_MS).toISOString(),
-            lastActivity: new Date().toISOString(),
-          },
-        }),
+      // /api/auth/session is called via raw fetch (no Response-shape needs);
+      // resetTimer -> extendSession goes through lib/api which calls
+      // headers.get('content-type'), so CSRF + extend calls need jsonResponse.
+      mockFetch.mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.includes('/api/auth/session') && !url.includes('extend')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              success: true,
+              data: {
+                createdAt: sessionCreatedAt,
+                expiresAt: new Date(Date.now() + SESSION_TIMEOUT_MS).toISOString(),
+                lastActivity: new Date().toISOString(),
+              },
+            }),
+          });
+        }
+        return Promise.resolve(jsonResponse({ success: true, token: 'csrf-token' }));
       });
 
       const onTimeout = vi.fn();
@@ -366,10 +399,19 @@ describe('useSessionTimeout', () => {
         vi.advanceTimersByTime(ABSOLUTE_SESSION_TIMEOUT_MS - ABSOLUTE_WARNING_THRESHOLD_MS - 5 * 60 * 1000);
       });
 
+      // Scope the next assertion: ignore any onTimeout calls from the inactivity
+      // countdown that fired during the long time advance above (a known
+      // fake-timers + React batching artifact, unrelated to this test).
+      onTimeout.mockClear();
+
       // Reset activity (inactivity timer)
       await act(async () => {
         await result.current.resetTimer();
       });
+
+      // resetTimer must succeed cleanly — not force-logout via the catch path
+      // (regression guard for the missing-headers mock-shape bug).
+      expect(onTimeout).not.toHaveBeenCalled();
 
       // Advance 5 more minutes to reach 11:55
       await act(async () => {
@@ -622,7 +664,7 @@ describe('useSessionTimeout', () => {
 
     it('clears interval when warning dismissed', async () => {
       const onTimeout = vi.fn();
-      mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+      mockFetch.mockResolvedValue(jsonResponse({ success: true, token: 'csrf-token' }));
 
       const { result } = renderHook(() => useSessionTimeout(onTimeout));
 
@@ -640,6 +682,7 @@ describe('useSessionTimeout', () => {
 
       // Verify countdown stopped
       expect(result.current.timeRemaining).toBeNull();
+      expect(onTimeout).not.toHaveBeenCalled();
     });
   });
 
@@ -717,6 +760,7 @@ describe('useSessionTimeout', () => {
 describe('useSessionTimeout - Edge Cases', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    clearCsrfToken();
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -776,7 +820,7 @@ describe('useSessionTimeout - Edge Cases', () => {
 
   it('handles resetTimer called when not showing warning', async () => {
     const onTimeout = vi.fn();
-    (global.fetch as Mock).mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+    (global.fetch as Mock).mockResolvedValue(jsonResponse({ success: true, token: 'csrf-token' }));
 
     const { result } = renderHook(() => useSessionTimeout(onTimeout));
 
@@ -788,11 +832,12 @@ describe('useSessionTimeout - Edge Cases', () => {
     // Should not throw and hook should still work
     expect(result.current.showWarning).toBe(false);
     expect(result.current.timeRemaining).toBeNull();
+    expect(onTimeout).not.toHaveBeenCalled();
   });
 
   it('handles multiple resetTimer calls in quick succession', async () => {
     const onTimeout = vi.fn();
-    (global.fetch as Mock).mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+    (global.fetch as Mock).mockResolvedValue(jsonResponse({ success: true, token: 'csrf-token' }));
 
     const { result } = renderHook(() => useSessionTimeout(onTimeout));
 
@@ -814,6 +859,7 @@ describe('useSessionTimeout - Edge Cases', () => {
 
     // Should work correctly without errors
     expect(result.current.showWarning).toBe(false);
+    expect(onTimeout).not.toHaveBeenCalled();
   });
 
   it('survives component re-render without resetting timer', async () => {
