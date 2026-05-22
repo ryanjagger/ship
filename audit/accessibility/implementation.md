@@ -15,7 +15,7 @@ The audit and peer review together identified 4 originally-flagged violations pl
 | Pages with `<main>` landmark | 9/10 (Login missing) | **10/10** | `74ce704` |
 | Selects missing accessible name | 3 (Settings) | **0** | `087d67c` |
 | `text-accent` on `bg-background` text usages | ~20+ | _Phase 3_ | — |
-| Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | _Phase 3_ | — |
+| Opacity-based text dimming (`opacity-40` on rows) | 1 (My Week future rows) | **0** | _Phase 3_ |
 | TipTap surfaces with accessible name | 0 (body + title) | **2/2** | `c0908cb` |
 | Icon-only buttons relying on `title` for SR name | 2 (workspace, sign-out) | **0** | `31339df` |
 | Form fields with linked validation errors | 2 (Login only) | **4** (+ ProjectSetupWizard) | `6bd2cdf` |
@@ -298,15 +298,20 @@ Unit tests passing: API 28 files / 451 tests, web 16 files / 151 tests.
 
 **Reproducibility.** `grep -r "text-accent" web/src` returns 0 results outside of intentional non-text or comments. Audit runner contrast check passes on My Week, Team Allocation, Team Status.
 
-### 3.2 My Week future-row dimming — Status: _TBD_
+### 3.2 My Week future-row dimming — Status: **Done** (verified at Phase 3 end)
 
-**Before.** `web/src/pages/MyWeekPage.tsx:339` applies `isFuture && 'opacity-40'` to rows, dimming text below AA. Opacity on a text container changes effective foreground luminance against any non-uniform background.
+**Before.** `web/src/pages/MyWeekPage.tsx:339` applied `isFuture && 'opacity-40'` to the standup-slot row. Opacity on a text container drops effective foreground luminance against the page background regardless of the text color used, pushing every child text node below AA's 4.5:1 threshold. The same future-row branch rendered "Upcoming" as italic body text inside the row's main content slot, so the only signal that a row was a future day was the opacity dimming itself.
 
-**Change.** Replace `opacity-40` with an explicit muted text color (e.g. `text-muted`) and add a status pill ("Upcoming") so the temporal state is communicated by copy + color, not by transparency.
+**Change.** Two concrete patches in `web/src/pages/MyWeekPage.tsx`:
 
-**After.** Future rows readable at AA; temporal state expressed in text content.
+1. Row class: replaced `isFuture && 'opacity-40'` with `isFuture && 'text-muted'` at `:339`. `text-muted` (`#8a8a8a`) is already audited at 5.1:1 on `bg-background` (`#0d0d0d`) per the comment in `web/tailwind.config.js`, so future rows still read as de-emphasized but every descendant text node stays above AA. The `text-muted` cascades to the date label, weekday, and pill content because none of those children set their own color in the future-row branch (the `isToday ? 'text-accent' : 'text-muted'` branch on the date label still hard-codes the non-future case, which is fine — Phase 3.1 will retune `text-accent`).
+2. Future-row body: removed the italic `<span className="text-xs text-muted italic">Upcoming</span>` from the main content flex slot and replaced it with a small pill — `<span className="rounded-full bg-border/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">Upcoming</span>` — placed inside the row immediately after the date label and before a now-empty `flex-1` spacer. The pill styling mirrors the existing chip pattern at `web/src/components/ui/MultiAssociationChips.tsx:110` and `WeekPlanningTab.tsx:144` (`rounded-full px-2 py-0.5 text-xs font-medium`), tightened one step (`text-[10px]`) so the pill reads as a status marker rather than a primary content chunk. Temporal state is now communicated by both colour de-emphasis and explicit text content, satisfying WCAG 1.4.1 (use of color) for this row.
 
-**Reproducibility.** Audit runner contrast check on My Week; expect 0 contrast violations on future rows.
+Did not touch the `isToday ? 'text-accent' : 'text-muted'` ternary on the date label at `:345` — `text-accent` on `bg-background` is the broader Phase 3.1 swap and keeping it out of this commit scopes the diff.
+
+**After.** Future-day standup rows on My Week read with `text-muted` (5.1:1 on `bg-background`) for visual de-emphasis instead of `opacity-40` (≈2.0:1 effective), and the "Upcoming" pill makes the temporal state explicit text rather than purely a visual cue. `grep -n 'opacity-40' web/src/pages/MyWeekPage.tsx` returns 0 hits.
+
+**Reproducibility.** Audit runner contrast check on My Week after Phase 3 (`pnpm build:web` + `node_modules/.bin/playwright test --config audit/accessibility/audit-runner.config.ts`); expect 0 contrast violations on future-row text. Manual: load `/my-week` with a future day in view; verify the "Upcoming" pill is visible and the row text is muted but legible.
 
 ### 3.3 Global `prefers-reduced-motion` — Status: _TBD_
 

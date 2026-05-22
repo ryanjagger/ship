@@ -336,7 +336,7 @@ export function MyWeekPage() {
               const rowClass = cn(
                 'flex items-center gap-3 rounded-lg border px-4 py-2.5',
                 isToday ? 'border-accent/30 bg-accent/5' : 'border-border bg-surface',
-                isFuture && 'opacity-40',
+                isFuture && 'text-muted',
                 !isFuture && 'hover:border-accent/50 transition-colors'
               );
 
@@ -373,9 +373,10 @@ export function MyWeekPage() {
                 return (
                   <div key={slot.date} className={rowClass}>
                     {dateLabel}
-                    <div className="flex-1 min-w-0">
-                      <span className="text-xs text-muted italic">Upcoming</span>
-                    </div>
+                    <span className="rounded-full bg-border/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                      Upcoming
+                    </span>
+                    <div className="flex-1 min-w-0" />
                   </div>
                 );
               }
