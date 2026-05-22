@@ -105,10 +105,12 @@ export function ProjectSetupWizard({
                 className={`mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent ${
                   errors.title ? 'border-red-500' : 'border-border'
                 }`}
+                aria-invalid={errors.title ? true : undefined}
+                aria-describedby={errors.title ? 'project-name-error' : undefined}
                 autoFocus
               />
               {errors.title && (
-                <p className="mt-1 text-xs text-red-500">{errors.title}</p>
+                <p id="project-name-error" className="mt-1 text-xs text-red-500">{errors.title}</p>
               )}
             </div>
 
@@ -127,6 +129,8 @@ export function ProjectSetupWizard({
                 className={`mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent ${
                   errors.program ? 'border-red-500' : 'border-border'
                 }`}
+                aria-invalid={errors.program ? true : undefined}
+                aria-describedby={errors.program ? 'project-program-error' : undefined}
               >
                 <option value="">Select a program...</option>
                 {loading ? (
@@ -140,7 +144,7 @@ export function ProjectSetupWizard({
                 )}
               </select>
               {errors.program && (
-                <p className="mt-1 text-xs text-red-500">{errors.program}</p>
+                <p id="project-program-error" className="mt-1 text-xs text-red-500">{errors.program}</p>
               )}
               {!loading && activePrograms.length === 0 && (
                 <p className="mt-1 text-xs text-muted">

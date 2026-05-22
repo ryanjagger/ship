@@ -117,11 +117,16 @@ Did not use `aria-labelledby` against the title textarea — `aria-label` is the
 
 **Reproducibility.** Audit-runner "Unnamed buttons" check on App layout; expect 0. DevTools accessibility panel on each button; expect the `aria-label` text as the computed name.
 
-### 1.7 ProjectSetupWizard: `aria-describedby` + `aria-invalid` on field errors — Status: _TBD_
+### 1.7 ProjectSetupWizard: `aria-describedby` + `aria-invalid` on field errors — Status: **Done** (verified at Phase 1 end)
 
 **Before.** `web/src/components/ProjectSetupWizard.tsx:96-112` and `:120-144` render error `<p>` adjacent to inputs without linking them. `aria-invalid` is also not set. Login does this correctly (`Login.tsx:252-253`) — the wizard just needs the same pattern.
 
-**Change.** Add `id="field-X-error"` to each error `<p>`. Set `aria-describedby="field-X-error"` and `aria-invalid={hasError}` on the corresponding input.
+**Change.** Four attributes added across two field groups in `web/src/components/ProjectSetupWizard.tsx`:
+
+1. Project Name `<input>` (around `:96-109`): added `aria-invalid={errors.title ? true : undefined}` and `aria-describedby={errors.title ? 'project-name-error' : undefined}`. The matching error `<p>` gets `id="project-name-error"`.
+2. Program `<select>` (around `:120-141`): added `aria-invalid={errors.program ? true : undefined}` and `aria-describedby={errors.program ? 'project-program-error' : undefined}`. The matching error `<p>` gets `id="project-program-error"`.
+
+Using `undefined` (not `'false'`) on the non-error path keeps the attribute absent from the DOM and matches the Login pattern. The "No programs available. Create a program first." `<p>` at `:145-148` is intentionally left alone — it's a state hint, not a validation error, and the empty option list plus disabled submit button already communicate that state to SR users. Plan and Target Date fields are optional with no error path and were not touched.
 
 **After.** Error text is announced when the input receives focus, and `aria-invalid` lets SR users know the field is in an error state.
 
