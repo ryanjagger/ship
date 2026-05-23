@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (4 / 7 items landed) |
+| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (5 / 7 items landed) |
 | 2. Tiny code edits | Pool config, admin visibility short-circuit, dead-code removal | Pending |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
@@ -300,9 +300,61 @@ pnpm db:migrate
 # uniqueness query — see migration header for the exact SQL.
 ```
 
-### 1.5 Wiki ordering index `idx_documents_active_type_position` — Status: **Pending**
+### 1.5 Wiki list ordering index — Status: **Done**
 
-README candidate. Low impact at 347 wiki rows; ship it for completeness.
+**Before.** `GET /api/documents?type=wiki` (`api/src/routes/documents.ts:129`) sorts by `(position ASC, created_at DESC)` after filtering on `(workspace_id, document_type='wiki', archived_at IS NULL, deleted_at IS NULL)`. The README baseline showed `Seq Scan on documents → top-N heapsort`, 0.636ms execution at 347 active wiki rows.
+
+Re-measured baseline on the seeded local DB:
+
+```
+Limit  (cost=85.28..85.41 rows=50)  actual time=0.478..0.484
+  ->  Sort (top-N heapsort, Memory: 30kB)  actual time=0.477..0.480
+        Sort Key: "position", created_at DESC
+        ->  Seq Scan on documents (347 of 717 rows returned)
+              Filter: archived_at IS NULL AND deleted_at IS NULL
+                      AND workspace_id = $1 AND document_type = 'wiki'
+Execution Time: 0.499 ms
+```
+
+**Change.** New migration `api/src/db/migrations/042_wiki_ordering_index.sql`:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_documents_active_type_position
+  ON documents (workspace_id, document_type, position ASC, created_at DESC)
+  WHERE archived_at IS NULL AND deleted_at IS NULL;
+
+ANALYZE documents;
+```
+
+The partial predicate matches the route's `archived_at IS NULL AND deleted_at IS NULL` filter exactly, so the index covers the entire active-documents subset. The column order `(workspace_id, document_type, position ASC, created_at DESC)` lets the index serve both the filter and the sort with no separate sort step.
+
+**After (verified 2026-05-22, 347 active wiki rows).**
+
+```
+Limit  (cost=0.28..22.22 rows=50)  actual time=0.023..0.102
+  ->  Index Scan using idx_documents_active_type_position on documents
+        Index Cond: workspace_id = $1 AND document_type = 'wiki'
+        (no Sort node — index ordering matches ORDER BY)
+Execution Time: 0.117 ms
+```
+
+Execution dropped **0.499ms → 0.117ms (~4.3× at 347 rows)**. More importantly, the sort step is gone — wall-time will scale flat (O(log n) index seek + sequential read of N rows) instead of O(N log N) for the heapsort.
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
+  SELECT id, position, created_at FROM documents
+  WHERE workspace_id = (SELECT id FROM workspaces LIMIT 1)
+    AND document_type = 'wiki'
+    AND archived_at IS NULL AND deleted_at IS NULL
+  ORDER BY position ASC, created_at DESC LIMIT 50;"
+```
+
+Expect `Index Scan using idx_documents_active_type_position` with no separate `Sort` node.
 
 ### 1.6 Replace `idx_documents_visibility_created_by` with `idx_documents_created_by` — Status: **Pending**
 
