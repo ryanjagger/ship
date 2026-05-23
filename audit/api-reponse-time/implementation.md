@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Phase 1 is one-line config / middleware addi
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. One-line wins** | `compression()` middleware, throttle session/api_token write churn, add missing `api_tokens.token_hash` index | In progress (1.1 done) |
+| **1. One-line wins** | `compression()` middleware, throttle session/api_token write churn, add missing `api_tokens.token_hash` index | In progress (1.1, 1.2 done) |
 | **2. Small code edits** | Carry `isAdmin` on `req` to eliminate 4th auth-path query; tighten PATCH `pool.connect()` scope; static `Cache-Control` on app-shell endpoints | Pending |
 | **3. Targeted refactors** | Replace `MemoryStore`-backed `express-session`; SQL-side or denormalized `hasContent` for accountability grid; ETag (content-hash) on cacheable list endpoints | Pending |
 | **4. Structural** | Separate `Pool` for collaboration persistence + collapse pre-UPDATE SELECT; `pino-http` + Postgres slow-query log; `/api/issues` pagination; generated `priority_rank` column for issue ORDER BY | Pending |
@@ -82,36 +82,53 @@ For authenticated endpoints (`/api/issues`, `/api/documents?type=wiki`), log in 
 
 **Caveat on loopback measurement.** ApacheBench over loopback won't show a wall-clock improvement — compression's win is wire-bytes, not server CPU, and the loopback wire is effectively free. The real benefit lands on CloudFront-edge / WAN clients where 88% fewer bytes is 88% less transfer time at the user.
 
-### 1.2 Throttle `sessions.last_activity` UPDATE — Status: Pending
+### 1.2 Throttle `sessions.last_activity` UPDATE — Status: **Done**
 
-**Before.** `api/src/middleware/auth.ts:205-208` writes `UPDATE sessions SET last_activity = $1 WHERE id = $2` on **every** authenticated request — even though the cookie refresh on the same path is already throttled to once every 60 s by `COOKIE_REFRESH_THRESHOLD_MS` (line 212). With a many-connection benchmark using one session cookie this is a hot-row UPDATE; in real traffic it's still a serialized write per user per request.
+**Before.** `api/src/middleware/auth.ts:205-208` wrote `UPDATE sessions SET last_activity = $1 WHERE id = $2` on **every** authenticated request — even though the cookie refresh on the same path was already throttled to once every 60 s by `COOKIE_REFRESH_THRESHOLD_MS` (line 212). With a many-connection benchmark using one session cookie this is a hot-row UPDATE; in real traffic it's a serialized write per user per request.
 
-**Change.** Reuse the existing `COOKIE_REFRESH_THRESHOLD_MS` window: only write `last_activity` when more than `COOKIE_REFRESH_THRESHOLD_MS` (60 s) has passed since the last activity timestamp already on the session row. The threshold is already computed at `:212-213`; reorder so the UPDATE is gated by the same boolean.
+**Change.** Hoisted the UPDATE into the same `inactivityMs > 60 s` branch the cookie refresh already used, and renamed the constant to `ACTIVITY_REFRESH_THRESHOLD_MS` (it now gates both DB write + cookie reissue):
 
 ```ts
-const inactivityMs = now.getTime() - lastActivity.getTime();
-const SESSION_TOUCH_THRESHOLD_MS = 60 * 1000; // same 60s window as cookie refresh
-if (inactivityMs > SESSION_TOUCH_THRESHOLD_MS) {
+const ACTIVITY_REFRESH_THRESHOLD_MS = 60 * 1000;
+if (inactivityMs > ACTIVITY_REFRESH_THRESHOLD_MS) {
   await pool.query(
     'UPDATE sessions SET last_activity = $1 WHERE id = $2',
-    [now, session.id],
+    [now, sessionId]
   );
+  res.cookie('session_id', sessionId, { /* sliding expiration */ });
 }
 ```
 
-The 15-minute inactivity timeout policy (`docs/claude-reference/architecture.md`) is unaffected — 60 s of write coalescing is well below the 15-minute expiration boundary, so a session expiring mid-window still has a recent enough `last_activity` value to be detected as expired on the next request (the read at `:127-133` happens regardless).
+The 15-minute inactivity timeout policy is unaffected — 60 s of write coalescing is well below the 15-minute expiration boundary, so a session expiring mid-window still has a recent-enough `last_activity` value to be detected as expired on the next request (the read at `:127-133` happens regardless of the threshold).
 
-**Expected after.** Under the benchmark's one-cookie traffic shape, write contention on the single session row drops by ~60x at 1 req/s and proportionally more at higher rates. -1 to -3 ms p50 + a larger contention drop at concurrency 50.
+**Test infrastructure fix.** Surfaced a latent brittleness in `api/src/__tests__/auth.test.ts`: `beforeEach` was calling `vi.clearAllMocks()`, which clears call history but NOT the `mockResolvedValueOnce` queue. Tests had been relying on exact queue depletion — fine when every code path consumed exactly N onces, but my change consumed one fewer in the within-60 s branch, leaving one mock queued for the next test. Switched to `vi.resetAllMocks()` so the queue clears between tests. All 15 tests pass; total api 451/451, web 151/151.
 
-**Reproducibility.**
+**After (verified 2026-05-23, second API instance on :3001 against seeded `ship_dev`).**
+
+End-to-end smoke test logging the actual `sessions.last_activity` timestamp around a series of requests:
+
+```
+T0 immediately after login:        2026-05-23 15:07:01.744-05
+5 authenticated requests at 1/s:   T1 = 2026-05-23 15:07:01.744-05  (UNCHANGED)
+sleep 65s + 1 more request:        T2 = 2026-05-23 15:08:12.126-05  (ADVANCED)
+```
+
+Within the 60 s window: zero UPDATEs across 5 requests. Beyond the window: the next request fires the UPDATE. Behavior matches the design exactly.
+
+**Reproducibility.** Boot a fresh API instance and seed; the script is in the smoke-test command but condensed:
 
 ```bash
-# Tail Postgres and confirm UPDATE sessions firing only every ~60s
-psql "$DATABASE_URL" -c "ALTER SYSTEM SET log_min_duration_statement = 0;" && \
-  psql "$DATABASE_URL" -c "SELECT pg_reload_conf();"
-# Run benchmark; grep the PG log for "UPDATE sessions SET last_activity"
-# Expect: ~one UPDATE per minute per session, not per request.
-# Restore: ALTER SYSTEM RESET log_min_duration_statement;
+# In one terminal — run a second API:
+DATABASE_URL=postgresql://ship:ship_dev_password@localhost:5432/ship_dev \
+  PORT=3001 SESSION_SECRET=smoke-test E2E_TEST=1 \
+  pnpm --filter @ship/api dev
+
+# In another:
+DATABASE_URL=postgresql://ship:ship_dev_password@localhost:5432/ship_dev pnpm db:seed
+# Login (POST /api/auth/login, capture session_id cookie), then:
+psql -d ship_dev -tA -c "SELECT last_activity FROM sessions ORDER BY last_activity DESC LIMIT 1"
+# Fire 5 requests within ~5s; re-read; expect unchanged.
+# Sleep 65s, fire once more; re-read; expect advanced.
 ```
 
 ### 1.3 Throttle `api_tokens.last_used_at` UPDATE — Status: Pending
