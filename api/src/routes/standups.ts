@@ -3,7 +3,7 @@ import { pool } from '../db/client.js';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { getVisibilityContext, VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 
 type RouterType = ReturnType<typeof Router>;
 const router: RouterType = Router();
@@ -42,6 +42,7 @@ const createStandupSchema = z.object({
  */
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const parsed = createStandupSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -49,8 +50,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     }
 
     const { date } = parsed.data;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Check if standup already exists for this user+date
     const existingResult = await pool.query(
@@ -156,8 +157,9 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    assertAuthed(req);
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
     const { date_from, date_to } = req.query;
 
     if (!date_from || !date_to) {
@@ -220,8 +222,9 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    assertAuthed(req);
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get workspace sprint_start_date to calculate current sprint number
     const workspaceResult = await pool.query(
@@ -341,9 +344,10 @@ const updateStandupSchema = z.object({
  */
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = updateStandupSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -457,9 +461,10 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
  */
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);

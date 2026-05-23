@@ -16,6 +16,37 @@ declare global {
   }
 }
 
+// Narrowed request types for handlers that run after authMiddleware.
+// Use with assertAuthed / assertUserAuthed below to convert the optional
+// fields on Request into guaranteed strings (replaces `req.userId!` patterns).
+export type AuthedUserRequest = Request & { userId: string };
+export type AuthedRequest = Request & { userId: string; workspaceId: string };
+
+/**
+ * Assert that `authMiddleware` ran AND that the request has a workspace
+ * context. Narrows `req` so subsequent reads of `req.userId` and
+ * `req.workspaceId` are typed `string` without non-null assertions.
+ *
+ * Use in handlers that operate within a workspace (the common case).
+ */
+export function assertAuthed(req: Request): asserts req is AuthedRequest {
+  if (!req.userId || !req.workspaceId) {
+    throw new Error('assertAuthed: request is missing userId or workspaceId — authMiddleware must run first and a workspace must be selected');
+  }
+}
+
+/**
+ * Assert that `authMiddleware` ran. Narrows `req.userId` to `string`.
+ *
+ * Use in account- or super-admin-level handlers that legitimately have no
+ * current workspace (auth, admin, workspace-switching, API-token mgmt).
+ */
+export function assertUserAuthed(req: Request): asserts req is AuthedUserRequest {
+  if (!req.userId) {
+    throw new Error('assertUserAuthed: request is missing userId — authMiddleware must run first');
+  }
+}
+
 // Hash a token for comparison
 function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');

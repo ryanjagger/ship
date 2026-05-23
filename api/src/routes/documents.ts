@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { z } from 'zod';
 import type { SqlParam } from '@ship/shared';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 import { isWorkspaceAdmin } from '../middleware/visibility.js';
 import { handleVisibilityChange, handleDocumentConversion, invalidateDocumentCache, broadcastToUser } from '../collaboration/index.js';
 import { extractHypothesisFromContent, extractSuccessCriteriaFromContent, extractVisionFromContent, extractGoalsFromContent, checkDocumentCompleteness } from '../utils/extractHypothesis.js';
@@ -94,9 +94,10 @@ const updateDocumentSchema = z.object({
 // List documents
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { type, parent_id } = req.query;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Check if user is admin (admins can see all documents)
     const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
@@ -157,6 +158,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // List converted documents (archived originals that were converted to another type)
 router.get('/converted/list', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
     const { original_type, converted_type } = req.query;
@@ -221,6 +223,7 @@ router.get('/converted/list', authMiddleware, async (req: Request, res: Response
 // Get single document
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -373,6 +376,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Useful for API-based document editing without using the collaborative editor
 router.get('/:id/content', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -428,6 +432,7 @@ router.get('/:id/content', authMiddleware, async (req: Request, res: Response) =
 // Useful for API-based document editing without using the collaborative editor
 router.patch('/:id/content', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -506,6 +511,7 @@ router.patch('/:id/content', authMiddleware, async (req: Request, res: Response)
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
+    assertAuthed(req);
     const parsed = createDocumentSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -577,7 +583,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     // Sprint plans clear the "write sprint plan" action item
     // Documents with outcome property linked to sprints clear the "write retro" action item
     if (document_type === 'weekly_plan' || (properties && 'outcome' in properties)) {
-      broadcastToUser(req.userId!, 'accountability:updated', { documentId: newDoc.id, documentType: document_type });
+      broadcastToUser(req.userId, 'accountability:updated', { documentId: newDoc.id, documentType: document_type });
     }
 
     res.status(201).json(newDoc);
@@ -594,6 +600,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
+    assertAuthed(req);
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -1105,6 +1112,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Delete document
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -1148,6 +1156,7 @@ const convertDocumentSchema = z.object({
 router.post('/:id/convert', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
+    assertAuthed(req);
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -1376,6 +1385,7 @@ router.post('/:id/undo-conversion', authMiddleware, async (req: Request, res: Re
   const client = await pool.connect();
 
   try {
+    assertAuthed(req);
     await client.query('BEGIN');
 
     // Get the most recent snapshot for this document

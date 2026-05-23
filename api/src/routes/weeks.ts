@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { z } from 'zod';
 import { getVisibilityContext, VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 import {
   transformIssueLinks,
   extractTicketNumbersFromContents,
@@ -87,7 +87,8 @@ async function broadcastAccountabilityUpdateToSprintOwner(
 // GET /api/weeks/lookup-person - Find person document by user_id
 router.get('/lookup-person', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const workspaceId = req.workspaceId!;
+    assertAuthed(req);
+    const workspaceId = req.workspaceId;
     const userId = req.query.user_id as string;
 
     if (!userId) {
@@ -119,7 +120,8 @@ router.get('/lookup-person', authMiddleware, async (req: Request, res: Response)
 // Returns the sprint document with its approval properties
 router.get('/lookup', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const workspaceId = req.workspaceId!;
+    assertAuthed(req);
+    const workspaceId = req.workspaceId;
     const projectId = req.query.project_id as string;
     const sprintNumber = parseInt(req.query.sprint_number as string, 10);
 
@@ -275,8 +277,9 @@ async function takeSprintSnapshot(sprintId: string): Promise<string[]> {
 // Active = sprint_number matches the current 7-day window based on workspace.sprint_start_date
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    assertAuthed(req);
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -378,8 +381,9 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // Returns sprints owned by the user that need plan or retro
 router.get('/my-action-items', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    assertAuthed(req);
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get workspace sprint configuration
     const workspaceResult = await pool.query(
@@ -547,8 +551,9 @@ router.get('/my-action-items', authMiddleware, async (req: Request, res: Respons
 // Supports historical week viewing via sprint_number query param
 router.get('/my-week', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    assertAuthed(req);
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
     const { state, assignee, show_mine, sprint_number: requestedSprintNumber } = req.query;
 
     // Get visibility context for filtering
@@ -740,9 +745,10 @@ router.get('/my-week', authMiddleware, async (req: Request, res: Response) => {
 // Automatically takes a plan snapshot when sprint becomes active (start_date reached)
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -829,8 +835,9 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 // program_id is optional - allows creating projectless sprints for ad-hoc work
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    assertAuthed(req);
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = createSprintSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -1018,9 +1025,10 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 // When sprint_number changes, the plan snapshot is cleared and will be retaken when the new date arrives
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = updateSprintSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -1200,9 +1208,10 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // POST /api/weeks/:id/start
 router.post('/:id/start', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1253,7 +1262,7 @@ router.post('/:id/start', authMiddleware, async (req: Request, res: Response) =>
     );
 
     // Broadcast celebration when sprint is started
-    broadcastToUser(req.userId!, 'accountability:updated', { type: 'week_start', targetId: id as string });
+    broadcastToUser(req.userId, 'accountability:updated', { type: 'week_start', targetId: id as string });
 
     // Re-query to get full sprint with owner info
     const result = await pool.query(
@@ -1306,9 +1315,10 @@ router.post('/:id/start', authMiddleware, async (req: Request, res: Response) =>
 // Delete sprint
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1348,9 +1358,10 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 // PATCH /api/weeks/:id/plan
 router.patch('/:id/plan', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = updatePlanSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -1460,7 +1471,7 @@ router.patch('/:id/plan', authMiddleware, async (req: Request, res: Response) =>
 
     // Broadcast celebration when plan is added
     if (data.plan && data.plan.trim() !== '') {
-      broadcastToUser(req.userId!, 'accountability:updated', { type: 'weekly_plan', targetId: id as string });
+      broadcastToUser(req.userId, 'accountability:updated', { type: 'weekly_plan', targetId: id as string });
     }
 
     // Re-query to get full sprint with owner info
@@ -1509,9 +1520,10 @@ router.patch('/:id/plan', authMiddleware, async (req: Request, res: Response) =>
 // Get sprint issues
 router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1608,9 +1620,10 @@ router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) =>
 // Returns: { originalScope, currentScope, scopeChangePercent, scopeChanges }
 router.get('/:id/scope-changes', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1832,9 +1845,10 @@ function formatStandupResponse(row: any) {
  */
 router.get('/:id/standups', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1925,9 +1939,10 @@ router.get('/:id/standups', authMiddleware, async (req: Request, res: Response) 
  */
 router.post('/:id/standups', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = createStandupSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -2156,9 +2171,10 @@ async function generatePrefilledReviewContent(sprintData: any, issues: any[]) {
 // GET /api/weeks/:id/review - Get or generate pre-filled sprint review
 router.get('/:id/review', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -2270,9 +2286,10 @@ router.get('/:id/review', authMiddleware, async (req: Request, res: Response) =>
 // POST /api/weeks/:id/review - Create finalized sprint review
 router.post('/:id/review', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = sprintReviewSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -2383,9 +2400,10 @@ router.post('/:id/review', authMiddleware, async (req: Request, res: Response) =
 // PATCH /api/weeks/:id/review - Update existing sprint review
 router.patch('/:id/review', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = sprintReviewSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -2550,9 +2568,10 @@ const carryoverSchema = z.object({
 // POST /api/weeks/:id/carryover - Move incomplete issues to another sprint
 router.post('/:id/carryover', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id: sourceSprintId } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = carryoverSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -2683,9 +2702,10 @@ router.post('/:id/carryover', authMiddleware, async (req: Request, res: Response
 // POST /api/weeks/:id/approve-plan - Approve sprint plan
 router.post('/:id/approve-plan', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
     const parsedComment = parseApprovalComment(req.body);
     if (parsedComment.error) {
       res.status(400).json({ error: parsedComment.error });
@@ -2783,9 +2803,10 @@ router.post('/:id/approve-plan', authMiddleware, async (req: Request, res: Respo
 // POST /api/weeks/:id/unapprove-plan - Revoke plan approval (logged to history)
 router.post('/:id/unapprove-plan', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
 
@@ -2842,10 +2863,11 @@ router.post('/:id/unapprove-plan', authMiddleware, async (req: Request, res: Res
 // POST /api/weeks/:id/approve-review - Approve sprint review (rating required)
 router.post('/:id/approve-review', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
     const { rating } = req.body || {};
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
     const parsedComment = parseApprovalComment(req.body);
     if (parsedComment.error) {
       res.status(400).json({ error: parsedComment.error });
@@ -2971,10 +2993,11 @@ router.post('/:id/approve-review', authMiddleware, async (req: Request, res: Res
 // POST /api/weeks/:id/request-plan-changes - Request changes on sprint plan
 router.post('/:id/request-plan-changes', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
     const { feedback } = req.body || {};
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Validate feedback is provided and not too long
     if (!feedback || typeof feedback !== 'string' || feedback.trim().length === 0) {
@@ -3064,10 +3087,11 @@ router.post('/:id/request-plan-changes', authMiddleware, async (req: Request, re
 // POST /api/weeks/:id/request-retro-changes - Request changes on sprint retro
 router.post('/:id/request-retro-changes', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
     const { feedback } = req.body || {};
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Validate feedback is provided and not too long
     if (!feedback || typeof feedback !== 'string' || feedback.trim().length === 0) {

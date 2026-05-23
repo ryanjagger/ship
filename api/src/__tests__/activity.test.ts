@@ -11,6 +11,8 @@ vi.mock('../db/client.js', () => ({
 
 // Mock auth middleware to inject test session data
 vi.mock('../middleware/auth.js', () => ({
+  assertAuthed: vi.fn(),
+  assertUserAuthed: vi.fn(),
   authMiddleware: (req: any, res: any, next: any) => {
     req.workspaceId = 'test-workspace-id';
     req.userId = 'test-user-id';

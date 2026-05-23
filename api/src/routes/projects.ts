@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { z } from 'zod';
 import { getVisibilityContext, VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 import { DEFAULT_PROJECT_PROPERTIES, computeICEScore } from '@ship/shared';
 import { checkDocumentCompleteness } from '../utils/extractHypothesis.js';
 import { logDocumentChange, getLatestDocumentFieldHistory } from '../utils/document-crud.js';
@@ -312,11 +312,12 @@ const VALID_SORT_FIELDS = ['ice_score', 'impact', 'confidence', 'ease', 'title',
 // List projects (documents with document_type = 'project')
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const includeArchived = req.query.archived === 'true';
     const sortField = (req.query.sort as string) || 'ice_score';
     const sortDir = (req.query.dir as string) === 'asc' ? 'ASC' : 'DESC';
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Validate sort field to prevent SQL injection
     if (!VALID_SORT_FIELDS.includes(sortField)) {
@@ -434,9 +435,10 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // Get single project
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -532,6 +534,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Create project (creates a document with document_type = 'project')
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const parsed = createProjectSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -615,9 +618,10 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 // Update project
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = updateProjectSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -869,9 +873,10 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Delete project
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -911,9 +916,10 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 // GET /api/projects/:id/retro - Returns pre-filled draft or existing retro
 router.get('/:id/retro', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1010,9 +1016,10 @@ router.get('/:id/retro', authMiddleware, async (req: Request, res: Response) => 
 // POST /api/projects/:id/retro - Creates finalized project retro
 router.post('/:id/retro', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = projectRetroSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -1144,9 +1151,10 @@ function extractSprintFromRow(row: any) {
 // GET /api/projects/:id/issues - List issues for a project
 router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1219,9 +1227,10 @@ router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) =>
 // Note: "weeks" is the user-facing terminology, "sprints" is internal
 router.get('/:id/weeks', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1278,9 +1287,10 @@ router.get('/:id/weeks', authMiddleware, async (req: Request, res: Response) => 
 // GET /api/projects/:id/sprints - List sprints for a project (deprecated, use /weeks)
 router.get('/:id/sprints', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1337,9 +1347,10 @@ router.get('/:id/sprints', authMiddleware, async (req: Request, res: Response) =
 // POST /api/projects/:id/sprints - Create a sprint associated with a project
 router.post('/:id/sprints', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = createProjectSprintSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -1508,9 +1519,10 @@ router.post('/:id/sprints', authMiddleware, async (req: Request, res: Response) 
 // PATCH /api/projects/:id/retro - Updates existing project retro
 router.patch('/:id/retro', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = projectRetroSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -1622,9 +1634,10 @@ router.patch('/:id/retro', authMiddleware, async (req: Request, res: Response) =
 // POST /api/projects/:id/approve-plan - Approve project plan
 router.post('/:id/approve-plan', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for admin check
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -1686,9 +1699,10 @@ router.post('/:id/approve-plan', authMiddleware, async (req: Request, res: Respo
 // POST /api/projects/:id/approve-retro - Approve project retro
 router.post('/:id/approve-retro', authMiddleware, async (req: Request, res: Response) => {
   try {
+    assertAuthed(req);
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for admin check
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
