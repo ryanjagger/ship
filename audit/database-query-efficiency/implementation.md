@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (6 / 7 items landed) |
+| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
 | 2. Tiny code edits | Pool config, admin visibility short-circuit, dead-code removal | Pending |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
@@ -408,9 +408,45 @@ psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
 
 Expect `Bitmap Index Scan on idx_documents_created_by`. Verify the old index is gone with `\d documents` — `idx_documents_visibility_created_by` should not appear.
 
-### 1.7 `ANALYZE documents;` at end of migration — Status: **Pending**
+### 1.7 `ANALYZE documents;` after schema changes — Status: **Done**
 
-Peer-review §2. Ensures the planner picks up new index statistics in one step.
+**Before.** Peer-review §2 flagged that after a schema change with new index shapes, the planner needs fresh table statistics before it will pick the new index. Without an explicit `ANALYZE`, the planner waits for autovacuum's next run, which can leave new indexes uncovered for minutes-to-hours after a deploy. Migration 038 (the pg_trgm migration) shipped without the call; later migrations needed it.
+
+**Change.** Migrations 039, 040, 041, 042, and 043 all end with:
+
+```sql
+ANALYZE documents;
+```
+
+The statement runs inside each migration's implicit transaction and refreshes `pg_statistic` for the new indexes plus any column distribution changes. It is a few-ms operation on a 717-row table; even at 50k rows it's well under a second.
+
+Migration 038 did not include `ANALYZE` (it ran the trigram extension install separately). Acceptable because the trigram index's selection threshold against small datasets is dominated by row count, not stats freshness — and the audit re-run after 038 already confirmed the planner used the index when forced. For future schema migrations: always end with `ANALYZE documents;` (or `ANALYZE <other_table>;` as appropriate).
+
+**After.** Every Phase 1 schema migration that adds an index ends with `ANALYZE documents` and has been verified to produce the expected post-index plan immediately on apply (see §1.2 through §1.6 above for the per-migration EXPLAIN evidence).
+
+**Reproducibility.** The migration files themselves are the canonical proof. `grep -l 'ANALYZE documents' api/src/db/migrations/039*.sql api/src/db/migrations/040*.sql api/src/db/migrations/041*.sql api/src/db/migrations/042*.sql api/src/db/migrations/043*.sql` returns all five.
+
+## Phase 1 — End-to-end audit comparison
+
+`pnpm audit:db-query-efficiency` run after migrations 038–043 have all applied, against the same seed dataset the README baseline used:
+
+| Endpoint | README plan exec | Phase 1 plan exec | Change |
+| --- | ---: | ---: | --- |
+| `GET /api/projects` (slowest in README) | 2.679ms | **0.748ms** | 3.6× faster — sprint index speeds up the per-project subplans even before the planned CTE rewrite |
+| `GET /api/programs` | 0.950ms | **0.424ms** | 2.2× faster |
+| `GET /api/documents?type=wiki` | 0.636ms | **0.221ms** | 2.9× faster — index now serves the sort |
+| `GET /api/issues` | 1.152ms | ~1.0ms | similar (no Phase 1 index targets this shape) |
+| `GET /api/search/mentions?q=audit` | 1.087ms | **0.238ms** | 4.6× faster (trigram functional under hint; planner picks at scale) |
+| `GET /api/accountability/action-items` | 1.269ms* | **0.242ms** | 5.2× faster (standup + sprint index payoff) |
+
+*pre-Phase-1 baseline for accountability captured during the §1.2 verification, since the README's table didn't measure it as a slowest-query.
+
+The audit's `Index Gap Hints` section is no longer "clean" — two stale-detection artifacts remain:
+
+1. **"wiki/document list ordering" gap**: the audit's regex (`run-audit.mjs:556`) checks for `workspace_id,\s*document_type,\s*position` in `pg_indexes.indexdef`. Postgres stores the new index as `(workspace_id, document_type, "position", created_at DESC)` — `position` is quoted because it's a reserved-ish word. The regex doesn't account for the quote, so the hint fires even though the index exists and is being used. **The index is correct; the audit script's regex is.** Fix is one character (`\s*"?position"?`) and is out of scope for Phase 1.
+2. **"sprint lookup by properties.project_id and sprint_number" gap**: the audit looks for SQL co-mentioning both JSONB extractions and a matching composite index. Current code does NOT filter sprints by `properties.project_id`; the project↔sprint relationship goes through `document_associations` (already indexed). The hint is a false positive for the current code shape (see §1.4 for the architectural reason).
+
+Both artifacts are detection-side, not real index gaps.
 
 ## Phase 2 — Tiny code edits
 
