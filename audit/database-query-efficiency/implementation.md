@@ -16,18 +16,27 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 
 ## Summary
 
-| Area | Before | After | Commit |
+Each row is one shipped commit. Detailed before/after analysis for each item lives in the phase sections below. See `git log master..implement/database-query-efficiency` for the full diff per commit.
+
+| § | Change | Headline before → after | Commit |
 | --- | --- | --- | --- |
-| `pg_trgm` extension installed | No | **Yes** (`CREATE EXTENSION IF NOT EXISTS pg_trgm`) | _pending_ |
-| `idx_documents_title_trgm` (GIN trgm on title) | Missing | **Created** (partial: `WHERE deleted_at IS NULL`) | _pending_ |
-| `GET /api/search/mentions?q=audit` plan execution | 1.087ms (seq scan, full table) | **0.131ms** (audit re-run, post-index, post-`ANALYZE`) | _pending_ |
-| Audit "index gap hints" for title search | Listed as a gap | **Removed from gap list** by the audit script | _pending_ |
-| Migration registered in `schema_migrations` | n/a | `038_search_trigram_index` applied at `2026-05-22 19:26:28` | _pending_ |
-| `idx_documents_issue_assignee` (text expr, partial on issue) | Missing | **Created** (functional under planner force; bitmap path still wins at 200 issues) | _pending_ |
-| `idx_documents_owner_id` (workspace+type+owner) | Missing | **Created and chosen by planner** (0.306ms → 0.046ms) | _pending_ |
-| `idx_documents_standup_author_date` (composite, partial on standup) | Missing | **Created and chosen by planner** (0.358ms → 0.020ms) | _pending_ |
-| `idx_documents_sprint_number` (workspace + sprint_number, partial on sprint) | Missing | **Created and chosen by planner** (0.255ms → 0.027ms) | _pending_ |
-| `GET /api/accountability/action-items` plan execution | 1.269ms (audit pre-039 run) | **0.307ms** (~4× plan execution improvement) | _pending_ |
+| 1.1 | `pg_trgm` extension + `idx_documents_title_trgm` (GIN trgm on title) | `GET /api/search/mentions` plan execution **1.087ms → 0.131ms** | `8742e20` |
+| 1.2 | JSONB expression indexes (assignee/owner/standup/sprint_number) | `/api/accountability/action-items` plan **1.269ms → 0.307ms**; per-shape EXPLAIN gains 6.7×–17.9× | `77ea82f` |
+| 1.3 | `idx_documents_issue_ticket` (DESC, partial on issue) | `MAX(ticket_number)` plan switched to **Index Only Scan + Limit 1** (0.602ms → 0.061ms) | `f1cbddc` |
+| 1.4 | Composite `weekly_plan_lookup` + `weekly_retro_lookup` indexes | Weekly plan/retro uniqueness lookups **0.714ms → 0.117ms** | `15d4f77` |
+| 1.5 | `idx_documents_active_type_position` (wiki list ordering) | `GET /api/documents?type=wiki` plan dropped its Sort node: **0.499ms → 0.117ms** | `b6d3f42` |
+| 1.6 | Replace `idx_documents_visibility_created_by` with targeted `idx_documents_created_by` | `WHERE created_by = $1` now uses a true bitmap-index scan; -1 unused compound index slot | `51fa187` |
+| 1.7 | `ANALYZE documents` after each migration + end-to-end audit re-run docs | Audit Deliverable: `/api/projects` slowest dropped **2.679ms → 0.748ms** post-Phase 1 | `93dda27` |
+| 2.1 | Pool config: `connectionTimeoutMillis: 8s` + `idle_in_transaction_session_timeout: 15s` | Defense-in-depth ceiling for transaction leaks; bursts queue instead of 502 | `045faa7` |
+| 2.2 | `VISIBILITY_FILTER_SQL` short-circuits for admins; migrated 3 hot callers | EXPLAIN `Filter:` line no longer references `visibility` / `created_by` on admin sessions | `84870a5` |
+| 2.3 | Deleted dead `checkMissingSprintReviews` + `checkProjectRetros` | -125 lines unreachable; no callers anywhere in repo | `842a522` |
+| 3.1 | Explicit `ROLLBACK` before 4 early returns in `PATCH /api/documents/:id` | Pool starvation under transaction leak no longer possible; audited all 13 BEGIN sites | `70de335` |
+| 3.2 | Dropped `content` from `/api/issues` + `/api/issues/:id/children` list payloads | **~38 kB saved per `/api/issues` request** at current seed scale; linear with workspace size | `21007c6` |
+| 3.3 | Two-wave `Promise.all` in `/api/dashboard/my-week` (7 sequential queries → 2 waves) | SQL wall-time `sum(q1..q7)` → `max(q1,q2) + max(q3..q7)` | `1bc0575` |
+| 4.1a | Rewrote `GET /api/projects` list with three CTEs | No more correlated subplans; `loops=235` → grouped scans | `72a2c0d` |
+| 4.1b | Rewrote `GET /api/programs` list with two CTEs | **Every audit flow's `N+1 Detected?` flipped from `Yes` to `No`** | `4e1ff86` |
+| 4.2 | Collapsed accountability N+1 into single grouped queries | -2 queries per protected-route load (4 of 5 flows): README baseline 57/59/48/65 → **53/55/44/61** | `5196ee4` |
+| 4.3 | Batched 6 per-item INSERT/UPDATE loops via `unnest()` + SQL-side `jsonb_agg` | At N=20 (bulk assign flow): 20 round-trips → 1 | `56bfed6` |
 
 ## Phase 1 — Schema-only wins
 
