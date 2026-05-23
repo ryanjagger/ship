@@ -11,7 +11,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
 | **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **Done** (3 / 3 items landed) |
 | **3. Targeted code fixes** | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | **Done** (3 / 3 items landed) |
-| **4. Query rewrites** | `/api/projects` + `/api/programs` CTE, accountability grouped queries, batched association INSERTs | **In progress** (1 / 3 items landed) |
+| **4. Query rewrites** | `/api/projects` + `/api/programs` CTE, accountability grouped queries, batched association INSERTs | **In progress** (2 / 3 items landed) |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
 
 ## Summary
@@ -836,6 +836,94 @@ Type-check + tests still green (api 451/451, web 151/151). No API contract chang
 The README baseline reported `N+1 Detected? = Yes` for every flow except Search content; after this commit, every flow reports `No`. The audit's `N+1 Signals` section is omitted from the run output entirely because there are zero signals to print. (Total query counts are unchanged at 55/57/46/63/5 — the wins are query-shape, not query-count; query-count reduction is Phase 5's frontend route-gating work.)
 
 The remaining "Slowest Query" wall times are dominated by `GET /api/issues` cold-cache first-request execution; subsequent same-endpoint calls within the same audit run measure ~2.6ms. That's the next-pass target — the issue list still does seq-scans because no index quite fits the priority + updated_at sort.
+
+### 4.2 Collapse accountability N+1 queries — Status: **Done**
+
+**Before.** Per audit peer-review §3 and §13: `api/src/services/accountability.ts` had two N+1 patterns inside the `/api/accountability/action-items` request path.
+
+`checkMissingStandups` (1 + 2N):
+1. One query to find active sprints with user-assigned issues.
+2. For each active sprint, one query to check whether the user posted today's standup.
+3. For each sprint without a today-standup, one query for `MAX(created_at::date)` of the last standup.
+
+`checkSprintAccountability` (1 + N):
+1. One query to find sprints where the user is owner.
+2. For each sprint, one `COUNT(*)` to check whether it has any issues.
+
+At current scale these are 5-10 queries per request; at production scale (12 months of weekly sprints × concurrent users) they multiply linearly and dominate the accountability endpoint's wall time. Peer-review's recommendation: collapse each into a single grouped query.
+
+**Change.**
+
+`checkMissingStandups` rewritten as a 3-CTE single query:
+
+```sql
+WITH active_sprints AS (
+  SELECT s.id, s.title, s.properties, COUNT(i.id) AS issue_count
+  FROM documents i
+  JOIN document_associations da ON da.document_id = i.id AND da.relationship_type = 'sprint'
+  JOIN documents s ON s.id = da.related_id AND s.document_type = 'sprint'
+  WHERE i.workspace_id = $1 AND i.document_type = 'issue'
+    AND (i.properties->>'assignee_id')::uuid = $2
+    AND (s.properties->>'sprint_number')::int = $3
+    AND s.deleted_at IS NULL
+  GROUP BY s.id, s.title, s.properties
+),
+today_standups AS (   -- one row per sprint where user posted today
+  SELECT st.parent_id
+  FROM documents st
+  JOIN active_sprints a ON a.id = st.parent_id
+  WHERE st.workspace_id = $1 AND st.document_type = 'standup'
+    AND (st.properties->>'author_id')::uuid = $2
+    AND st.created_at >= $4::date
+    AND st.created_at < ($4::date + interval '1 day')
+  GROUP BY st.parent_id
+),
+last_standups AS (    -- per-sprint MAX(date) of any standup by user
+  SELECT st.parent_id, MAX(st.created_at::date) AS last_date
+  FROM documents st
+  JOIN active_sprints a ON a.id = st.parent_id
+  WHERE st.workspace_id = $1 AND st.document_type = 'standup'
+    AND (st.properties->>'author_id')::uuid = $2
+  GROUP BY st.parent_id
+)
+SELECT a.id, a.title, a.properties, a.issue_count,
+       (ts.parent_id IS NOT NULL) AS has_today_standup,
+       ls.last_date AS last_standup_date
+FROM active_sprints a
+LEFT JOIN today_standups ts ON ts.parent_id = a.id
+LEFT JOIN last_standups ls ON ls.parent_id = a.id
+```
+
+The JS loop now only inspects/transforms — no per-sprint queries.
+
+`checkSprintAccountability` rewritten as a 2-CTE single query joining `user_sprints` to `sprint_issue_counts`. The JS loop reads `sprint.issue_count` directly instead of running a per-sprint `COUNT(*)`.
+
+**After.**
+
+`/api/accountability/action-items` plan-execution stays at ~0.37ms (was already fast post-Phase-1 indexes), but the audit-measured **total query count per protected-route load dropped by 2 in every flow that mounts the accountability provider**:
+
+```
+| Flow              | Total Queries (post-§4.1) | (post-§4.2) | Δ  |
+| Load main page    | 55                        | 53          | -2 |
+| View a document   | 57                        | 55          | -2 |
+| List issues       | 46                        | 44          | -2 |
+| Load sprint board | 63                        | 61          | -2 |
+```
+
+At current scale the -2 reflects the small number of active sprints with the dev user as participant. At workspaces with months of historical sprints, the savings scale linearly with sprint count. From the README baseline of 57/59/48/65 queries down to 53/55/44/61 — total cumulative reduction across Phases 4.1+4.2 is 4 queries per protected-route load.
+
+Type-check + tests still green (api 451/451 including the `accountability.test.ts` suite; web 151/151). No API contract change — both functions still return the same `MissingAccountabilityItem[]` shape from the same inputs.
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+pnpm audit:db-query-efficiency
+# Expect the Audit Deliverable table's "Total Queries" column to read
+# 53/55/44/61/5 (was 55/57/46/63/5 after §4.1).
+```
 
 **Reproducibility.**
 

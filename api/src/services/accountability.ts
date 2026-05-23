@@ -155,78 +155,88 @@ async function checkMissingStandups(
     return items;
   }
 
-  // Find active sprints where user has assigned issues with count
-  // (This inherently skips empty sprints with no members)
-  const activeSprintsResult = await pool.query(
-    `SELECT s.id, s.title, s.properties, COUNT(i.id) as issue_count
-     FROM documents i
-     JOIN document_associations da ON da.document_id = i.id AND da.relationship_type = 'sprint'
-     JOIN documents s ON s.id = da.related_id AND s.document_type = 'sprint'
-     WHERE i.workspace_id = $1
-       AND i.document_type = 'issue'
-       AND (i.properties->>'assignee_id')::uuid = $2
-       AND (s.properties->>'sprint_number')::int = $3
-       AND s.deleted_at IS NULL
-     GROUP BY s.id, s.title, s.properties`,
-    [workspaceId, userId, currentSprintNumber]
+  // Single grouped query collapses the previous 1+2N pattern:
+  // - active_sprints: find current-week sprints where the user has issues
+  // - today_standup: per-sprint flag whether the user posted today
+  // - last_standup: per-sprint max date of the user's previous standups
+  // The JS loop below only inspects/transforms — no more per-sprint queries.
+  const sprintsResult = await pool.query(
+    `WITH active_sprints AS (
+       SELECT s.id, s.title, s.properties, COUNT(i.id) AS issue_count
+       FROM documents i
+       JOIN document_associations da ON da.document_id = i.id AND da.relationship_type = 'sprint'
+       JOIN documents s ON s.id = da.related_id AND s.document_type = 'sprint'
+       WHERE i.workspace_id = $1
+         AND i.document_type = 'issue'
+         AND (i.properties->>'assignee_id')::uuid = $2
+         AND (s.properties->>'sprint_number')::int = $3
+         AND s.deleted_at IS NULL
+       GROUP BY s.id, s.title, s.properties
+     ),
+     today_standups AS (
+       SELECT st.parent_id
+       FROM documents st
+       JOIN active_sprints a ON a.id = st.parent_id
+       WHERE st.workspace_id = $1
+         AND st.document_type = 'standup'
+         AND (st.properties->>'author_id')::uuid = $2
+         AND st.created_at >= $4::date
+         AND st.created_at < ($4::date + interval '1 day')
+       GROUP BY st.parent_id
+     ),
+     last_standups AS (
+       SELECT st.parent_id, MAX(st.created_at::date) AS last_date
+       FROM documents st
+       JOIN active_sprints a ON a.id = st.parent_id
+       WHERE st.workspace_id = $1
+         AND st.document_type = 'standup'
+         AND (st.properties->>'author_id')::uuid = $2
+       GROUP BY st.parent_id
+     )
+     SELECT a.id, a.title, a.properties, a.issue_count,
+            (ts.parent_id IS NOT NULL) AS has_today_standup,
+            ls.last_date AS last_standup_date
+     FROM active_sprints a
+     LEFT JOIN today_standups ts ON ts.parent_id = a.id
+     LEFT JOIN last_standups ls ON ls.parent_id = a.id`,
+    [workspaceId, userId, currentSprintNumber, todayStr]
   );
 
-  // Check each sprint for missing standup today
-  for (const sprint of activeSprintsResult.rows) {
-    const standupResult = await pool.query(
-      `SELECT id FROM documents
-       WHERE workspace_id = $1
-         AND document_type = 'standup'
-         AND (properties->>'author_id')::uuid = $2
-         AND parent_id = $3
-         AND created_at >= $4::date
-         AND created_at < ($4::date + interval '1 day')`,
-      [workspaceId, userId, sprint.id, todayStr]
-    );
-
-    if (standupResult.rows.length === 0) {
-      // Calculate days since last standup
-      const lastStandupResult = await pool.query(
-        `SELECT MAX(created_at::date) as last_standup_date
-         FROM documents
-         WHERE workspace_id = $1
-           AND document_type = 'standup'
-           AND (properties->>'author_id')::uuid = $2
-           AND parent_id = $3`,
-        [workspaceId, userId, sprint.id]
-      );
-
-      const lastStandupDate = lastStandupResult.rows[0]?.last_standup_date;
-      let daysSinceLastStandup = 0;
-      const sprintTitle = sprint.title || `Week ${sprint.properties?.sprint_number || 'N'}`;
-      const issueCount = parseInt(sprint.issue_count, 10) || 0;
-
-      // Format: "Post standup for {sprint_title} ({issue_count} issues)"
-      let message = `Post standup for ${sprintTitle}`;
-      if (issueCount > 0) {
-        message += ` (${issueCount} issue${issueCount === 1 ? '' : 's'} assigned)`;
-      }
-
-      if (lastStandupDate) {
-        const lastDate = new Date(lastStandupDate);
-        const todayDate = new Date(todayStr);
-        daysSinceLastStandup = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-        if (daysSinceLastStandup > 1) {
-          message += ` - ${daysSinceLastStandup} days since last`;
-        }
-      }
-
-      items.push({
-        type: 'standup',
-        targetId: sprint.id,
-        targetTitle: sprintTitle,
-        targetType: 'sprint',
-        dueDate: todayStr,
-        message,
-        daysSinceLastStandup,
-        issueCount,
-      });
+  for (const sprint of sprintsResult.rows) {
+    if (sprint.has_today_standup) {
+      continue;
     }
+
+    const lastStandupDate = sprint.last_standup_date;
+    let daysSinceLastStandup = 0;
+    const sprintTitle = sprint.title || `Week ${sprint.properties?.sprint_number || 'N'}`;
+    const issueCount = parseInt(sprint.issue_count, 10) || 0;
+
+    // Format: "Post standup for {sprint_title} ({issue_count} issues)"
+    let message = `Post standup for ${sprintTitle}`;
+    if (issueCount > 0) {
+      message += ` (${issueCount} issue${issueCount === 1 ? '' : 's'} assigned)`;
+    }
+
+    if (lastStandupDate) {
+      const lastDate = new Date(lastStandupDate);
+      const todayDate = new Date(todayStr);
+      daysSinceLastStandup = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceLastStandup > 1) {
+        message += ` - ${daysSinceLastStandup} days since last`;
+      }
+    }
+
+    items.push({
+      type: 'standup',
+      targetId: sprint.id,
+      targetTitle: sprintTitle,
+      targetType: 'sprint',
+      dueDate: todayStr,
+      message,
+      daysSinceLastStandup,
+      issueCount,
+    });
   }
 
   return items;
@@ -245,17 +255,33 @@ async function checkSprintAccountability(
 ): Promise<MissingAccountabilityItem[]> {
   const items: MissingAccountabilityItem[] = [];
 
-  // Find sprints where user is owner (accountable) and sprint has started
-  // Also get the project associated with each sprint (via document_associations)
+  // Single grouped query replaces the previous 1+N pattern: find the
+  // user-owned sprints and join the issue counts in one pass.
   const sprintsResult = await pool.query(
-    `SELECT s.id, s.title, s.properties, da.related_id as project_id
-     FROM documents s
-     LEFT JOIN document_associations da ON da.document_id = s.id AND da.relationship_type = 'project'
-     WHERE s.workspace_id = $1
-       AND s.document_type = 'sprint'
-       AND (s.properties->>'owner_id')::uuid = $2
-       AND s.deleted_at IS NULL
-       AND s.archived_at IS NULL`,
+    `WITH user_sprints AS (
+       SELECT s.id, s.title, s.properties, da.related_id AS project_id
+       FROM documents s
+       LEFT JOIN document_associations da ON da.document_id = s.id AND da.relationship_type = 'project'
+       WHERE s.workspace_id = $1
+         AND s.document_type = 'sprint'
+         AND (s.properties->>'owner_id')::uuid = $2
+         AND s.deleted_at IS NULL
+         AND s.archived_at IS NULL
+     ),
+     sprint_issue_counts AS (
+       SELECT da.related_id AS sprint_id, COUNT(*) AS issue_count
+       FROM document_associations da
+       JOIN documents d ON d.id = da.document_id
+       JOIN user_sprints us ON us.id = da.related_id
+       WHERE da.relationship_type = 'sprint'
+         AND d.document_type = 'issue'
+         AND d.deleted_at IS NULL
+       GROUP BY da.related_id
+     )
+     SELECT us.id, us.title, us.properties, us.project_id,
+            COALESCE(sic.issue_count, 0) AS issue_count
+     FROM user_sprints us
+     LEFT JOIN sprint_issue_counts sic ON sic.sprint_id = us.id`,
     [workspaceId, userId]
   );
 
@@ -293,19 +319,8 @@ async function checkSprintAccountability(
       });
     }
 
-    // Check if sprint has no issues
-    const issueCountResult = await pool.query(
-      `SELECT COUNT(*) as count
-       FROM document_associations da
-       JOIN documents d ON d.id = da.document_id
-       WHERE da.related_id = $1
-         AND da.relationship_type = 'sprint'
-         AND d.document_type = 'issue'
-         AND d.deleted_at IS NULL`,
-      [sprint.id]
-    );
-
-    const issueCount = parseInt(issueCountResult.rows[0].count, 10);
+    // Issue count is now part of the joined row — no per-sprint query needed.
+    const issueCount = parseInt(sprint.issue_count, 10) || 0;
     if (issueCount === 0) {
       items.push({
         type: 'week_issues',
