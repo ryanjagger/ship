@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Phase 1 is one-line config / middleware addi
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. One-line wins** | `compression()` middleware, throttle session/api_token write churn, add missing `api_tokens.token_hash` index | In progress (1.1, 1.2 done) |
+| **1. One-line wins** | `compression()` middleware, throttle session/api_token write churn, add missing `api_tokens.token_hash` index | In progress (1.1, 1.2, 1.3 done) |
 | **2. Small code edits** | Carry `isAdmin` on `req` to eliminate 4th auth-path query; tighten PATCH `pool.connect()` scope; static `Cache-Control` on app-shell endpoints | Pending |
 | **3. Targeted refactors** | Replace `MemoryStore`-backed `express-session`; SQL-side or denormalized `hasContent` for accountability grid; ETag (content-hash) on cacheable list endpoints | Pending |
 | **4. Structural** | Separate `Pool` for collaboration persistence + collapse pre-UPDATE SELECT; `pino-http` + Postgres slow-query log; `/api/issues` pagination; generated `priority_rank` column for issue ORDER BY | Pending |
@@ -131,27 +131,48 @@ psql -d ship_dev -tA -c "SELECT last_activity FROM sessions ORDER BY last_activi
 # Sleep 65s, fire once more; re-read; expect advanced.
 ```
 
-### 1.3 Throttle `api_tokens.last_used_at` UPDATE — Status: Pending
+### 1.3 Throttle `api_tokens.last_used_at` UPDATE — Status: **Done**
 
-**Before.** `api/src/middleware/auth.ts:52-55` writes `UPDATE api_tokens SET last_used_at = NOW() WHERE id = $1` synchronously on every API-token request. Same shape as §1.2 — a serialized hot-row write on a single token row per token per request.
+**Before.** `api/src/middleware/auth.ts:52-55` wrote `UPDATE api_tokens SET last_used_at = NOW() WHERE id = $1` synchronously on every API-token request. Same shape as §1.2 — a serialized hot-row write on a single token row per token per request.
 
-**Change.** Same pattern as §1.2: skip the UPDATE if the token's existing `last_used_at` is within the last 60 s. Read the value alongside the existing lookup at `:35`, gate the write on the threshold.
+**Change.** Added `t.last_used_at` to the existing token SELECT, then gated the UPDATE on the same 60 s window (`TOKEN_USE_REFRESH_THRESHOLD_MS`). First-ever use is detected via NULL `last_used_at` (`lastUsedMs = 0` → `Date.now() - 0 > 60_000` is trivially true), so the timestamp is initialized on the first request and only refreshed when the prior write is more than 60 s old.
 
 ```ts
-if (!token.last_used_at ||
-    (Date.now() - new Date(token.last_used_at).getTime()) > 60_000) {
+const TOKEN_USE_REFRESH_THRESHOLD_MS = 60 * 1000;
+const lastUsedMs = tokenRow.last_used_at
+  ? new Date(tokenRow.last_used_at).getTime()
+  : 0;
+if (Date.now() - lastUsedMs > TOKEN_USE_REFRESH_THRESHOLD_MS) {
   await pool.query(
     'UPDATE api_tokens SET last_used_at = NOW() WHERE id = $1',
-    [token.id],
+    [tokenRow.id]
   );
 }
 ```
 
-The token's `last_used_at` is shown in the admin UI for token management; 60 s resolution is fine for that surface.
+The token's `last_used_at` is shown in the admin UI; 60 s resolution is fine for that surface.
 
-**Expected after.** Once API tokens see real CI / CLI / Claude-integration traffic, this prevents per-request write churn on whatever single token a script holds.
+**After (verified 2026-05-23 end-to-end against seeded `ship_dev`, second API on :3001).**
 
-**Reproducibility.** Hit any authenticated endpoint with a Bearer token in a loop; tail PG log; confirm ~one UPDATE per 60 s, not per request.
+```
+After token mint:                         last_used_at = NULL
+After first Bearer request:               2026-05-23 15:18:38.184026  (UPDATE fired — NULL crossed the threshold)
+After 5 more Bearer requests over ~5s:    2026-05-23 15:18:38.184026  (UNCHANGED — throttled)
+After sleep 65s + 1 more request:         2026-05-23 15:19:48.592074  (ADVANCED — UPDATE fired)
+```
+
+Within the 60 s window: 5 requests, 0 UPDATEs. Across the boundary: 1 UPDATE. Behavior matches the design.
+
+Tests: api 451/451, web 151/151 still green.
+
+**Reproducibility.** Mint a token via `POST /api/api-tokens` (CSRF-protected, session-cookie auth), then in a loop:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3001/api/issues -o /dev/null
+psql -d ship_dev -tA -c "SELECT last_used_at FROM api_tokens WHERE id='$TOKEN_ID';"
+```
+
+Within 60 s the timestamp stays put; after a 65 s gap the next request advances it.
 
 ### 1.4 Add `idx_api_tokens_hash` index — Status: Pending
 

@@ -7,7 +7,7 @@
 | --- | --- | --- | --- |
 | Type Safety | [README](type-safety/README.md) | [peer review](type-safety/peer-review.md) | — |
 | Bundle Size | [README](bundle-size/README.md) | [peer review](bundle-size/peer-review.md) | [implementation](bundle-size/implementation.md) |
-| API Response Time | [README](api-reponse-time/README.md) | [peer review](api-reponse-time/peer-review.md) | — |
+| API Response Time | [README](api-reponse-time/README.md) | [peer review](api-reponse-time/peer-review.md) | [implementation](api-reponse-time/implementation.md) |
 | Database Query Efficiency | [README](database-query-efficiency/README.md) | [peer review](database-query-efficiency/peer-review.md) | [implementation](database-query-efficiency/implementation.md) |
 | Test Coverage and Quality | [README](test-coverage/README.md) | [peer review](test-coverage/peer-review.md) | [implementation](test-coverage/implementation.md) |
 | Runtime Error and Edge Case Handling | [README](error-handling/README.md) | [peer review](error-handling/peer-review.md) | [implementation](error-handling/implementation.md) |
