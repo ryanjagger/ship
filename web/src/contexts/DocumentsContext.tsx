@@ -17,6 +17,8 @@ export type { WikiDocument };
 interface DocumentsContextValue {
   documents: WikiDocument[];
   loading: boolean;
+  isError: boolean;
+  error: Error | null;
   createDocument: (parentId?: string) => Promise<WikiDocument | null>;
   updateDocument: (id: string, updates: Partial<WikiDocument>) => Promise<WikiDocument | null>;
   deleteDocument: (id: string) => Promise<boolean>;

@@ -359,7 +359,12 @@ CREATE INDEX IF NOT EXISTS idx_documents_person_user_id ON documents ((propertie
 
 -- Document visibility indexes
 CREATE INDEX IF NOT EXISTS idx_documents_visibility ON documents(visibility);
-CREATE INDEX IF NOT EXISTS idx_documents_visibility_created_by ON documents(visibility, created_by);
+-- Note: idx_documents_visibility_created_by was dropped by migration 043 in
+-- favor of the more targeted idx_documents_created_by (declared below).
+-- Don't re-add the compound here — `db:migrate` runs schema.sql before
+-- checking schema_migrations, so any CREATE INDEX here on an existing DB
+-- would be re-applied while migration 043 (already-applied) is skipped.
+CREATE INDEX IF NOT EXISTS idx_documents_created_by ON documents(created_by) WHERE deleted_at IS NULL;
 
 -- Document archive/delete indexes
 CREATE INDEX IF NOT EXISTS idx_documents_archived_at ON documents(archived_at) WHERE archived_at IS NOT NULL;

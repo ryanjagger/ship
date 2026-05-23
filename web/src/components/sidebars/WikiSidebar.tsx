@@ -91,7 +91,7 @@ export function WikiSidebar({ document, teamMembers, currentUserId, onUpdate }: 
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-muted">{label}</label>
+      <div className="mb-1 text-xs font-medium text-muted">{label}</div>
       {children}
     </div>
   );

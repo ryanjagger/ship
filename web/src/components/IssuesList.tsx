@@ -1007,8 +1007,8 @@ export function IssuesList({
         return;
       }
 
-      // "c" to create issue
-      if (e.key === 'c' && !e.metaKey && !e.ctrlKey && canCreateIssue) {
+      // Shift+C to create issue
+      if (e.key === 'C' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && canCreateIssue) {
         e.preventDefault();
         handleCreateIssue();
       }
@@ -1059,7 +1059,7 @@ export function IssuesList({
       {canCreateIssue && (
         <button
           onClick={handleCreateIssue}
-          className="mt-2 text-sm text-accent hover:underline"
+          className="mt-2 text-sm text-accent-text hover:underline"
         >
           Create an issue
         </button>
@@ -1172,7 +1172,7 @@ export function IssuesList({
                   className={cn(
                     "rounded-md border px-2 py-1.5 text-sm transition-colors flex items-center gap-1.5 flex-shrink-0",
                     showAllIssues
-                      ? "border-accent bg-accent/10 text-accent"
+                      ? "border-accent bg-accent/10 text-accent-text"
                       : "border-border text-muted hover:text-foreground hover:bg-border/30"
                   )}
                   aria-pressed={showAllIssues}
@@ -1368,7 +1368,7 @@ function IssueRowContent({ issue, visibleColumns, sprints, onSprintChange, isOut
                   e.stopPropagation();
                   onAddToContext();
                 }}
-                className="flex-shrink-0 p-1 rounded hover:bg-accent/20 text-accent opacity-100 transition-colors"
+                className="flex-shrink-0 p-1 rounded hover:bg-accent/20 text-accent-text opacity-100 transition-colors"
                 title="Add to current context"
                 aria-label={`Add "${issue.title}" to context`}
               >

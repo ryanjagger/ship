@@ -132,7 +132,7 @@ export default function ProgramProjectsTab({ documentId }: DocumentTabProps) {
                 <h3 className="text-sm font-medium text-foreground truncate">
                   {project.title}
                 </h3>
-                <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded bg-accent/20 text-accent">
+                <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded bg-accent/20 text-accent-text">
                   ICE: {project.ice_score}
                 </span>
               </div>

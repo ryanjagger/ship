@@ -82,7 +82,7 @@ export function WeeklyReviewSubNav({ reviewState }: WeeklyReviewSubNavProps) {
       <div className="flex items-center gap-2">
         {reviewState.queueActive ? (
           <>
-            <span className="rounded bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent">
+            <span className="rounded bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent-text">
               {reviewState.queueIndex + 1} of {reviewState.queueLength}
             </span>
             <button
@@ -140,7 +140,7 @@ export function WeeklyReviewSubNav({ reviewState }: WeeklyReviewSubNavProps) {
             <div className="space-y-4 px-5 py-4">
               {reviewState.isRetro && (
                 <div>
-                  <label className="mb-2 block text-xs font-medium text-muted">Performance Rating</label>
+                  <div className="mb-2 text-xs font-medium text-muted">Performance Rating</div>
                   <div className="grid grid-cols-5 gap-2">
                     {OPM_RATINGS.map((rating) => (
                       <button
@@ -163,8 +163,9 @@ export function WeeklyReviewSubNav({ reviewState }: WeeklyReviewSubNavProps) {
               )}
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-muted">Approval Note (optional)</label>
+                <label htmlFor="weekly-review-approval-note" className="mb-1 block text-xs font-medium text-muted">Approval Note (optional)</label>
                 <textarea
+                  id="weekly-review-approval-note"
                   value={commentInput}
                   onChange={(e) => setCommentInput(e.target.value)}
                   placeholder="Add context for this decision..."
@@ -174,7 +175,7 @@ export function WeeklyReviewSubNav({ reviewState }: WeeklyReviewSubNavProps) {
               </div>
 
               <div>
-                <label className="mb-2 block text-xs font-medium text-muted">Decision</label>
+                <div className="mb-2 text-xs font-medium text-muted">Decision</div>
                 <div className="space-y-2">
                   <label
                     className={cn(
@@ -210,8 +211,9 @@ export function WeeklyReviewSubNav({ reviewState }: WeeklyReviewSubNavProps) {
 
               {decision === 'request_changes' && (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted">What needs to change?</label>
+                  <label htmlFor="weekly-review-change-feedback" className="mb-1 block text-xs font-medium text-muted">What needs to change?</label>
                   <textarea
+                    id="weekly-review-change-feedback"
                     value={feedbackInput}
                     onChange={(e) => setFeedbackInput(e.target.value)}
                     placeholder="Explain what needs to be revised..."

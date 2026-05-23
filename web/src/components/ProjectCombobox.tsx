@@ -255,12 +255,12 @@ export function ProjectCombobox({
                         className={cn(
                           'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 pl-4 text-sm',
                           'data-[selected=true]:bg-border/50',
-                          value === project.id && 'text-accent'
+                          value === project.id && 'text-accent-text'
                         )}
                       >
                         <span className="truncate">{project.title}</span>
                         {value === project.id && (
-                          <CheckIcon className="ml-auto h-4 w-4 shrink-0 text-accent" />
+                          <CheckIcon className="ml-auto h-4 w-4 shrink-0 text-accent-text" />
                         )}
                       </Command.Item>
                     ))}

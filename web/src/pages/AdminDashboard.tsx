@@ -303,7 +303,7 @@ function WorkspacesTab({
                 <td className="px-4 py-3 text-sm font-medium">
                   <Link
                     to={`/admin/workspaces/${ws.id}`}
-                    className="text-accent hover:underline"
+                    className="text-accent-text hover:underline"
                   >
                     {ws.name}
                   </Link>
@@ -388,7 +388,7 @@ function UsersTab({
                 {u.id !== currentUserId && (
                   <button
                     onClick={() => onImpersonate(u.id)}
-                    className="text-sm text-accent hover:text-accent/80 transition-colors"
+                    className="text-sm text-accent-text hover:text-accent-text/80 transition-colors"
                   >
                     Impersonate
                   </button>

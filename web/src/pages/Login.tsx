@@ -178,7 +178,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <main className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-[360px]">
         {/* Logo / Brand */}
         <div className="mb-8 text-center">
@@ -362,11 +362,11 @@ export function LoginPage() {
               <Icon name="check" className="h-3 w-3 text-green-500" title="Check (h-3)" />
               <Icon name="close" className="h-4 w-4 text-red-400" title="Close (h-4)" />
               <Icon name="warning" className="h-5 w-5 text-yellow-500" title="Warning (h-5)" />
-              <Icon name="info" className="h-6 w-6 text-accent" title="Info (h-6)" />
+              <Icon name="info" className="h-6 w-6 text-accent-text" title="Info (h-6)" />
             </div>
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }

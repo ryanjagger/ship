@@ -308,7 +308,11 @@ export function StatusOverviewHeatmap({ showArchived = false }: StatusOverviewHe
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="flex h-full flex-col"
+      role="region"
+      aria-label="Team status heatmap — rows are programs and people, columns are weeks"
+    >
       {/* Legend */}
       <div className="flex items-center gap-4 px-4 py-2 border-b border-border text-xs">
         <span className="text-muted">Status:</span>
@@ -399,8 +403,10 @@ export function StatusOverviewHeatmap({ showArchived = false }: StatusOverviewHe
                     'flex h-10 w-[100px] flex-col items-center justify-center border-b border-r border-border px-2 sticky top-0 z-10 bg-background',
                     week.isCurrent && 'ring-1 ring-inset ring-accent/30'
                   )}
+                  aria-current={week.isCurrent ? 'date' : undefined}
                 >
-                  <span className={cn('text-xs font-medium', week.isCurrent ? 'text-accent' : 'text-foreground')}>
+                  <span className={cn('text-xs font-medium', week.isCurrent ? 'text-accent-text' : 'text-foreground')}>
+                    {week.isCurrent && <span className="sr-only">Current week — </span>}
                     {week.name}
                   </span>
                   <span className="text-[10px] text-muted">
