@@ -18,7 +18,7 @@ Eliminate 25% of type-safety violations from the ESLint baseline. Baseline = 8,6
 | `req.query as unknown as ClaudeContextRequest` in `api/src/routes/claude.ts:62` | unsound cast (`?x=a&x=b` produces an array, not the asserted string), and the `context_type` runtime check ran after the cast had already claimed it was a string | `ClaudeContextQuerySchema.safeParse(req.query)` with the same union type; redundant manual check removed | `038addb` |
 | Dynamic SQL parameter arrays | `any[]` (or ad-hoc `(string \| boolean \| null)[]`) | `SqlParam` type in `shared/src/types/db.ts`, applied as template in `api/src/routes/documents.ts` | `038addb` |
 | `req.userId!` / `req.workspaceId!` non-null assertions (Phase 2) | 236 occurrences across 20 route files | zero in production code; replaced with `assertAuthed` / `assertUserAuthed` narrowing helpers that actually check at runtime | `15145e6` |
-| Total warnings (baseline → Phase 1 → Phase 2) | 8,660 | 8,404 (−256) | — |
+| Total warnings (baseline → Phase 1 → Phase 2) | 8,660 | 8,403 (−257) | — |
 
 The Phase 1 reduction was small by design — these were the lowest-risk quick wins. Phase 2 delivered the −236 it predicted (one-for-one drop in `no-non-null-assertion`; non-null assertions don't cascade into `no-unsafe-*`, so the reduction is exactly the count of bangs removed). Phases 3 (discriminated `ApiResponse`) and 5 (typed `pg` boundary) are where the rest of the 25% target comes from.
 
@@ -303,7 +303,7 @@ rg 'req\.(userId|workspaceId)!' api/src      # only the comment in middleware/au
 pnpm --filter @ship/api type-check           # clean
 pnpm --filter @ship/api test                 # 451/451
 pnpm --filter @ship/web test                 # 151/151
-pnpm lint:report                             # Total: 8,404 (-236 from Phase 1)
+pnpm lint:report                             # Total: 8,403 (-237 from Phase 1, includes -1 from eslint 9 downgrade)
 ```
 
 #### Notes for later phases
@@ -379,10 +379,12 @@ Expected reduction across the top three files alone: ~1,500. That plus Phases 1�
 
 ## Branch state at time of writing
 
-- **5 commits** on `implement/type-safety` so far:
+- **7 commits** on `implement/type-safety` so far:
   - `e3a41e4` — lint baseline tooling (Phase 0)
   - `038addb` — Phase 1 quick wins
   - `264a929` — Phase 1 doc backfill
   - `521c41c` — Phase 0 follow-up: drop reliance on `import.meta.dirname` (Node 20.11+) so lint runs on every Node version `package.json#engines` accepts
   - `15145e6` — Phase 2 `AuthedRequest` narrowing helpers
+  - `f2d31ee` — Phase 2 doc backfill
+  - `d9086ad` — Phase 0 follow-up: downgrade eslint to ^9 so the install/lint contract matches the declared Node 20.0+ range (eslint 10 required Node 20.19+)
 - Phases 3–7 are planned but not implemented
