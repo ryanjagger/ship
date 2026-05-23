@@ -183,7 +183,7 @@ const weeklyPlanSchema = z.object({
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const parsed = weeklyPlanSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -329,7 +329,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const workspaceId = req.workspaceId;
     const { person_id, project_id, week_number } = req.query;
 
@@ -409,7 +409,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/:id/history', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const workspaceId = req.workspaceId;
 
@@ -475,7 +475,7 @@ router.get('/:id/history', authMiddleware, async (req: Request, res: Response) =
  */
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const workspaceId = req.workspaceId;
 
@@ -564,7 +564,7 @@ export const weeklyRetrosRouter: RouterType = Router();
 weeklyRetrosRouter.post('/', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const parsed = weeklyRetroSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -728,7 +728,7 @@ weeklyRetrosRouter.post('/', authMiddleware, async (req: Request, res: Response)
  */
 weeklyRetrosRouter.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const workspaceId = req.workspaceId;
     const { person_id, project_id, week_number } = req.query;
 
@@ -808,7 +808,7 @@ weeklyRetrosRouter.get('/', authMiddleware, async (req: Request, res: Response) 
  */
 weeklyRetrosRouter.get('/:id/history', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const workspaceId = req.workspaceId;
 
@@ -874,7 +874,7 @@ weeklyRetrosRouter.get('/:id/history', authMiddleware, async (req: Request, res:
  */
 weeklyRetrosRouter.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const workspaceId = req.workspaceId;
 
@@ -935,7 +935,7 @@ weeklyRetrosRouter.get('/:id', authMiddleware, async (req: Request, res: Respons
  */
 router.get('/project-allocation-grid/:projectId', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { projectId } = req.params;
     const workspaceId = req.workspaceId;
 

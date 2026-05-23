@@ -21,7 +21,7 @@ router.get('/status', authMiddleware, (_req: Request, res: Response) => {
 // POST /api/ai/analyze-plan - Analyze weekly plan quality
 router.post('/analyze-plan', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertUserAuthed(req);
+    if (!assertUserAuthed(req, res)) return;
     const userId = req.userId;
     const { content } = req.body;
 
@@ -47,7 +47,7 @@ router.post('/analyze-plan', authMiddleware, async (req: Request, res: Response)
 // POST /api/ai/analyze-retro - Analyze weekly retro quality
 router.post('/analyze-retro', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertUserAuthed(req);
+    if (!assertUserAuthed(req, res)) return;
     const userId = req.userId;
     const { retro_content, plan_content } = req.body;
 

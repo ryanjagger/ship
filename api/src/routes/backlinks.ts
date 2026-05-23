@@ -15,7 +15,7 @@ const updateLinksSchema = z.object({
 // GET /api/documents/:id/backlinks - Get documents that link to this one
 router.get('/:id/backlinks', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -70,7 +70,7 @@ router.get('/:id/backlinks', authMiddleware, async (req: Request, res: Response)
 // POST /api/documents/:id/links - Update links for a document
 router.post('/:id/links', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;

@@ -87,7 +87,7 @@ async function broadcastAccountabilityUpdateToSprintOwner(
 // GET /api/weeks/lookup-person - Find person document by user_id
 router.get('/lookup-person', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const workspaceId = req.workspaceId;
     const userId = req.query.user_id as string;
 
@@ -120,7 +120,7 @@ router.get('/lookup-person', authMiddleware, async (req: Request, res: Response)
 // Returns the sprint document with its approval properties
 router.get('/lookup', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const workspaceId = req.workspaceId;
     const projectId = req.query.project_id as string;
     const sprintNumber = parseInt(req.query.sprint_number as string, 10);
@@ -277,7 +277,7 @@ async function takeSprintSnapshot(sprintId: string): Promise<string[]> {
 // Active = sprint_number matches the current 7-day window based on workspace.sprint_start_date
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -381,7 +381,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // Returns sprints owned by the user that need plan or retro
 router.get('/my-action-items', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -551,7 +551,7 @@ router.get('/my-action-items', authMiddleware, async (req: Request, res: Respons
 // Supports historical week viewing via sprint_number query param
 router.get('/my-week', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
     const { state, assignee, show_mine, sprint_number: requestedSprintNumber } = req.query;
@@ -745,7 +745,7 @@ router.get('/my-week', authMiddleware, async (req: Request, res: Response) => {
 // Automatically takes a plan snapshot when sprint becomes active (start_date reached)
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -835,7 +835,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 // program_id is optional - allows creating projectless sprints for ad-hoc work
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -1025,7 +1025,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 // When sprint_number changes, the plan snapshot is cleared and will be retaken when the new date arrives
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1208,7 +1208,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // POST /api/weeks/:id/start
 router.post('/:id/start', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1315,7 +1315,7 @@ router.post('/:id/start', authMiddleware, async (req: Request, res: Response) =>
 // Delete sprint
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1358,7 +1358,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 // PATCH /api/weeks/:id/plan
 router.patch('/:id/plan', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1520,7 +1520,7 @@ router.patch('/:id/plan', authMiddleware, async (req: Request, res: Response) =>
 // Get sprint issues
 router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1620,7 +1620,7 @@ router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) =>
 // Returns: { originalScope, currentScope, scopeChangePercent, scopeChanges }
 router.get('/:id/scope-changes', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1845,7 +1845,7 @@ function formatStandupResponse(row: any) {
  */
 router.get('/:id/standups', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1939,7 +1939,7 @@ router.get('/:id/standups', authMiddleware, async (req: Request, res: Response) 
  */
 router.post('/:id/standups', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -2171,7 +2171,7 @@ async function generatePrefilledReviewContent(sprintData: any, issues: any[]) {
 // GET /api/weeks/:id/review - Get or generate pre-filled sprint review
 router.get('/:id/review', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -2286,7 +2286,7 @@ router.get('/:id/review', authMiddleware, async (req: Request, res: Response) =>
 // POST /api/weeks/:id/review - Create finalized sprint review
 router.post('/:id/review', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -2400,7 +2400,7 @@ router.post('/:id/review', authMiddleware, async (req: Request, res: Response) =
 // PATCH /api/weeks/:id/review - Update existing sprint review
 router.patch('/:id/review', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -2568,7 +2568,7 @@ const carryoverSchema = z.object({
 // POST /api/weeks/:id/carryover - Move incomplete issues to another sprint
 router.post('/:id/carryover', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id: sourceSprintId } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -2702,7 +2702,7 @@ router.post('/:id/carryover', authMiddleware, async (req: Request, res: Response
 // POST /api/weeks/:id/approve-plan - Approve sprint plan
 router.post('/:id/approve-plan', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -2803,7 +2803,7 @@ router.post('/:id/approve-plan', authMiddleware, async (req: Request, res: Respo
 // POST /api/weeks/:id/unapprove-plan - Revoke plan approval (logged to history)
 router.post('/:id/unapprove-plan', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -2863,7 +2863,7 @@ router.post('/:id/unapprove-plan', authMiddleware, async (req: Request, res: Res
 // POST /api/weeks/:id/approve-review - Approve sprint review (rating required)
 router.post('/:id/approve-review', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const { rating } = req.body || {};
     const userId = req.userId;
@@ -2993,7 +2993,7 @@ router.post('/:id/approve-review', authMiddleware, async (req: Request, res: Res
 // POST /api/weeks/:id/request-plan-changes - Request changes on sprint plan
 router.post('/:id/request-plan-changes', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const { feedback } = req.body || {};
     const userId = req.userId;
@@ -3087,7 +3087,7 @@ router.post('/:id/request-plan-changes', authMiddleware, async (req: Request, re
 // POST /api/weeks/:id/request-retro-changes - Request changes on sprint retro
 router.post('/:id/request-retro-changes', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const { feedback } = req.body || {};
     const userId = req.userId;

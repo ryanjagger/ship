@@ -114,7 +114,7 @@ function extractIssueFromRow(row: any) {
 // List issues with filters
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { state, priority, assignee_id, program_id, sprint_id, source, parent_filter } = req.query;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -249,7 +249,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // Get action items for current user (issues with source='action_items' that are not done)
 router.get('/action-items', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     // In test mode, return empty to avoid blocking E2E test interactions with modal
     if (process.env.NODE_ENV === 'test') {
       res.json({ items: [], total: 0 });
@@ -341,7 +341,7 @@ router.get('/action-items', authMiddleware, async (req: Request, res: Response) 
 // Get issue by ticket number
 router.get('/by-ticket/:number', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const numberParam = req.params.number;
     if (!numberParam || typeof numberParam !== 'string') {
       res.status(400).json({ error: 'Ticket number required' });
@@ -420,7 +420,7 @@ router.get('/by-ticket/:number', authMiddleware, async (req: Request, res: Respo
 // Get sub-issues (children) of an issue
 router.get('/:id/children', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -499,7 +499,7 @@ router.get('/:id/children', authMiddleware, async (req: Request, res: Response) 
 // Get single issue
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -571,7 +571,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const parsed = createIssueSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -684,7 +684,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1020,7 +1020,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Get issue history
 router.get('/:id/history', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1079,7 +1079,7 @@ const logHistorySchema = z.object({
 
 router.post('/:id/history', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     if (!id) {
       res.status(400).json({ error: 'Issue ID required' });
@@ -1141,7 +1141,7 @@ const bulkUpdateSchema = z.object({
 router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const parsed = bulkUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -1344,7 +1344,7 @@ router.post('/bulk', authMiddleware, async (req: Request, res: Response) => {
 // System-generated accountability issues cannot be deleted
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1392,7 +1392,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Accept issue (move from triage to backlog)
 router.post('/:id/accept', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1459,7 +1459,7 @@ const listIterationsSchema = z.object({
 // Create iteration entry - POST /api/issues/:id/iterations
 router.post('/:id/iterations', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id: issueId } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1528,7 +1528,7 @@ router.post('/:id/iterations', authMiddleware, async (req: Request, res: Respons
 // Get issue iterations - GET /api/issues/:id/iterations
 router.get('/:id/iterations', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id: issueId } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -1599,7 +1599,7 @@ router.get('/:id/iterations', authMiddleware, async (req: Request, res: Response
 // Reject issue (move from triage to cancelled with reason)
 router.post('/:id/reject', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = req.userId;
     const workspaceId = req.workspaceId;

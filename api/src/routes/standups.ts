@@ -42,7 +42,7 @@ const createStandupSchema = z.object({
  */
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const parsed = createStandupSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -157,7 +157,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
     const { date_from, date_to } = req.query;
@@ -222,7 +222,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -344,7 +344,7 @@ const updateStandupSchema = z.object({
  */
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -461,7 +461,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
  */
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;

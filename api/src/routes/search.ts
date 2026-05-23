@@ -16,7 +16,7 @@ function escapeLikePattern(str: string): string {
 // GET /api/search/mentions?q=:query
 searchRouter.get('/mentions', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const searchQuery = (req.query.q as string) || '';
     const workspaceId = req.workspaceId;
     const userId = req.userId;
@@ -82,7 +82,7 @@ searchRouter.get('/mentions', authMiddleware, async (req: Request, res: Response
 // GET /api/search/learnings?q=:query&program_id=:program_id
 searchRouter.get('/learnings', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const searchQuery = (req.query.q as string) || '';
     const programId = req.query.program_id as string | undefined;
     const workspaceId = req.workspaceId;

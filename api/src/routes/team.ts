@@ -13,7 +13,7 @@ const router: RouterType = Router();
 //   toSprint: number - end of range (default: current + 7)
 router.get('/grid', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -200,7 +200,7 @@ router.get('/grid', authMiddleware, async (req: Request, res: Response) => {
 // Returns projects that can be assigned to team members in the assignments grid
 router.get('/projects', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -239,7 +239,7 @@ router.get('/projects', authMiddleware, async (req: Request, res: Response) => {
 // GET /api/team/programs - Get all programs
 router.get('/programs', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -267,7 +267,7 @@ router.get('/programs', authMiddleware, async (req: Request, res: Response) => {
 //           2) Inferred assignments from issue assignees (fallback)
 router.get('/assignments', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -465,7 +465,7 @@ router.get('/assignments', authMiddleware, async (req: Request, res: Response) =
 // Falls back to userId for backward compatibility
 router.post('/assign', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const workspaceId = req.workspaceId;
     // Support both projectId (new) and programId (legacy)
     const { personId, userId, projectId, programId, sprintNumber } = req.body;
@@ -665,7 +665,7 @@ router.post('/assign', authMiddleware, async (req: Request, res: Response) => {
 // Falls back to userId for backward compatibility
 router.delete('/assign', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const currentUserId = req.userId;
     const workspaceId = req.workspaceId;
     const { personId, userId, sprintNumber } = req.body;
@@ -749,7 +749,7 @@ router.delete('/assign', authMiddleware, async (req: Request, res: Response) => 
 // GET /api/team/people - Get all people (person documents)
 router.get('/people', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -791,7 +791,7 @@ router.get('/people', authMiddleware, async (req: Request, res: Response) => {
 // Returns: { people, sprints, metrics } where metrics[userId][sprintNumber] = { committed, completed }
 router.get('/accountability', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -962,7 +962,7 @@ router.get('/accountability', authMiddleware, async (req: Request, res: Response
 // Only visible to the person themselves or workspace admins
 router.get('/people/:personId/sprint-metrics', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
     const { personId } = req.params;
@@ -1097,7 +1097,7 @@ router.get('/people/:personId/sprint-metrics', authMiddleware, async (req: Reque
 //   showArchived: boolean - include archived projects (default: false)
 router.get('/accountability-grid-v2', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
     const showArchived = req.query.showArchived === 'true';
@@ -1384,7 +1384,7 @@ router.get('/accountability-grid-v2', authMiddleware, async (req: Request, res: 
 // Returns: { people, weeks, reviews, currentSprintNumber }
 router.get('/reviews', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
     const sprintCount = Math.min(parseInt(req.query.sprint_count as string, 10) || 5, 20);
@@ -1632,7 +1632,7 @@ router.get('/reviews', authMiddleware, async (req: Request, res: Response) => {
 // Each person's week shows plan/retro status for their allocated project
 router.get('/accountability-grid-v3', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
     const showArchived = req.query.showArchived === 'true';
@@ -2033,7 +2033,7 @@ router.get('/accountability-grid-v3', authMiddleware, async (req: Request, res: 
 // Returns: { sprints, projects, sprintAccountability } for admin accountability view
 router.get('/accountability-grid', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 

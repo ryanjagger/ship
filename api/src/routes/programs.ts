@@ -60,7 +60,7 @@ const updateProgramSchema = z.object({
 // List programs (documents with document_type = 'program')
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const includeArchived = req.query.archived === 'true';
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -119,7 +119,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // Get single program
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -160,7 +160,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Create program (creates a document with document_type = 'program')
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const parsed = createProgramSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -214,7 +214,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 // Update program
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -333,7 +333,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Delete program
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -376,7 +376,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Get program issues
 router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -456,7 +456,7 @@ router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) =>
 // Get program projects (documents with document_type = 'project' that belong to this program)
 router.get('/:id/projects', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -540,7 +540,7 @@ router.get('/:id/projects', authMiddleware, async (req: Request, res: Response) 
 // Returns sprints with sprint_number and owner_id - dates/status computed on frontend
 router.get('/:id/sprints', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -636,7 +636,7 @@ router.get('/:id/sprints', authMiddleware, async (req: Request, res: Response) =
 // Merge preview - returns counts of entities that will be moved
 router.get('/:id/merge-preview', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const sourceId = req.params.id;
     const targetId = req.query.target_id as string;
     const userId = req.userId;
@@ -743,7 +743,7 @@ const mergeProgramSchema = z.object({
 router.post('/:id/merge', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const sourceId = String(req.params.id);
     const userId = req.userId;
     const workspaceId = req.workspaceId;

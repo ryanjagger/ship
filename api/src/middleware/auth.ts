@@ -23,28 +23,58 @@ export type AuthedUserRequest = Request & { userId: string };
 export type AuthedRequest = Request & { userId: string; workspaceId: string };
 
 /**
- * Assert that `authMiddleware` ran AND that the request has a workspace
- * context. Narrows `req` so subsequent reads of `req.userId` and
- * `req.workspaceId` are typed `string` without non-null assertions.
+ * Type-guard form of "request must be authed with a workspace selected".
+ * Returns `true` when the contract holds (and narrows `req` to
+ * `AuthedRequest` so subsequent reads of `req.userId` and `req.workspaceId`
+ * are typed `string` without non-null assertions). Otherwise writes a
+ * 400/401 directly to `res` and returns `false`.
  *
- * Use in handlers that operate within a workspace (the common case).
+ * Use as:
+ *
+ *     if (!assertAuthed(req, res)) return;
+ *
+ * Why a guard rather than a throw: super-admin sessions are allowed to exist
+ * without a selected workspace (see `authMiddleware`), and many workspace-
+ * scoped handlers wrap their body in `try { … } catch { res.status(500) }`.
+ * A throw would be swallowed by that catch and reported as an internal-
+ * server failure for what is really an auth-context problem. Responding
+ * inline lets callers exit cleanly with the right status code.
  */
-export function assertAuthed(req: Request): asserts req is AuthedRequest {
-  if (!req.userId || !req.workspaceId) {
-    throw new Error('assertAuthed: request is missing userId or workspaceId — authMiddleware must run first and a workspace must be selected');
+export function assertAuthed(req: Request, res: Response): req is AuthedRequest {
+  if (!req.userId) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({
+      success: false,
+      error: { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' },
+    });
+    return false;
   }
+  if (!req.workspaceId) {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({
+      success: false,
+      error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'No workspace selected' },
+    });
+    return false;
+  }
+  return true;
 }
 
 /**
- * Assert that `authMiddleware` ran. Narrows `req.userId` to `string`.
+ * Type-guard form of "request must be authed; workspace is optional".
+ * Narrows `req.userId` to `string`. Responds 401 inline when missing.
  *
  * Use in account- or super-admin-level handlers that legitimately have no
- * current workspace (auth, admin, workspace-switching, API-token mgmt).
+ * current workspace (auth, admin, workspace-switching, API-token mgmt, AI
+ * routes that key only on the user).
  */
-export function assertUserAuthed(req: Request): asserts req is AuthedUserRequest {
+export function assertUserAuthed(req: Request, res: Response): req is AuthedUserRequest {
   if (!req.userId) {
-    throw new Error('assertUserAuthed: request is missing userId — authMiddleware must run first');
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({
+      success: false,
+      error: { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' },
+    });
+    return false;
   }
+  return true;
 }
 
 // Hash a token for comparison

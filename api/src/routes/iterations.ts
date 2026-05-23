@@ -25,7 +25,7 @@ const listIterationsSchema = z.object({
 // Create iteration entry - POST /api/weeks/:id/iterations
 router.post('/:id/iterations', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id: sprintId } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -96,7 +96,7 @@ router.post('/:id/iterations', authMiddleware, async (req: Request, res: Respons
 // Get sprint iterations - GET /api/weeks/:id/iterations
 router.get('/:id/iterations', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { id: sprintId } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;

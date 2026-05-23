@@ -41,7 +41,7 @@ interface WorkItem {
  */
 router.get('/my-work', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -318,7 +318,7 @@ function extractPlanItems(content: unknown): PlanItem[] {
  */
 router.get('/my-focus', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
@@ -499,7 +499,7 @@ router.get('/my-focus', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/my-week', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 

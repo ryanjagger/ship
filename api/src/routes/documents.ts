@@ -94,7 +94,7 @@ const updateDocumentSchema = z.object({
 // List documents
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const { type, parent_id } = req.query;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -158,7 +158,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // List converted documents (archived originals that were converted to another type)
 router.get('/converted/list', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
     const { original_type, converted_type } = req.query;
@@ -223,7 +223,7 @@ router.get('/converted/list', authMiddleware, async (req: Request, res: Response
 // Get single document
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -376,7 +376,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Useful for API-based document editing without using the collaborative editor
 router.get('/:id/content', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -432,7 +432,7 @@ router.get('/:id/content', authMiddleware, async (req: Request, res: Response) =
 // Useful for API-based document editing without using the collaborative editor
 router.patch('/:id/content', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -511,7 +511,7 @@ router.patch('/:id/content', authMiddleware, async (req: Request, res: Response)
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const parsed = createDocumentSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -600,7 +600,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -1112,7 +1112,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Delete document
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -1156,7 +1156,7 @@ const convertDocumentSchema = z.object({
 router.post('/:id/convert', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -1385,7 +1385,7 @@ router.post('/:id/undo-conversion', authMiddleware, async (req: Request, res: Re
   const client = await pool.connect();
 
   try {
-    assertAuthed(req);
+    if (!assertAuthed(req, res)) return;
     await client.query('BEGIN');
 
     // Get the most recent snapshot for this document
