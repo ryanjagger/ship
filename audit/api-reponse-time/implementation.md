@@ -483,3 +483,74 @@ After each phase, re-run the audit's primary benchmark and append a "Post-Phase 
 - Any new gap or surprise that surfaced.
 
 The full reproduction is in `README.md` §1-6 (`pnpm db:seed`, `node audit/api-reponse-time/seed-volume.mjs`, `pnpm build:api`, start API on :3001, `node audit/api-reponse-time/benchmark-ab.mjs | tee results/benchmark.json`, `node audit/api-reponse-time/format-results.mjs results/benchmark.json`).
+
+**Migrate caveat for any re-run.** `pnpm db:migrate` short-circuits past pending migrations when `schema.sql` throws "already exists" — see the §1.4 apply caveat. For the disposable benchmark DB the workaround is to run each pending migration file with `psql -v ON_ERROR_STOP=1 -f migrations/NNN_*.sql` and skip the ones whose post-state is already in `schema.sql` (treating "already exists" / "not an existing enum label" / etc. as "applied via schema.sql"). The re-run scripted below uses that pattern.
+
+## Post-Phase-1 audit re-run
+
+Ran `audit/api-reponse-time/benchmark-ab.mjs` against the disposable `ship_api_response_time_audit` DB after applying all 49 migrations (including 044) and the same `pnpm db:seed` + `seed-volume.mjs` pipeline the README baseline used. The build was `pnpm build:api` (production-style artifact, `node api/dist/index.js`) on this branch's HEAD (`baa7155`).
+
+Volume matches baseline within noise: **35 users / 717 documents** (README expected 36/718 — within tolerance), 347 wiki / 200 issues / 35 weeks / 15 projects / 5 programs.
+
+### Audit Deliverable — 50 simultaneous connections
+
+| Endpoint | Items | Resp size | P50 | P95 | P99 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1. `GET /api/documents?type=wiki` | 347 | 172.4 KB | 92 ms | 110 ms | 118 ms |
+| 2. `GET /api/issues` | 200 | 185.3 KB | 83 ms | 91 ms | 96 ms |
+| 3. `GET /api/team/accountability-grid-v3` | n/a | 49.6 KB | 51 ms | 56 ms | 62 ms |
+| 4. `GET /api/dashboard/my-week` | n/a | 1.2 KB | 22 ms | 33 ms | 35 ms |
+| 5. `GET /api/projects` | 15 | 13.3 KB | 14 ms | 16 ms | 18 ms |
+
+### Delta vs. README baseline (concurrency 50)
+
+| Endpoint | README P50/P95/P99 | Post-Phase-1 P50/P95/P99 | ΔP99 | Notes |
+| --- | --- | --- | --- | --- |
+| `GET /api/issues` | 96 / 112 / 119 | 83 / 91 / 96 | **−23 ms (−19%)** | Mostly DB-audit §3.2 (drop `d.content`, payload 228.5 KB → 185.3 KB) plus DB-audit §1.2 indexes; compression CPU absorbed by the bigger win |
+| `GET /api/documents?type=wiki` | 88 / 95 / 99 | 92 / 110 / 118 | **+19 ms (+19%)** | **Loopback regression** — see analysis below |
+| `GET /api/team/accountability-grid-v3` | 57 / 64 / 67 | 51 / 56 / 62 | −5 ms | Mostly DB-audit §4.2 (accountability N+1 collapse) |
+| `GET /api/dashboard/my-week` | 31 / 48 / 51 | 22 / 33 / 35 | **−16 ms (−31%)** | DB-audit §3.3 two-wave `Promise.all` (8 seq queries → 2 waves) |
+| `GET /api/projects` | 20 / 25 / 28 | 14 / 16 / 18 | **−10 ms (−36%)** | DB-audit §4.1a CTE rewrite (no more correlated subplans) |
+
+Req/s (concurrency 50): `/api/projects` 2254 → 3333 (+48%), `/api/dashboard/my-week` 1450 → 2062 (+42%), `/api/issues` 494 → 581 (+18%), `/api/team/accountability-grid-v3` 830 → 937 (+13%), `/api/documents?type=wiki` 560 → 531 (−5%, ties to the wiki regression).
+
+### What the deltas actually measure
+
+This is a **combined** delta, not a pure isolation of API-audit Phase 1. Between the README baseline and now, *both* the database-query-efficiency audit (merged via PR #10, commit `e494b26`) and this branch's Phase 1 landed. Most of the big wins above are pre-existing on `master` and would show up regardless of this branch. The contribution *unique to API-audit Phase 1* on this concurrency-50 row is:
+
+- **§1.1 (compression):** wire bytes drop ~85-90% on every JSON response (verified `/api/openapi.json` 158.5 KB → 18.1 KB, `/api/documents?type=wiki` 176.5 KB → 14.7 KB). Loopback wall-clock doesn't see those bytes saved. CPU cost is real and shows up as the wiki regression.
+- **§1.2 (session throttle):** under one-cookie benchmark traffic, drops the per-request `UPDATE sessions SET last_activity` write from every request to one per 60 s. Smoke-test verified end-to-end. Impact on this benchmark is masked by ApacheBench reusing the keep-alive connection (peer-review §"Methodology notes").
+- **§1.3 (api_tokens throttle):** identical pattern, no effect on this benchmark which uses session-cookie auth.
+- **§1.4 (`idx_api_tokens_hash`):** same — token-auth path isn't exercised by the cookie-based benchmark.
+
+To isolate API-audit Phase 1 alone, compare to a build at `master` HEAD just before this branch. Not done here — `master` already carries the DB wins, so the comparison would be "this branch vs. master HEAD" rather than vs. the README baseline. The four endpoints that *improved* relative to README all owe most of their improvement to DB-audit work that this branch builds on top of.
+
+### The wiki regression
+
+`GET /api/documents?type=wiki` is the only endpoint that moved against us: **+19 ms P99 (+19%)** and **−5% req/s** at concurrency 50. Diagnosis:
+
+- The response is **172 KB of JSON** containing 347 wiki documents.
+- Compression turns that into 14.7 KB on the wire (12× ratio), but on loopback there is no wire — the saved bytes never translate into less wall-clock.
+- Compressing 172 KB of JSON 300 times across 50 concurrent workers is ~50 MB of compression work in one benchmark run. That's measurable CPU.
+- At concurrency 10 and 25 the regression is much smaller or absent (P50: 18 / 43 / 92 vs. README's 18 / 44 / 88 — only the 50-connection number moved meaningfully).
+
+This is the textbook ApacheBench-on-loopback caveat: compression's win is in wire bytes, not server CPU, and the test rig is byte-free. **For any client over a real network** (the SPA over CloudFront, mobile, anything not on the loopback) the 92% byte reduction more than pays back the CPU cost. The peer review called this out: "ApacheBench on loopback won't show much wall-clock improvement, but over CloudFront and real client links this is the single biggest win for perceived latency."
+
+Options if we want this benchmark number to also move in the right direction:
+
+1. **Tune the compression threshold up** so 172 KB still compresses but smaller payloads don't pay the overhead. (Current default: 1 KB. Raising to e.g. 8 KB would skip `/api/dashboard/my-week` (1.2 KB) and other small responses.) Marginal benefit — none of the small endpoints are CPU-bound today.
+2. **Pre-encode the wiki tree response** behind a cache (§2.3 / §3.3 work). With `Cache-Control: private, max-age=30` plus a content-hash ETag, the second-and-onward responses in a 60 s window become 304s, paying no compression CPU at all. This is exactly what §2.3 and §3.3 are designed for.
+3. **Brotli-static or brotli-precomputed.** Out of scope; this is a JSON API, not a static asset server.
+
+Right call: leave the threshold at 1 KB; tackle wiki specifically via §2.3 + §3.3.
+
+### New gaps surfaced
+
+Two operational issues discovered during the re-run, both pre-existing rather than introduced by this branch but worth recording:
+
+1. **`pnpm db:migrate` short-circuits past pending migrations** when `schema.sql` throws "already exists" on an existing DB. The `schema_migrations` table on `ship_dev` had only 11 rows before this re-run despite migrations 010-043 being applied via side channels. Fixed locally by applying pending migrations one-by-one through `psql -v ON_ERROR_STOP=1`; the underlying script bug remains. Out of scope for this audit — needs a separate fix.
+2. **The audit's volume target was 36 users / 718 documents**; the current seed pipeline produces 35 / 717. One off. Not consequential (within run-to-run variance) but worth noting if anyone re-runs and gets a different number.
+
+### Result files
+
+- `audit/api-reponse-time/results/benchmark.json` — raw `ab` output (re-rendered via `format-results.mjs`).
