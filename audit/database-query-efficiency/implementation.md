@@ -11,7 +11,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
 | **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **Done** (3 / 3 items landed) |
 | **3. Targeted code fixes** | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | **Done** (3 / 3 items landed) |
-| 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
+| **4. Query rewrites** | `/api/projects` + `/api/programs` CTE, accountability grouped queries, batched association INSERTs | **In progress** (1 / 3 items landed) |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
 
 ## Summary
@@ -733,7 +733,104 @@ Read the handler at `api/src/routes/dashboard.ts:498-729` and confirm the two `a
 
 ## Phase 4 — Query rewrites
 
-_Pending._
+### 4.1 Rewrite `GET /api/projects` (and `/api/programs`) with CTEs — Status: **In progress** (projects done, programs pending)
+
+**Before.** `api/src/routes/projects.ts:385-402` ran three correlated subqueries per project row in the list response:
+
+1. `sprint_count` — `SELECT COUNT(*) FROM documents s JOIN document_associations ... WHERE da.related_id = d.id AND ...` — one subplan per project.
+2. `issue_count` — same shape against issues — one subplan per project.
+3. `inferred_status` — a multi-line CASE/MAX over sprints joined to workspaces, filtered by `(sprint.properties->>'project_id')::uuid = d.id` — one subplan per project.
+
+The README baseline EXPLAIN reported `loops=235` for the correlated subplans at 15 projects × ~16 inner rows each, and 2.679ms total. Even after Phase 1's expression indexes brought the post-index execution to ~0.7–1.0ms, the plan shape was still O(projects × children) — every audit run flagged `/api/projects` as the N+1 source for `Load main page`, `View a document`, `List issues`, and `Load sprint board`.
+
+**Change.** `api/src/routes/projects.ts:343-414`: replaced the three correlated subqueries with three CTEs (`visible_projects`, `association_counts`, `sprint_status`) joined into the final SELECT:
+
+```sql
+WITH visible_projects AS (
+  SELECT d.id, d.title, d.properties, d.workspace_id, d.archived_at, ...
+  FROM documents d
+  WHERE d.workspace_id = $1 AND d.document_type = 'project'
+    AND ${VISIBILITY_FILTER_SQL('d', '$2', isAdmin)}
+    AND d.archived_at IS NULL  -- when !includeArchived
+),
+association_counts AS (
+  SELECT da.related_id AS project_id,
+         COUNT(*) FILTER (WHERE x.document_type = 'sprint') AS sprint_count,
+         COUNT(*) FILTER (WHERE x.document_type = 'issue')  AS issue_count
+  FROM document_associations da
+  JOIN documents x ON x.id = da.document_id
+                  AND x.document_type IN ('sprint', 'issue')
+  JOIN visible_projects vp ON vp.id = da.related_id
+  WHERE da.relationship_type = 'project'
+  GROUP BY da.related_id
+),
+sprint_status AS (
+  SELECT (s.properties->>'project_id')::uuid AS project_id,
+         CASE MAX( <existing sprint-timing logic> )
+              WHEN 3 THEN 'active' WHEN 2 THEN 'planned' ELSE NULL END
+              AS allocation_status
+  FROM documents s
+  JOIN workspaces w ON w.id = s.workspace_id
+  JOIN visible_projects vp ON vp.id = (s.properties->>'project_id')::uuid
+  WHERE s.document_type = 'sprint'
+    AND jsonb_array_length(COALESCE(s.properties->'assignee_ids', '[]'::jsonb)) > 0
+  GROUP BY (s.properties->>'project_id')::uuid
+)
+SELECT d.id, ..., u.name AS owner_name, prog_da.related_id AS program_id,
+       COALESCE(ac.sprint_count, 0), COALESCE(ac.issue_count, 0),
+       CASE WHEN d.archived_at IS NOT NULL THEN 'archived'
+            WHEN d.properties->>'plan_validated' IS NOT NULL THEN 'completed'
+            ELSE COALESCE(ss.allocation_status, 'backlog') END
+FROM visible_projects d
+LEFT JOIN users u ON u.id = d.owner_id
+LEFT JOIN document_associations prog_da ON prog_da.document_id = d.id AND prog_da.relationship_type = 'program'
+LEFT JOIN association_counts ac ON ac.project_id = d.id
+LEFT JOIN sprint_status ss ON ss.project_id = d.id
+ORDER BY ${orderByClause}
+```
+
+Key shape notes:
+
+- `visible_projects` carries the archived filter and visibility predicate so the count and status CTEs only see projects the caller can read. The audit's admin session collapses the OR via `VISIBILITY_FILTER_SQL`'s boolean short-circuit (§2.2).
+- `association_counts` uses `COUNT(*) FILTER (WHERE ...)` so a single grouped scan of `document_associations` answers both counts. No more two-subplan loop per project.
+- `sprint_status` does one grouped scan of `documents WHERE document_type='sprint'`, joined to `workspaces` for `sprint_start_date` and to `visible_projects` for relevance.
+- `extractProjectFromRow` consumes the same column names (`sprint_count`, `issue_count`, `inferred_status`, `owner_name`, `program_id`, etc.) so no caller change was needed.
+- Kept `d` as the outer alias so `orderByClause` (built earlier with `d.${sortField}` interpolations) didn't need rewriting.
+
+**After (verified 2026-05-22, seeded local DB, 15 projects + 35 sprints + 200 issues).**
+
+EXPLAIN ANALYZE (warm cache):
+
+```
+Merge Left Join  (cost=201.48..204.13 rows=15) (actual time=0.731..0.889)
+  CTE visible_projects → Bitmap Heap Scan on documents (15 rows, 0.037ms)
+  CTE association_counts → GroupAggregate over Hash Join, 235 rows scanned ONCE (0.602ms)
+  CTE sprint_status → GroupAggregate over Bitmap Heap Scan, 35 rows scanned ONCE (0.204ms)
+Execution Time: 1.072 ms
+```
+
+No `SubPlan` nodes. No `loops=235`. Three grouped scans replace what used to be 235+ correlated subplan executions.
+
+End-to-end audit re-run signals:
+
+- `/api/projects` is no longer in the top 8 slowest queries by plan execution.
+- The audit's `N+1 Signals` section no longer lists `/api/projects` as a correlated-subplan source for any flow (only `/api/programs` remains, queued for the second part of this item).
+- `pnpm audit:db-query-efficiency --json` returns zero hits when scanning `explains[]` + `metrics[].nPlusOneSignals[]` for `/api/projects`.
+
+Type-check + tests still green (api 451/451, web 151/151). No API contract change — `extractProjectFromRow` returns the same shape.
+
+**Follow-up still in this item.** `/api/programs` (`api/src/routes/programs.ts:71-92`) has the identical correlated-subquery shape for `issue_count` and `sprint_count` and is still flagged by the audit's N+1 signals. Same CTE rewrite applies; queued as the next commit under §4.1.
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+pnpm audit:db-query-efficiency
+# Expect: /api/projects no longer in "EXPLAIN ANALYZE Summary" slow list.
+# Expect: N+1 Signals lists only /api/programs (not /api/projects).
+```
 
 ## Phase 5 — Frontend / architectural
 
