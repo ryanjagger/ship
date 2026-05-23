@@ -220,9 +220,11 @@ Three approaches were considered (notes in the original plan):
 
 1. **Typed handler wrapper** — `authedHandler((req: AuthedRequest, res) => …)`. Explicit, but wraps every route in an extra function call and rewrites the registration signature.
 2. **Non-optional global augmentation** — change `req.userId?` to `req.userId` in the global Express type. Smallest call-site change, but the type then lies on routes where `authMiddleware` is *not* applied.
-3. **`asserts` narrowing helpers** *(chosen)* — `assertAuthed(req): asserts req is AuthedRequest` plus a userId-only variant. Add one line at the top of each handler, then drop the `!` from `req.userId` / `req.workspaceId`. TS narrows in place; existing references work unchanged.
+3. **Narrowing helpers** *(chosen)* — `assertAuthed(req, res): req is AuthedRequest` plus a userId-only variant. Add one line at the top of each handler, then drop the `!` from `req.userId` / `req.workspaceId`. TS narrows in place via control-flow analysis; existing references work unchanged.
 
-Option 3 wins on three axes: real runtime check (the assertion *throws* with a clear message if the contract is violated, instead of silently propagating `undefined`), minimal call-site disturbance (no destructuring, no wrapping), and honest types (the global aug stays optional, which matches reality for unauthenticated routes).
+Option 3 wins on three axes: real runtime check (the helper actually verifies the contract instead of just lying type-side), minimal call-site disturbance (no destructuring, no wrapping), and honest types (the global aug stays optional, which matches reality for unauthenticated routes).
+
+The helpers were initially shaped as TypeScript `asserts` functions that *threw* when the contract was violated. That created a follow-on bug: every workspace-scoped route wraps its body in `try { … } catch { res.status(5xx) }`, and the throw got swallowed by the catch and reported as an internal-server failure. Super-admin sessions are allowed to exist without a selected workspace (`authMiddleware` stores `workspaceId` as `null` for that case), so the path was reachable: a request that pre-Phase-2 returned a normal empty/404 response now returned 500. Replaced the `asserts` form with a **type-guard form** that responds inline with the appropriate 400 / 401 and returns `false`, so callers exit cleanly with the right status code (see `458854f`).
 
 #### Implementation
 
@@ -232,19 +234,28 @@ Option 3 wins on three axes: real runtime check (the assertion *throws* with a c
 export type AuthedUserRequest = Request & { userId: string };
 export type AuthedRequest = Request & { userId: string; workspaceId: string };
 
-export function assertAuthed(req: Request): asserts req is AuthedRequest {
-  if (!req.userId || !req.workspaceId) {
-    throw new Error('assertAuthed: request is missing userId or workspaceId — ' +
-                    'authMiddleware must run first and a workspace must be selected');
+export function assertAuthed(req: Request, res: Response): req is AuthedRequest {
+  if (!req.userId) {
+    res.status(HTTP_STATUS.UNAUTHORIZED).json({
+      success: false,
+      error: { code: ERROR_CODES.UNAUTHORIZED, message: 'Authentication required' },
+    });
+    return false;
   }
+  if (!req.workspaceId) {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({
+      success: false,
+      error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'No workspace selected' },
+    });
+    return false;
+  }
+  return true;
 }
 
-export function assertUserAuthed(req: Request): asserts req is AuthedUserRequest {
-  if (!req.userId) {
-    throw new Error('assertUserAuthed: request is missing userId — authMiddleware must run first');
-  }
-}
+// assertUserAuthed: same shape, but only checks userId and only responds 401.
 ```
+
+Call sites are `if (!assertAuthed(req, res)) return;` — TS narrows `req` to `AuthedRequest` after the early return via control-flow analysis.
 
 **Per-file pass** across 21 route files:
 
@@ -274,7 +285,9 @@ export function assertUserAuthed(req: Request): asserts req is AuthedUserRequest
 
 Seven files (the "none needed" rows) compiled clean after just dropping the bangs because their consumers already accepted `string | undefined` — notably `logAuditEvent({ actorUserId: string | null | undefined })`. The bangs in those files were superfluous; removing them was still a Phase 2 win because each removal eliminates one `no-non-null-assertion` warning.
 
-For the remaining 14 files, TypeScript demanded narrowing somewhere in each handler. The mechanical pattern: insert `assertAuthed(req);` as the first statement inside every top-level `try {` (which in this codebase corresponds 1:1 with route handlers).
+For the remaining 14 files, TypeScript demanded narrowing somewhere in each handler. The mechanical pattern: insert `if (!assertAuthed(req, res)) return;` as the first statement inside every top-level `try {` (which in this codebase corresponds 1:1 with route handlers).
+
+**ai.ts uses `assertUserAuthed` instead** — both handlers (`/analyze-plan`, `/analyze-retro`) key on `req.userId` for rate limiting and analysis but never touch `req.workspaceId`. Using the both-required guard on them would respond with `400 no_workspace_selected` for super-admin sessions that had reached the AI features deliberately without selecting a workspace — incorrect. Fixed in `073d780`.
 
 **Test mocks** — five test files mock `../middleware/auth.js`:
 
@@ -285,16 +298,18 @@ vi.mock('../middleware/auth.js', () => ({
     req.workspaceId = 'ws-123';
     next();
   }),
+  assertAuthed: vi.fn(() => true),
+  assertUserAuthed: vi.fn(() => true),
 }));
 ```
 
-These needed `assertAuthed: vi.fn()` and `assertUserAuthed: vi.fn()` added to the mock object, otherwise the route's call to `assertAuthed(req)` resolved to `undefined` and threw `TypeError: assertAuthed is not a function`. The mocks are intentionally no-op `vi.fn()` because the test fixtures already set `req.userId` / `req.workspaceId` directly, so the runtime assertion check is unnecessary in tests.
+Without the guard mocks the route's call to `assertAuthed(req, res)` would resolve to `undefined`, return false (falsy), and the route would early-return without sending a response. The mocks return `true` so the handler proceeds.
 
 #### After
 
 - `req.userId!` / `req.workspaceId!` count in production code: **0** (was 236).
 - `no-non-null-assertion` warnings: 349 → 113 (−236, exactly the bangs removed; the rule has no downstream cascade).
-- Where `authMiddleware` is misconfigured or skipped, the route now fails fast with `Error: assertAuthed: request is missing userId or workspaceId …` instead of silently passing `undefined` to SQL.
+- Super-admin sessions without a selected workspace now receive a clean `400 No workspace selected` on workspace-scoped routes, rather than the silent empty-result-or-404 they got pre-Phase-2 or the misleading 500 they briefly got under the `asserts`/throw form.
 
 #### Reproducibility
 
@@ -379,12 +394,15 @@ Expected reduction across the top three files alone: ~1,500. That plus Phases 1�
 
 ## Branch state at time of writing
 
-- **7 commits** on `implement/type-safety` so far:
+- **9 commits** on `implement/type-safety` so far:
   - `e3a41e4` — lint baseline tooling (Phase 0)
   - `038addb` — Phase 1 quick wins
   - `264a929` — Phase 1 doc backfill
   - `521c41c` — Phase 0 follow-up: drop reliance on `import.meta.dirname` (Node 20.11+) so lint runs on every Node version `package.json#engines` accepts
-  - `15145e6` — Phase 2 `AuthedRequest` narrowing helpers
+  - `15145e6` — Phase 2 `AuthedRequest` helpers (initial `asserts`/throw form, superseded by `458854f`)
   - `f2d31ee` — Phase 2 doc backfill
   - `d9086ad` — Phase 0 follow-up: downgrade eslint to ^9 so the install/lint contract matches the declared Node 20.0+ range (eslint 10 required Node 20.19+)
+  - `c34ac5a` — doc refresh after eslint 9 downgrade
+  - `073d780` — Phase 2 fix: use `assertUserAuthed` in `ai.ts` (handlers don't need workspace)
+  - `458854f` — Phase 2 fix: convert `assertAuthed` / `assertUserAuthed` from `asserts`/throw to inline-response type guards, so super-admin sessions without a selected workspace see `400 No workspace selected` instead of a misleading 500 swallowed by route catch blocks
 - Phases 3–7 are planned but not implemented
