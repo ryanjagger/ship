@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (5 / 7 items landed) |
+| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (6 / 7 items landed) |
 | 2. Tiny code edits | Pool config, admin visibility short-circuit, dead-code removal | Pending |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
@@ -356,9 +356,57 @@ psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
 
 Expect `Index Scan using idx_documents_active_type_position` with no separate `Sort` node.
 
-### 1.6 Replace `idx_documents_visibility_created_by` with `idx_documents_created_by` — Status: **Pending**
+### 1.6 Replace `idx_documents_visibility_created_by` with `idx_documents_created_by` — Status: **Done**
 
-Peer-review §16. The current compound shape cannot satisfy `WHERE created_by = $1`.
+**Before.** `idx_documents_visibility_created_by` is `btree (visibility, created_by)`. Peer-review §16 claimed Postgres cannot use this index for `WHERE created_by = $1` because of the leading-column ordering, and recommended replacing it with a single-column `idx_documents_created_by` partial on `deleted_at IS NULL`.
+
+Empirical check before the change disagreed with the peer-review premise in part: `pg_stat_user_indexes` showed `idx_documents_visibility_created_by` had ~588 scans in a single dev session, and EXPLAIN ANALYZE for `WHERE created_by = $1` confirmed the planner used it with `Index Cond: (created_by = $0)`. However, this is an index-cond filter scan that walks all leaf pages (the leading visibility column is unconstrained), not a true seek. A targeted single-column index is strictly better, and the old compound's visibility-OR use case it was designed for never materialized — the planner uses `idx_documents_workspace_id` + filter for the OR-shaped visibility predicate (verified by EXPLAIN). Companion `idx_documents_visibility` had 0 scans.
+
+Three representative query plans before the change:
+
+| Query | Index chosen | Notes |
+| --- | --- | --- |
+| `WHERE created_by = $1 AND deleted_at IS NULL` | `idx_documents_visibility_created_by` (Index Cond filter scan) | Functional but walks all visibility buckets |
+| `weekly_plan, created_by = $1` (weeks.ts has_plan) | `BitmapAnd` over `idx_documents_document_type` + `idx_documents_visibility_created_by` | Uses both for selectivity |
+| OR-shaped visibility list | `Seq Scan` / `idx_documents_workspace_id` + filter | Compound index never picked for OR |
+
+**Change.** New migration `api/src/db/migrations/043_created_by_index_swap.sql`. Three-step shape: create the new index, `ANALYZE`, then drop the old. The `IF NOT EXISTS` / `IF EXISTS` guards make the migration idempotent.
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_documents_created_by
+  ON documents (created_by)
+  WHERE deleted_at IS NULL;
+
+ANALYZE documents;
+
+DROP INDEX IF EXISTS idx_documents_visibility_created_by;
+```
+
+**After (verified 2026-05-22).** Same three queries:
+
+| Query | Index chosen | Execution |
+| --- | --- | ---: |
+| `WHERE created_by = $1 AND deleted_at IS NULL` | **`Bitmap Index Scan on idx_documents_created_by`** | 0.080ms |
+| `weekly_plan, created_by = $1` | `idx_documents_document_type` + filter (created_by is already covered by document_type's selectivity) | 0.077ms |
+| OR-shaped visibility list | `Seq Scan` / `idx_documents_workspace_id` (unchanged) | 0.063ms |
+
+No regression: the OR-shaped path was never using the dropped index anyway. The `created_by = $1` lookups now use a smaller, targeted bitmap index. The has_plan correlated subquery picks an even cheaper plan because the planner now has one less compound option to consider.
+
+Net effect: -1 unused-visibility-column index slot, +1 targeted lookup index, slightly less storage and less write-amplification (compound indexes touch more pages on insert/update than single-column ones).
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
+  SELECT id FROM documents
+  WHERE created_by = (SELECT id FROM users LIMIT 1)
+    AND deleted_at IS NULL LIMIT 50;"
+```
+
+Expect `Bitmap Index Scan on idx_documents_created_by`. Verify the old index is gone with `\d documents` — `idx_documents_visibility_created_by` should not appear.
 
 ### 1.7 `ANALYZE documents;` at end of migration — Status: **Pending**
 
