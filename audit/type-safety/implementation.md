@@ -12,11 +12,11 @@ Eliminate 25% of type-safety violations from the ESLint baseline. Baseline = 8,6
 
 | Area | Before | After | Commit |
 | --- | --- | --- | --- |
-| Lint baseline tooling | regex-based `count.sh` (under-counted non-null assertions ~2.5×) | type-aware `lint-report.mjs` is authoritative; `count.sh` marked deprecated | `e3a41e4`, pending |
-| Dead `req.user` global augmentations | declared in `api/src/routes/documents.ts:1518` and `api/src/routes/backlinks.ts:157`, conflicting with the real `req.userId` / `req.workspaceId` on auth middleware; zero readers | removed | pending |
-| `as unknown as string` lies in `api/src/routes/workspaces.ts:301,303` | API returned `null` for archived members' `role` and `joinedAt` but claimed `string` to callers; web client already typed it `string \| null` | local `WorkspaceMemberResponse` type with `role: 'admin' \| 'member' \| null` and `joinedAt: string \| null` | pending |
-| `req.query as unknown as ClaudeContextRequest` in `api/src/routes/claude.ts:62` | unsound cast (`?x=a&x=b` produces an array, not the asserted string), and the `context_type` runtime check ran after the cast had already claimed it was a string | `ClaudeContextQuerySchema.safeParse(req.query)` with the same union type; redundant manual check removed | pending |
-| Dynamic SQL parameter arrays | `any[]` (or ad-hoc `(string \| boolean \| null)[]`) | `SqlParam` type in `shared/src/types/db.ts`, applied as template in `api/src/routes/documents.ts` | pending |
+| Lint baseline tooling | regex-based `count.sh` (under-counted non-null assertions ~2.5×) | type-aware `lint-report.mjs` is authoritative; `count.sh` marked deprecated | `e3a41e4`, `038addb` |
+| Dead `req.user` global augmentations | declared in `api/src/routes/documents.ts:1518` and `api/src/routes/backlinks.ts:157`, conflicting with the real `req.userId` / `req.workspaceId` on auth middleware; zero readers | removed | `038addb` |
+| `as unknown as string` lies in `api/src/routes/workspaces.ts:301,303` | API returned `null` for archived members' `role` and `joinedAt` but claimed `string` to callers; web client already typed it `string \| null` | local `WorkspaceMemberResponse` type with `role: 'admin' \| 'member' \| null` and `joinedAt: string \| null` | `038addb` |
+| `req.query as unknown as ClaudeContextRequest` in `api/src/routes/claude.ts:62` | unsound cast (`?x=a&x=b` produces an array, not the asserted string), and the `context_type` runtime check ran after the cast had already claimed it was a string | `ClaudeContextQuerySchema.safeParse(req.query)` with the same union type; redundant manual check removed | `038addb` |
+| Dynamic SQL parameter arrays | `any[]` (or ad-hoc `(string \| boolean \| null)[]`) | `SqlParam` type in `shared/src/types/db.ts`, applied as template in `api/src/routes/documents.ts` | `038addb` |
 | Total warnings (baseline → Phase 1) | 8,660 | 8,640 (−20) | — |
 
 The Phase 1 reduction is small by design — these were the lowest-risk quick wins. Phases 2 (`AuthedRequest`), 3 (discriminated `ApiResponse`), and 5 (typed `pg` boundary) are where the 25% target actually comes from.
@@ -54,7 +54,7 @@ Six small, near-zero-risk fixes bundled into one PR. The aim was less about warn
 
 **After.** No one reads the wrong numbers by accident.
 
-**Commit.** pending
+**Commit.** `038addb`
 
 #### 2. Remove dead `req.user` global augmentations (peer-review §10)
 
@@ -78,7 +78,7 @@ declare global {
 
 **Reproducibility.** `rg 'declare global' api/src` should no longer show `req.user` blocks; `rg 'req\.user\b' api/src` continues to return zero matches.
 
-**Commit.** pending
+**Commit.** `038addb`
 
 #### 3. Fix `as unknown as string` lies in `workspaces.ts` (peer-review §9)
 
@@ -113,7 +113,7 @@ const members: WorkspaceMemberResponse[] = [
 
 **Reproducibility.** `rg 'as unknown as string' api/src` returns zero matches in `workspaces.ts`.
 
-**Commit.** pending
+**Commit.** `038addb`
 
 #### 4. Validate `claude.ts` query params with Zod (peer-review §9)
 
@@ -148,7 +148,7 @@ Removed the now-redundant `if (!context_type)` check (Zod rejects undefined or i
 
 **Reproducibility.** `curl 'http://localhost:3001/api/claude/context?context_type=standup&context_type=review'` returns 400 with the Zod error detail.
 
-**Commit.** pending
+**Commit.** `038addb`
 
 #### 5. Add `SqlParam` type, apply in `documents.ts` (peer-review §"got right")
 
@@ -179,7 +179,7 @@ Exported via `shared/src/types/index.ts`. Replaced both annotations in `api/src/
 
 **Reproducibility.** `pnpm --filter @ship/api type-check` is clean.
 
-**Commit.** pending
+**Commit.** `038addb`
 
 #### 6. (Deferred during execution) Import shared `IssueState` in web hooks
 
@@ -277,6 +277,7 @@ Expected reduction across the top three files alone: ~1,500. That plus Phases 1�
 
 ## Branch state at time of writing
 
-- **1 commit** on `implement/type-safety` so far: `e3a41e4` (lint baseline tooling, Phase 0)
-- Phase 1 changes are in the working tree, pending commit and PR
+- **2 commits** on `implement/type-safety` so far:
+  - `e3a41e4` — lint baseline tooling (Phase 0)
+  - `038addb` — Phase 1 quick wins (this doc, plus the six changes summarized above)
 - Phases 2–7 are planned but not implemented
