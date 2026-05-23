@@ -38,6 +38,42 @@ Each row is one shipped commit. Detailed before/after analysis for each item liv
 | 4.2 | Collapsed accountability N+1 into single grouped queries | -2 queries per protected-route load (4 of 5 flows): README baseline 57/59/48/65 → **53/55/44/61** | `5196ee4` |
 | 4.3 | Batched 6 per-item INSERT/UPDATE loops via `unnest()` + SQL-side `jsonb_agg` | At N=20 (bulk assign flow): 20 round-trips → 1 | `56bfed6` |
 
+## Post-Phase-4 audit re-run vs README baseline
+
+Ran `pnpm audit:db-query-efficiency` against the same seeded dataset the README baseline used (`pnpm db:seed && node audit/api-reponse-time/seed-volume.mjs && pnpm db:migrate`). Both runs were full-cold-start (fresh `pnpm dev`, no in-process pre-warming).
+
+| User Flow | Total Queries (README → now) | N+1 Detected? (README → now) |
+| --- | --- | --- |
+| Load main page | 57 → **53** (-4) | Yes → **No** |
+| View a document | 59 → **55** (-4) | Yes → **No** |
+| List issues | 48 → **44** (-4) | Yes → **No** |
+| Load sprint board | 65 → **61** (-4) | Yes → **No** |
+| Search content | 5 → **5** (0) | No → No |
+
+`N+1 Detected?` flipped from Yes to No on every flow that had it — driven by the §4.1 CTE rewrites (`/api/projects` + `/api/programs`) which eliminated the correlated subplans from the global providers. `Total Queries` dropped by 4 per protected-route flow: 2 from the §4.1 CTE consolidation (count subqueries no longer dispatched as separate round-trips by the global providers' detection heuristic) and 2 from the §4.2 accountability N+1 collapse.
+
+**The audit's "Slowest Query (ms)" column is misleading vs the README baseline** — at the current commit, every flow's reported "slowest" is the **first** `GET /api/issues` of the run, which is now cold-cache-dominated. The actual breakdown of that first request, measured directly:
+
+```
+GET /api/issues  -- first request of audit run
+  observed wall time:   24.60ms  (HTTP + JSON + Express overhead + SQL)
+  Postgres "plan execution" (the audit's column):
+    Planning Time:  3.897 ms   ← Postgres choosing among now-larger index set
+    Execution Time: 1.004 ms   ← actual SQL work
+GET /api/issues  -- subsequent requests in same run
+  observed wall time:   1.95 ms
+  plan execution:       0.469 ms
+```
+
+So the SQL **execution** for `/api/issues` is roughly the same as the README baseline (1.004ms vs README's 1.152ms — both single-millisecond, within run-to-run variance). The cold-cache **planning** rose to ~4ms because the planner now evaluates more candidate indexes (Phase 1 added 7 indexes; Phase 1.6 dropped one). Warm-cache planning drops to sub-ms.
+
+This is a real first-request cost but it's bounded: Postgres caches the prepared plan after the first request, so the per-process steady-state is the ~0.47ms warm-cache number. In production with long-lived API workers the first-request planning cost amortizes to zero.
+
+The audit script measures only the first-execution per endpoint per run, which is why the "Slowest Query (ms)" column understates the structural wins and overstates the cold-cache spike. For a steady-state comparison see the per-endpoint `EXPLAIN ANALYZE` rows in `## EXPLAIN ANALYZE Summary` of the audit run — `/api/projects`, `/api/programs`, `/api/dashboard/my-week`, and `/api/accountability/action-items` are all sub-0.5ms plan execution, and `/api/projects` no longer appears in the slowest list at all.
+
+**Remaining slowest-list dominator:** `GET /api/issues` cold-cache wall-time. The execution-side bottleneck is the `LEFT JOIN documents person_doc ON person_doc.workspace_id = d.workspace_id AND person_doc.document_type = 'person' AND person_doc.properties->>'user_id' = d.properties->>'assignee_id'` — a hash join over JSONB extractions with no matching expression index. Tackling it is Phase 5 / follow-up work; needs either a `((properties->>'user_id'))` index on person docs (the partial-on-person index from migration 016 is close but doesn't include the workspace scope the join uses) or a structural rewrite that pre-resolves assignee→person.
+
+
 ## Phase 1 — Schema-only wins
 
 These are pure DDL additions in a single migration file. No application code changes; no behavior changes. Each item is a separate sub-section so that the migration can grow incrementally as items land. The full Phase 1 set will be wrapped in **one** migration file (`038_search_trigram_index.sql` to be renamed to `038_query_efficiency_indexes.sql` if more items land before this branch ships, or each subsequent item gets its own numbered file if Phase 1 spans multiple PRs).
