@@ -10,7 +10,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | --- | --- | --- |
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
 | **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **Done** (3 / 3 items landed) |
-| **3. Targeted code fixes** | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | **In progress** (1 / 3 items landed) |
+| **3. Targeted code fixes** | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | **In progress** (2 / 3 items landed) |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
 
@@ -622,6 +622,64 @@ Only `documents.ts:645` had the leak. All other transactional handlers either do
 grep -B1 "Only workspace admins can set the reports_to field\|Only the document creator can change its type\|Cannot change to or from program or person\|No fields to update" api/src/routes/documents.ts | grep "ROLLBACK"
 # Expect: 4 matches.
 ```
+
+### 3.2 Drop `content` from list endpoints — Status: **Done** (partial; see deferred cases below)
+
+**Before.** Per audit peer-review §9: `documents.content` is a JSONB column storing the full TipTap document tree. For a populated retro it can be tens of KB. List endpoints fetch this column without using it, shipping the full payload from DB to API server and then (in some cases) to the client — even when the list view never renders it.
+
+Audit pre-change measurement of the `/api/issues` list payload on the seeded dataset:
+
+```
+content payload (sum): 38 kB
+properties payload:    34 kB
+```
+
+At 200 issues that's 38 KB transferred per request just for content that no list-view component reads. Linearly worse at 10× scale.
+
+**Change.** Audited every list endpoint flagged in peer-review §9 and one not flagged (`/api/issues/:id/children`):
+
+| Endpoint | Selects `content`? | Action |
+| --- | --- | --- |
+| `GET /api/issues` (`issues.ts:124-138`) | Was: yes | **Dropped.** Frontend (`useIssuesQuery.ts`, `IssuesList.tsx`, `KanbanBoard.tsx`) never reads `issue.content` from the list response. |
+| `GET /api/issues/:id/children` (`issues.ts:442`) | Was: yes | **Dropped.** Sub-issue list rendering does not show content. |
+| `GET /api/weekly-plans/...` (project allocation grid, `weekly-plans.ts:990-1009`) | Yes (still) | **Deferred.** Content is required for the `hasContent(docContent)` heuristic that drives the per-cell `done`/`due`/`late`/`future` status. The heuristic strips template heading strings and checks for residual text, which is awkward to replicate in SQL without leaking template literals into the migration. Marked as a follow-up; at 32 plans + 27 retros per project the payload is ~60 KB and worth tackling once the heuristic moves to a shared util. |
+| `GET /api/dashboard/my-focus` (`dashboard.ts:399`) | Yes (still) | **Required.** Caller does `extractPlanItems(row.content)`. Genuine read. |
+| `GET /api/dashboard/my-week` plan (`dashboard.ts:567`) | Yes (still) | **Required.** Same `extractPlanItems` need. |
+| `GET /api/dashboard/my-week` retro (`dashboard.ts:591`) | Yes (still) | **Required.** Same. |
+| `GET /api/dashboard/my-week` previous retro (`dashboard.ts:649`) | **No** | **Already clean.** Selects `id, title, properties` only. Peer-review's reference appears to predate this. |
+| `GET /api/weeks/:id/standups` (`weeks.ts:1856`) | Yes (still) | **Required.** Caller runs `transformIssueLinks` on content (renders ticket-number links). Genuine read. |
+
+`api/src/routes/issues.ts:126`:
+
+```diff
++    // Note: d.content is intentionally NOT selected. The list view does not
++    // render TipTap content; it's available via GET /api/issues/:id when
++    // an issue is opened. Skipping content here avoids shipping tens of KB
++    // per issue from the DB through the API for no consumer.
+     let query = `
+       SELECT d.id, d.title, d.properties, d.ticket_number,
+-             d.content,
+              d.created_at, d.updated_at, d.created_by,
+```
+
+`api/src/routes/issues.ts:444` got the same treatment for the sub-issues list.
+
+**After.** Type-check + tests still green (api 451/451, web 151/151). The `extractIssueFromRow` helper still references `row.content`, which is now `undefined`. `JSON.stringify` drops undefined keys, so the response loses `content` cleanly. Frontend's `transformIssue` and downstream consumers never reference `.content` from list responses (verified by grep across `web/src`).
+
+Direct payload measurement at current seed volume: `/api/issues` saves ~38 KB per request. The savings grows linearly with workspace issue count — at ~5,000 issues it's ~1 MB per list request.
+
+**Reproducibility.**
+
+```bash
+# Confirm content is no longer selected by the list query
+grep -A 5 "let query =" api/src/routes/issues.ts | grep -c "d\.content"
+# Expect: 0
+
+# Measure raw payload cost the SELECT was paying for
+psql "$DATABASE_URL" -c "SELECT pg_size_pretty(SUM(octet_length(content::text))) FROM documents WHERE document_type='issue' AND deleted_at IS NULL AND archived_at IS NULL;"
+```
+
+**Deferred follow-up.** The `weekly-plans.ts:990/1001` case needs the `hasContent` heuristic moved to either (a) a shared util that runs server-side over a length probe, or (b) a SQL-side check using `jsonb_path_query` to find non-template text nodes. Tracked here as a known follow-up.
 
 ## Phase 4 — Query rewrites
 

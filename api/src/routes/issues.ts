@@ -121,9 +121,12 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
 
+    // Note: d.content is intentionally NOT selected. The list view does not
+    // render TipTap content; it's available via GET /api/issues/:id when
+    // an issue is opened. Skipping content here avoids shipping tens of KB
+    // per issue from the DB through the API for no consumer.
     let query = `
       SELECT d.id, d.title, d.properties, d.ticket_number,
-             d.content,
              d.created_at, d.updated_at, d.created_by,
              d.started_at, d.completed_at, d.cancelled_at, d.reopened_at,
              d.converted_from_id,
@@ -436,9 +439,9 @@ router.get('/:id/children', authMiddleware, async (req: Request, res: Response) 
 
     // Query junction table for sub-issues
     // Sub-issues have document_id pointing to this issue's id via relationship_type='parent'
+    // Note: d.content omitted; sub-issue list display does not render content.
     const result = await pool.query(
       `SELECT d.id, d.title, d.properties, d.ticket_number,
-              d.content,
               d.created_at, d.updated_at, d.created_by,
               d.started_at, d.completed_at, d.cancelled_at, d.reopened_at,
               d.converted_from_id,
