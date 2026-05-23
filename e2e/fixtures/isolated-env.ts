@@ -95,10 +95,13 @@ export const test = base.extend<
 >({
   // Override context to disable action items modal for ALL pages (including multi-page tests)
   context: async ({ context }, use) => {
-    // Set localStorage flag to disable action items modal before any navigation
+    // Set localStorage flags before any navigation.
     // This applies to all pages created from this context
     await context.addInitScript(() => {
       localStorage.setItem('ship:disableActionItemsModal', 'true');
+      // Most e2e specs do not exercise global accountability push events.
+      // Opening /events on every logged-in page exhausts the per-worker IP limiter.
+      localStorage.setItem('ship:disableRealtimeEvents', 'true');
     });
     await use(context);
   },
