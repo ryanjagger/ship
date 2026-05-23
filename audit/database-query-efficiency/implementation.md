@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (3 / 7 items landed) |
+| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (4 / 7 items landed) |
 | 2. Tiny code edits | Pool config, admin visibility short-circuit, dead-code removal | Pending |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
@@ -240,9 +240,65 @@ psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
 
 Expect `Index Only Scan using idx_documents_issue_ticket` + `Limit 1` + `Heap Fetches: 1` in the plan.
 
-### 1.4 Sprint / weekly_plan / weekly_retro lookup indexes — Status: **Pending**
+### 1.4 Weekly_plan / weekly_retro composite lookup indexes — Status: **Done**
 
-From README's `Candidate indexes` set. Lower priority than 1.1/1.2 but trivial to add in the same migration.
+**Before.** POST /api/weekly-plans (`api/src/routes/weekly-plans.ts:221`), the uniqueness check before insert, and the retro creation path that reads the corresponding plan (`:642`) all execute the same shape:
+
+```sql
+WHERE workspace_id = $1
+  AND document_type IN ('weekly_plan' | 'weekly_retro')
+  AND (properties->>'person_id') = $2
+  AND (properties->>'week_number')::int = $3
+  AND archived_at IS NULL
+```
+
+Baseline plan against the seeded dataset (32 weekly_plan rows, 27 weekly_retro rows in one workspace of 717 docs):
+
+| Query | Plan | Execution |
+| --- | --- | ---: |
+| weekly_plan uniqueness | Index Scan on `idx_documents_workspace_id` → 716 rows filtered | 0.714ms |
+| weekly_retro fetch | Index Scan on `idx_documents_workspace_id` → 716 rows filtered | 0.153ms |
+
+**Change.** New migration `api/src/db/migrations/041_weekly_plan_retro_lookup_indexes.sql` adding two partial composite expression indexes on `(workspace_id, person_id, week_number::int)`. The README's "Candidate indexes" set included `project_id` in the lookup composite — that column was dropped from the filter shape by migration 037 (Week Dashboard Model), so the implementation indexes only the columns the current code actually filters on.
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_documents_weekly_plan_lookup
+  ON documents (workspace_id, (properties->>'person_id'),
+               (((properties->>'week_number')::int)))
+  WHERE document_type = 'weekly_plan'
+    AND archived_at IS NULL AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_weekly_retro_lookup
+  ON documents (workspace_id, (properties->>'person_id'),
+               (((properties->>'week_number')::int)))
+  WHERE document_type = 'weekly_retro'
+    AND archived_at IS NULL AND deleted_at IS NULL;
+
+ANALYZE documents;
+```
+
+**After (verified 2026-05-22).**
+
+Both indexes are created and registered. EXPLAIN ANALYZE:
+
+| Query | Plan | Execution | vs. baseline |
+| --- | --- | ---: | ---: |
+| weekly_plan uniqueness | Bitmap on `idx_documents_document_type` (32 rows) → in-memory filter | 0.117ms | 6.1× faster |
+| weekly_retro fetch | Bitmap on `idx_documents_document_type` (27 rows) → in-memory filter | 0.053ms | 2.9× faster |
+
+**Caveat: composite indexes not yet selected at small scale.** Like the assignee index in §1.2, the planner prefers a bitmap-on-document_type path over the new composite indexes at 32 and 27 rows. Forcing the index with `SET enable_bitmapscan = off; SET enable_seqscan = off;` produces `Index Scan using idx_documents_weekly_plan_lookup` (0.103ms exec) — confirming the index is functional. The planner will switch automatically as weekly_plan/weekly_retro row counts grow (12 months of weekly sprints with 36 people = ~1,500 rows per type; that's where the composite index starts to dominate).
+
+**Why no sprint+project_id index.** The README also flagged a `(workspace_id, project_id, sprint_number)` candidate. That filter shape no longer appears in the codebase: sprint↔project goes through `document_associations` (already indexed by `idx_document_associations_related_type`), and `idx_documents_sprint_number` from §1.2 covers `(workspace_id, sprint_number)` lookups. Adding a third sprint-shaped index would be dead weight.
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+# Verify EXPLAIN ANALYZE matches the table above for the weekly_plan
+# uniqueness query — see migration header for the exact SQL.
+```
 
 ### 1.5 Wiki ordering index `idx_documents_active_type_position` — Status: **Pending**
 
