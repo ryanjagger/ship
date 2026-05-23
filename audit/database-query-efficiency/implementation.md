@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (2 / 7 items landed) |
+| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (3 / 7 items landed) |
 | 2. Tiny code edits | Pool config, admin visibility short-circuit, dead-code removal | Pending |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
@@ -184,9 +184,61 @@ EXPLAIN ANALYZE SELECT id FROM documents
 RESET enable_bitmapscan; RESET enable_seqscan;
 ```
 
-### 1.3 Ticket-number index — Status: **Pending**
+### 1.3 Ticket-number index — Status: **Done**
 
-Peer-review §8. `(workspace_id, ticket_number DESC) WHERE document_type='issue'` turns the advisory-locked `MAX(ticket_number)` scan into a one-row index lookup.
+**Before.** Five hot paths mint a new issue ticket number via the same shape:
+
+```sql
+SELECT COALESCE(MAX(ticket_number), 0) + 1 as next_number
+FROM documents
+WHERE workspace_id = $1 AND document_type = 'issue'
+```
+
+Call sites: `api/src/routes/issues.ts:596`, `documents.ts:817, :1244, :1426`, `feedback.ts:79`. Each is wrapped in `pg_advisory_xact_lock` (issues.ts:592) so concurrent writers serialize through it. Without a matching index the planner does an `Index Scan using idx_documents_workspace_id` across every issue in the workspace and computes MAX in memory. At 200 issues the EXPLAIN reports 200 rows scanned, 0.602ms execution. At scale (peer-review §8: 50k issues) the scan dominates issue-create latency and pile-up under the lock makes concurrent creates serial.
+
+**Change.** New migration `api/src/db/migrations/040_issue_ticket_number_index.sql`:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_documents_issue_ticket
+  ON documents (workspace_id, ticket_number DESC)
+  WHERE document_type = 'issue';
+
+ANALYZE documents;
+```
+
+Notes on shape:
+
+- `ticket_number DESC` matches the MAX() semantic so the planner can answer with the first row in index order, no aggregate.
+- Partial on `document_type = 'issue'` only — the column is only populated for issues and a few document-type ticket flows that route through the same code path. No `deleted_at IS NULL` predicate because the MAX must consider soft-deleted issues to avoid ticket-number reuse.
+- `ANALYZE documents` so the planner picks up the new index immediately.
+
+**After (verified 2026-05-22, 200 seeded issues).**
+
+```
+Result  (cost=1.54..1.55 rows=1) (actual time=0.039..0.040)
+  InitPlan 1
+    ->  Limit  (cost=0.14..1.54 rows=1) (actual time=0.037..0.037)
+          ->  Index Only Scan using idx_documents_issue_ticket on documents
+                Index Cond: workspace_id = $1 AND ticket_number IS NOT NULL
+                Heap Fetches: 1
+Execution Time: 0.061 ms
+```
+
+The plan switched from `Aggregate → Index Scan (200 rows)` to `Index Only Scan + Limit 1 + Heap Fetches: 1`. Execution dropped **0.602ms → 0.061ms (~10× at 200 issues)**. The win scales linearly with workspace issue count — at 50k issues the seq/index-scan version would be ~150ms, the new path stays under 0.1ms.
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
+  SELECT COALESCE(MAX(ticket_number), 0) + 1 FROM documents
+  WHERE workspace_id = (SELECT id FROM workspaces LIMIT 1)
+    AND document_type = 'issue';"
+```
+
+Expect `Index Only Scan using idx_documents_issue_ticket` + `Limit 1` + `Heap Fetches: 1` in the plan.
 
 ### 1.4 Sprint / weekly_plan / weekly_retro lookup indexes — Status: **Pending**
 
