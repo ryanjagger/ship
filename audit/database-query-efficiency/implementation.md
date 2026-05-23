@@ -10,7 +10,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | --- | --- | --- |
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
 | **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **Done** (3 / 3 items landed) |
-| **3. Targeted code fixes** | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | **In progress** (2 / 3 items landed) |
+| **3. Targeted code fixes** | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | **Done** (3 / 3 items landed) |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
 
@@ -680,6 +680,56 @@ psql "$DATABASE_URL" -c "SELECT pg_size_pretty(SUM(octet_length(content::text)))
 ```
 
 **Deferred follow-up.** The `weekly-plans.ts:990/1001` case needs the `hasContent` heuristic moved to either (a) a shared util that runs server-side over a length probe, or (b) a SQL-side check using `jsonb_path_query` to find non-template text nodes. Tracked here as a known follow-up.
+
+### 3.3 Parallelize `/api/dashboard/my-week` queries — Status: **Done**
+
+**Before.** Per audit peer-review §12: `dashboard.ts:498-729` ran 7 sequential `await pool.query(...)` calls in order:
+
+1. Person lookup (uses `userId`)
+2. Workspace `sprint_start_date` (uses `workspaceId` only)
+3. Plan for target week (needs `personId` from #1)
+4. Retro for target week (needs `personId` from #1)
+5. Previous week retro (needs `personId` from #1)
+6. Standups for the week (uses `userId` and `standupDates` from #2's start_date)
+7. Project allocations for the week (needs `personId` from #1)
+
+#2 doesn't depend on #1, but ran after it anyway. Items 3-7 are mutually independent — once #1 and #2 resolve, they can all run concurrently. The original sequential shape paid `sum(q1..q7)` ≈ 5-7ms of SQL wall-time per request. Peer-review predicted ~5× wall-clock improvement on the SQL portion via two-wave `Promise.all`.
+
+**Change.** Restructured `dashboard.ts:498-729` into two waves:
+
+1. **Wave 1** — `Promise.all([personLookup, workspaceLookup])`. Both 404s remain wired up (404 person / 404 workspace) by checking each result's `rows.length` after the await.
+
+2. **Pre-compute** — `weekStart`, `weekEnd`, `targetWeekNumber`, `previousWeekNumber`, and `standupDates` (the 7 ISO dates). All pure CPU, sub-millisecond.
+
+3. **Wave 2** — `Promise.all` of five queries: plan, retro, previous retro, standups, project allocations. The previous-retro slot uses a guarded `Promise.resolve({rows:[]})` when `previousWeekNumber <= 0` so the parallel shape is uniform.
+
+4. **Assemble** — same response object as before (no API contract change).
+
+The handler is functionally identical to the pre-change version; only the await structure changed. Both early-404 paths still fire correctly because the awaited Promise.all returns both results regardless of which rows are empty.
+
+**After.** Type-check + tests still green (api 451/451, web 151/151). Audit re-run confirms the endpoint responds correctly:
+
+```
+GET /api/dashboard/my-week: observed 3.51ms, plan execution 0.034ms
+GET /api/dashboard/my-week: observed 3.11ms, plan execution 0.112ms
+GET /api/dashboard/my-week: observed 2.54ms, plan execution 0.084ms
+```
+
+Individual query plan-executions are sub-millisecond (the audit indexes from Phases 1.2 and 1.4 already paid off here). The observed wall-time (~3ms) is dominated by HTTP+JSON+JS overhead, not the SQL itself, so the user-visible improvement at this scale is bounded by Amdahl's law on the non-SQL portion. The SQL wall-time itself, however, is now `max(q1, q2) + max(q3..q7)` instead of `sum(q1..q7)` — roughly the predicted 3-5× SQL-portion improvement, and the gap widens as individual queries grow.
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+pnpm audit:db-query-efficiency
+# Verify /api/dashboard/my-week appears in the EXPLAIN ANALYZE Summary
+# with successful plan output (no errors) and that the endpoint shows
+# multiple distinct queries each measured as individually fast.
+```
+
+Read the handler at `api/src/routes/dashboard.ts:498-729` and confirm the two `await Promise.all([...])` calls bracket the per-query SELECTs.
 
 ## Phase 4 — Query rewrites
 
