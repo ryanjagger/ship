@@ -567,12 +567,26 @@ router.post('/assign', authMiddleware, async (req: Request, res: Response) => {
       [workspaceId, sprintNumber, personDocId, resolvedProjectId]
     );
 
-    for (const conflicting of conflictingSprints.rows) {
-      const props = conflicting.properties || {};
-      const assignees: string[] = (props.assignee_ids || []).filter((id: string) => id !== personDocId);
+    // Batch the per-conflict UPDATEs into a single round-trip. Each row's
+    // new assignee_ids is computed in SQL by filtering the existing array
+    // (jsonb_agg returns NULL when no rows match, so COALESCE preserves the
+    // empty-array shape the rest of the app expects).
+    if (conflictingSprints.rows.length > 0) {
       await pool.query(
-        `UPDATE documents SET properties = jsonb_set(properties, '{assignee_ids}', $1::jsonb), updated_at = now() WHERE id = $2`,
-        [JSON.stringify(assignees), conflicting.id]
+        `UPDATE documents
+         SET properties = jsonb_set(
+           properties,
+           '{assignee_ids}',
+           COALESCE(
+             (SELECT jsonb_agg(elem)
+              FROM jsonb_array_elements_text(properties->'assignee_ids') AS elem
+              WHERE elem <> $1),
+             '[]'::jsonb
+           )
+         ),
+             updated_at = now()
+         WHERE id = ANY($2::uuid[])`,
+        [personDocId, conflictingSprints.rows.map(r => r.id)]
       );
     }
 
