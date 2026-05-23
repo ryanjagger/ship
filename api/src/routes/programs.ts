@@ -81,9 +81,9 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
       FROM documents d
       LEFT JOIN users u ON u.id = COALESCE((d.properties->>'owner_id')::uuid, d.created_by)
       WHERE d.workspace_id = $1 AND d.document_type = 'program'
-        AND ${VISIBILITY_FILTER_SQL('d', '$2', '$3')}
+        AND ${VISIBILITY_FILTER_SQL('d', '$2', isAdmin)}
     `;
-    const params: (string | boolean)[] = [workspaceId, userId, isAdmin];
+    const params: (string | boolean)[] = [workspaceId, userId];
 
     if (!includeArchived) {
       query += ` AND d.archived_at IS NULL`;

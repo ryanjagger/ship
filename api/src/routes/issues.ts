@@ -135,9 +135,9 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
         AND person_doc.document_type = 'person'
         AND person_doc.properties->>'user_id' = d.properties->>'assignee_id'
       WHERE d.workspace_id = $1 AND d.document_type = 'issue'
-        AND ${VISIBILITY_FILTER_SQL('d', '$2', '$3')}
+        AND ${VISIBILITY_FILTER_SQL('d', '$2', isAdmin)}
     `;
-    const params: (string | boolean | null)[] = [workspaceId, userId, isAdmin];
+    const params: (string | boolean | null)[] = [workspaceId, userId];
 
     // Exclude archived and deleted issues by default
     query += ` AND d.archived_at IS NULL AND d.deleted_at IS NULL`;

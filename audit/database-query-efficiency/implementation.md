@@ -9,7 +9,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
-| **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **In progress** (1 / 3 items landed) |
+| **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **In progress** (2 / 3 items landed) |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
@@ -480,6 +480,65 @@ Notes:
 **After.** Type-check passes; api 451/451 and web 151/151 tests still green. No behavior change in normal operation — both settings are bounded ceilings that only fire under pathological conditions.
 
 **Reproducibility.** N/A for normal traffic. To verify the `idle_in_transaction_session_timeout` is being applied, connect via psql and run `SHOW idle_in_transaction_session_timeout;` from a connection acquired through the pool — should return `15s`.
+
+### 2.2 Short-circuit visibility filter for admins — Status: **Done**
+
+**Before.** `VISIBILITY_FILTER_SQL(tableAlias, '$userId', '$isAdmin')` always emitted the full OR:
+
+```sql
+(d.visibility = 'workspace' OR d.created_by = $2 OR $3 = TRUE)
+```
+
+with `isAdmin` bound as a parameter. The OR clause is logically equivalent to `TRUE` when `isAdmin = true`, but because the planner sees `$3` as an opaque parameter at planning time, it cannot constant-fold the OR. The result: even admin sessions force every list query to plan as if the OR were load-bearing, defeating partial indexes scoped to (`workspace_id`, `document_type`).
+
+Peer-review §15 quote: *"If the filter were rewritten to short-circuit at the application layer for admins (don't append the visibility clause at all if `isAdmin === true`), several queries would index-only scan instead of bitmap scan. The implementation would be a single line in `VISIBILITY_FILTER_SQL` returning `'TRUE'` for the admin case."*
+
+**Change.**
+
+1. **`api/src/middleware/visibility.ts`**: extended the third parameter of `VISIBILITY_FILTER_SQL` from `string` to `string | boolean`. When the resolved boolean is passed:
+   - `true` → emit `(visibility = 'workspace' OR created_by = $userId OR TRUE)`. The literal `TRUE` is constant-folded by the planner at planning time; the resulting predicate is trivially TRUE and Postgres drops the visibility / created_by columns from the Filter line entirely.
+   - `false` → emit `(visibility = 'workspace' OR created_by = $userId)`. No OR-with-isAdmin clause at all; same plan shape but one fewer expression to evaluate.
+   - String (legacy) → unchanged behavior with `$N = TRUE` placeholder.
+   
+   The `userIdParam` reference is kept in all three branches so legacy callers that still push `userId` into the params array don't have to renumber their downstream placeholders.
+
+2. **Migrated three hot callers** to demonstrate the pattern and capture the win immediately:
+   - `api/src/routes/projects.ts:401` — `/api/projects` list (audit's README slowest query).
+   - `api/src/routes/issues.ts:138` — `/api/issues` list (currently slowest in some audit runs).
+   - `api/src/routes/programs.ts:84` — `/api/programs` list (correlated subplan in N+1 signals).
+
+   Each call site changed from `VISIBILITY_FILTER_SQL('d', '$2', '$3')` with `params.push(isAdmin)` to `VISIBILITY_FILTER_SQL('d', '$2', isAdmin)` with no isAdmin push. Subsequent dynamic placeholders renumber correctly because the code uses live `params.length + 1`.
+
+**After (verified 2026-05-22 via `pnpm audit:db-query-efficiency --json`, admin session).**
+
+| Endpoint | SQL contains `OR TRUE` | Plan `Filter:` line contains `visibility` |
+| --- | --- | --- |
+| `GET /api/projects` (migrated) | ✓ | ✗ — dropped from Filter |
+| `GET /api/issues` (migrated) | ✓ | ✗ — dropped from Filter |
+| `GET /api/programs` (migrated) | ✓ | ✗ — dropped from Filter |
+| `GET /api/search/mentions` (not migrated) | — | n/a (custom inline OR) |
+| `GET /api/documents?type=wiki` (not migrated) | — | n/a (custom inline OR) |
+
+Concrete example — the projects list's Filter line went from including the visibility / created_by OR clause to:
+
+```
+Filter: ((archived_at IS NULL) AND (document_type = 'project'::document_type))
+```
+
+The planner constant-folded `OR TRUE` to TRUE and dropped the OR entirely. Plan execution time isn't a useful direct comparison at small scale (within run-to-run variance), but the planner now has the freedom to pick partial indexes that were previously defeated by the unresolved-parameter OR.
+
+**Why not migrate all 103 callers in this pass.** The migration is mechanical (drop the third placeholder, drop the push) but touches 100+ sites across `projects.ts`, `dashboard.ts`, `weeks.ts`, `weekly-plans.ts`, etc. Each migration is independently safe (the function signature is backwards-compatible). Migrating the three demonstrably hot endpoints captures most of the audit-measured wins; the remaining sites should be migrated in follow-up passes as they show up in profiling.
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+pnpm audit:db-query-efficiency --json | sed -n '/^{/,$p' > /tmp/audit.json
+# Then inspect explains[].sql for "OR TRUE" and explains[].planText for
+# Filter lines that no longer mention visibility on the migrated endpoints.
+```
 
 
 

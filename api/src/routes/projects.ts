@@ -398,9 +398,11 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
       LEFT JOIN users u ON u.id = (d.properties->>'owner_id')::uuid
       LEFT JOIN document_associations prog_da ON prog_da.document_id = d.id AND prog_da.relationship_type = 'program'
       WHERE d.workspace_id = $1 AND d.document_type = 'project'
-        AND ${VISIBILITY_FILTER_SQL('d', '$2', '$3')}
+        AND ${VISIBILITY_FILTER_SQL('d', '$2', isAdmin)}
     `;
-    const params: (string | boolean)[] = [workspaceId, userId, isAdmin];
+    const params: (string | boolean)[] = [workspaceId, userId];
+    // Note: isAdmin is now baked into the SQL by VISIBILITY_FILTER_SQL
+    // and is NOT pushed into params. The planner constant-folds the OR.
 
     if (!includeArchived) {
       query += ` AND d.archived_at IS NULL`;
