@@ -31,20 +31,17 @@ async function validateApiToken(token: string): Promise<{
   const tokenHash = hashToken(token);
 
   const result = await pool.query(
-    `SELECT t.id, t.user_id, t.workspace_id, t.expires_at, t.revoked_at, t.last_used_at,
+    `SELECT t.id, t.user_id, t.workspace_id, t.expires_at, t.last_used_at,
             u.is_super_admin
      FROM api_tokens t
      JOIN users u ON t.user_id = u.id
-     WHERE t.token_hash = $1`,
+     WHERE t.token_hash = $1 AND t.revoked_at IS NULL`,
     [tokenHash]
   );
 
   const tokenRow = result.rows[0];
 
   if (!tokenRow) return null;
-
-  // Check if revoked
-  if (tokenRow.revoked_at) return null;
 
   // Check if expired
   if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) return null;

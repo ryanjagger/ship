@@ -188,7 +188,11 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_hash
 ANALYZE api_tokens;
 ```
 
-Partial-on-`revoked_at IS NULL` matches the route's filter (`api_tokens` validation never accepts a revoked token) so revoked rows don't bloat the index. Closing `ANALYZE` so the planner picks up stats immediately — same convention as the DB-audit Phase 1 migrations.
+Partial-on-`revoked_at IS NULL` matches the auth path's invariant (never serve a revoked token), so revoked rows don't bloat the index. Closing `ANALYZE` so the planner picks up stats immediately — same convention as the DB-audit Phase 1 migrations.
+
+**SQL predicate fix.** The migration originally shipped with the partial index but `validateApiToken`'s SELECT only filtered on `t.token_hash = $1` — the revoked-token check was a JS-side `if (tokenRow.revoked_at) return null` after the row came back. PostgreSQL can't infer a partial-index predicate from application code, so the planner would have kept doing seq scans at scale even with the index present.
+
+Fix (caught in review): added `AND t.revoked_at IS NULL` to the SQL, dropped the now-redundant JS check, and dropped `t.revoked_at` from the SELECT list. The query shape now matches the partial predicate exactly, and as a bonus the DB filters revoked tokens instead of returning them to the app to be rejected.
 
 **After (verified 2026-05-23 against `ship_dev`).** `\d api_tokens` lists the new index:
 
@@ -196,22 +200,21 @@ Partial-on-`revoked_at IS NULL` matches the route's filter (`api_tokens` validat
 "idx_api_tokens_hash" btree (token_hash) WHERE revoked_at IS NULL
 ```
 
-`EXPLAIN ANALYZE` against 100 synthetic tokens:
+`EXPLAIN ANALYZE` against 1000 synthetic tokens, comparing the two query shapes:
 
 ```sql
--- Planner-default plan:
-Seq Scan on api_tokens (cost=2.04..6.29 rows=1 width=32)
-  Filter: ((revoked_at IS NULL) AND (token_hash = $0))
-  Rows Removed by Filter: 99 / Buffers: shared hit=5
-Execution Time: 0.059 ms
+-- Old shape (token_hash only) — partial index NOT used:
+Seq Scan on api_tokens t  (cost=14.23..29.48)
+  Filter: (token_hash = $0)
+Execution Time: 0.049 ms
 
--- Forced index (SET enable_seqscan = off):
-Index Scan using idx_api_tokens_hash on api_tokens
+-- New shape (token_hash + revoked_at IS NULL) — partial index used:
+Index Scan using idx_api_tokens_hash on api_tokens t  (cost=16.81..24.83)
   Index Cond: (token_hash = $0)
-Execution Time: 0.014 ms (actual time for the scan)
+Execution Time: 0.065 ms
 ```
 
-At 100 rows the table fits in ~2 pages and the planner correctly prefers the Seq Scan — cheaper than the index lookup at that scale. As the table grows to thousands of tokens (CI / CLI / Claude-integration usage), the planner will switch to `idx_api_tokens_hash` automatically; the index is functional and the partial predicate is matched. Per peer-review: "tens of ms per API-token request once any non-trivial number of tokens exist."
+At 1000 rows the index now wins by default (no forcing). Wall-clock at this scale is dominated by planning, but the structural difference matters — sequential scan grows linearly with row count, the index lookup stays O(log n). Per peer-review: "tens of ms per API-token request once any non-trivial number of tokens exist."
 
 Tests: api 451/451, web 151/151 still green.
 
