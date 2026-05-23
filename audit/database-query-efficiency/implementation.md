@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (1 / 7 items landed) |
+| **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **In progress** (2 / 7 items landed) |
 | 2. Tiny code edits | Pool config, admin visibility short-circuit, dead-code removal | Pending |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
@@ -23,6 +23,11 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | `GET /api/search/mentions?q=audit` plan execution | 1.087ms (seq scan, full table) | **0.131ms** (audit re-run, post-index, post-`ANALYZE`) | _pending_ |
 | Audit "index gap hints" for title search | Listed as a gap | **Removed from gap list** by the audit script | _pending_ |
 | Migration registered in `schema_migrations` | n/a | `038_search_trigram_index` applied at `2026-05-22 19:26:28` | _pending_ |
+| `idx_documents_issue_assignee` (text expr, partial on issue) | Missing | **Created** (functional under planner force; bitmap path still wins at 200 issues) | _pending_ |
+| `idx_documents_owner_id` (workspace+type+owner) | Missing | **Created and chosen by planner** (0.306ms → 0.046ms) | _pending_ |
+| `idx_documents_standup_author_date` (composite, partial on standup) | Missing | **Created and chosen by planner** (0.358ms → 0.020ms) | _pending_ |
+| `idx_documents_sprint_number` (workspace + sprint_number, partial on sprint) | Missing | **Created and chosen by planner** (0.255ms → 0.027ms) | _pending_ |
+| `GET /api/accountability/action-items` plan execution | 1.269ms (audit pre-039 run) | **0.307ms** (~4× plan execution improvement) | _pending_ |
 
 ## Phase 1 — Schema-only wins
 
@@ -81,9 +86,103 @@ RESET enable_seqscan;
 
 Expected: `Bitmap Index Scan on idx_documents_title_trgm` appears in the plan.
 
-### 1.2 JSONB expression indexes for hot `properties->>` filters — Status: **Pending**
+### 1.2 JSONB expression indexes for hot `properties->>` filters — Status: **Done**
 
-Peer-review §1 identifies this as the largest missed finding. Plan: add `idx_documents_assignee_id`, `idx_documents_owner_id`, `idx_documents_standup_author_date`, `idx_documents_sprint_number` (all partial on document_type and `deleted_at IS NULL`).
+**Before.** Peer-review §1 identifies this as the largest missed finding. The existing `idx_documents_properties GIN (properties)` index only accelerates JSONB containment / key-existence operators (`@>`, `?`, `?&`, `?|`) — it does not serve the dominant `(properties->>'key')` filter shape used in ~28 routes. Every such filter was running `Index Scan using idx_documents_workspace_id` and then in-memory-filtering the JSONB extraction across all rows in the workspace.
+
+Concrete baseline (seeded local DB, 717 documents):
+
+| Query shape | Plan | Execution |
+| --- | --- | ---: |
+| `(properties->>'assignee_id')::uuid = $1` (dashboard/my-work) | Workspace index scan → 699 rows filtered out | 0.969ms |
+| `properties->>'assignee_id' = $1` (team.ts:1026) | Workspace index scan → 699 rows filtered | 0.207ms |
+| `(properties->>'owner_id')::uuid = $1` (dashboard) | Workspace index scan → 716 rows filtered | 0.306ms |
+| `(properties->>'author_id') = $2 AND (properties->>'date') = $3` (standup idempotency) | Workspace index scan → 717 rows filtered | 0.358ms |
+| `(properties->>'sprint_number')::int = $1` | Workspace index scan → 717 rows filtered | 0.255ms |
+
+**Change.** New migration `api/src/db/migrations/039_jsonb_expression_indexes.sql` adding four expression indexes plus a closing `ANALYZE documents`:
+
+```sql
+-- 1. Issue assignee lookup (dashboard/my-work, team/assignments, team/grid, /api/issues)
+CREATE INDEX IF NOT EXISTS idx_documents_issue_assignee
+  ON documents ((properties->>'assignee_id'))
+  WHERE document_type = 'issue' AND deleted_at IS NULL;
+
+-- 2. Owner_id for projects, sprints, programs (compound with workspace + type)
+CREATE INDEX IF NOT EXISTS idx_documents_owner_id
+  ON documents (workspace_id, document_type, (properties->>'owner_id'))
+  WHERE deleted_at IS NULL AND archived_at IS NULL;
+
+-- 3. Standup idempotency + status lookups (POST /standups, GET /my-week)
+CREATE INDEX IF NOT EXISTS idx_documents_standup_author_date
+  ON documents ((properties->>'author_id'), (properties->>'date'))
+  WHERE document_type = 'standup' AND deleted_at IS NULL;
+
+-- 4. Sprint number lookup (active sprints list, dashboard week view, allocations)
+CREATE INDEX IF NOT EXISTS idx_documents_sprint_number
+  ON documents (workspace_id, ((properties->>'sprint_number')::int))
+  WHERE document_type = 'sprint' AND deleted_at IS NULL;
+
+ANALYZE documents;
+```
+
+Notes on shape decisions vs. peer-review wording:
+
+- All indexes are partial on `deleted_at IS NULL`, matching every hot path.
+- The peer-review draft named the assignee index `idx_documents_assignee_id`. Renamed to `idx_documents_issue_assignee` to make the partial scope (document_type='issue') visible from `\d documents`.
+- `idx_documents_issue_assignee` uses the text form `(properties->>'assignee_id')` as recommended. Most call sites use text equality or `IS NOT NULL`; the uuid-cast paths (`(d.properties->>'assignee_id')::uuid = $1`) cannot use this index directly. At 200 issues this is moot — see "Caveat" below. A future migration could add a uuid-cast expression index if profiling shows the cast paths dominate.
+- `idx_documents_owner_id` is a 3-column compound `(workspace_id, document_type, (properties->>'owner_id'))` so the leading columns (workspace + type) match the dominant filter ordering across projects, sprints, and programs.
+- `idx_documents_sprint_number` casts to `int` because every call site does `(properties->>'sprint_number')::int`.
+
+**After (verified 2026-05-22, same seeded dataset, post-`pnpm db:migrate`).**
+
+All four indexes were created and registered:
+
+```
+idx_documents_issue_assignee
+idx_documents_owner_id
+idx_documents_sprint_number
+idx_documents_standup_author_date
+```
+
+Per-shape EXPLAIN ANALYZE (matching the baseline table above):
+
+| Query shape | Plan | Execution | vs. baseline |
+| --- | --- | ---: | ---: |
+| `assignee_id` uuid-cast | Bitmap on `idx_documents_document_type` | 0.432ms | 2.2× faster |
+| `assignee_id` text-equality | Bitmap on `idx_documents_document_type` | 0.068ms | 3.0× faster |
+| `owner_id` uuid-cast | **`Index Scan using idx_documents_owner_id`** | **0.046ms** | 6.7× faster |
+| Standup `author_id` + `date` | **`Index Scan using idx_documents_standup_author_date`** | **0.020ms** | 17.9× faster |
+| `sprint_number = $1` | **`Index Scan using idx_documents_sprint_number`** | **0.027ms** | 9.4× faster |
+
+End-to-end audit re-run (`pnpm audit:db-query-efficiency`) confirms the change is user-visible in one place specifically:
+
+- `GET /api/accountability/action-items` plan execution dropped from **1.269ms → 0.307ms** (~4× improvement). This is the endpoint that hits the new standup + sprint indexes hardest via `checkMissingStandups` and the allocation lookups.
+- `GET /api/search/mentions?q=audit` stays at 0.120ms (the §1.1 win).
+- The audit's "Index Gap Hints" no longer lists `(author_id, date)`, `owner_id`, or `assignee_id` as gaps. Remaining gaps are the wiki-ordering shape (Phase 1.5) and the `(project_id, sprint_number)` composite (different shape from `idx_documents_sprint_number` — Phase 1.4).
+
+**Caveat: assignee index at small scale.** The planner chose `idx_documents_document_type` (bitmap scan on document_type, then in-memory filter on assignee_id) over `idx_documents_issue_assignee` at 200 issues. With `enable_bitmapscan = off; enable_seqscan = off;` the planner uses the new index (`Index Scan using idx_documents_issue_assignee`, 0.097ms exec) — the index is functional, the planner just thinks the simpler bitmap path is cheaper at this volume. The planner will switch over automatically as issue count grows (the bitmap path's cost scales with `Heap Blocks: exact=N` while the targeted index's cost stays near constant).
+
+**Reproducibility.**
+
+```bash
+pnpm db:seed
+node audit/api-reponse-time/seed-volume.mjs
+pnpm db:migrate
+pnpm audit:db-query-efficiency
+```
+
+To verify individual indexes are chosen for matching queries, see the per-shape commands in `api/src/db/migrations/039_jsonb_expression_indexes.sql` header comments and the EXPLAIN runs above. To verify the assignee index is functional even when bypassed by the planner:
+
+```sql
+SET enable_bitmapscan = off; SET enable_seqscan = off;
+EXPLAIN ANALYZE SELECT id FROM documents
+  WHERE workspace_id = $1 AND document_type = 'issue'
+    AND properties->>'assignee_id' = $2
+    AND deleted_at IS NULL;
+-- Expect: Index Scan using idx_documents_issue_assignee
+RESET enable_bitmapscan; RESET enable_seqscan;
+```
 
 ### 1.3 Ticket-number index — Status: **Pending**
 
