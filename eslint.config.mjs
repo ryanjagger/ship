@@ -11,8 +11,14 @@
 // exact things the regex-based count.sh under- or mis-counted.
 
 import js from '@eslint/js';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
+
+// Derive __dirname rather than rely on `import.meta.dirname`, which is only
+// available from Node 20.11+. package.json#engines allows >= 20.0.0.
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default tseslint.config(
   {
@@ -37,7 +43,7 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: true,
-        tsconfigRootDir: import.meta.dirname,
+        tsconfigRootDir: __dirname,
       },
       globals: {
         ...globals.node,
