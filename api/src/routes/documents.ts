@@ -727,6 +727,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     if (existing.document_type === 'person' && data.properties?.reports_to !== undefined) {
       const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
       if (!isAdmin) {
+        await client.query('ROLLBACK').catch(() => {});
         res.status(403).json({ error: 'Only workspace admins can set the reports_to field' });
         return;
       }
@@ -791,6 +792,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     if (data.document_type !== undefined && data.document_type !== existing.document_type) {
       // Only the document creator can change its type
       if (existing.created_by !== userId) {
+        await client.query('ROLLBACK').catch(() => {});
         res.status(403).json({ error: 'Only the document creator can change its type' });
         return;
       }
@@ -798,6 +800,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
       // Restrict certain type changes (can't change to/from program or person)
       const restrictedTypes = ['program', 'person'];
       if (restrictedTypes.includes(existing.document_type) || restrictedTypes.includes(data.document_type)) {
+        await client.query('ROLLBACK').catch(() => {});
         res.status(400).json({ error: 'Cannot change to or from program or person document types' });
         return;
       }
@@ -835,6 +838,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     const hasSprintIdUpdate = data.sprint_id !== undefined;
 
     if (updates.length === 0 && !hasBelongsToUpdate && !hasProgramIdUpdate && !hasSprintIdUpdate) {
+      await client.query('ROLLBACK').catch(() => {});
       res.status(400).json({ error: 'No fields to update' });
       return;
     }

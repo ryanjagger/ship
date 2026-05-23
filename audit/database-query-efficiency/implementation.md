@@ -10,7 +10,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | --- | --- | --- |
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
 | **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **Done** (3 / 3 items landed) |
-| 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
+| **3. Targeted code fixes** | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | **In progress** (1 / 3 items landed) |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
 
@@ -574,7 +574,54 @@ pnpm type-check && pnpm --filter @ship/api test
 
 ## Phase 3 — Targeted code fixes
 
-_Pending._
+### 3.1 Fix PATCH `/api/documents/:id` transaction leak — Status: **Done**
+
+**Before.** Per audit peer-review §4: `PATCH /api/documents/:id` (`api/src/routes/documents.ts:594-1098`) opens a transaction at line 645 (`client.query('BEGIN')`), then has four `res.status(...).json(...); return;` paths that fire AFTER `BEGIN` without calling `ROLLBACK`:
+
+- `:730` — `'Only workspace admins can set the reports_to field'`
+- `:794` — `'Only the document creator can change its type'`
+- `:801` — `'Cannot change to or from program or person document types'`
+- `:838` — `'No fields to update'`
+
+The `finally` block at `:1097` releases the pg client back to the pool, but the transaction stays open. Postgres holds the connection open with any locks it acquired pre-return. Before this branch, no `idle_in_transaction_session_timeout` was set, so the only ceiling was statement_timeout — which doesn't fire on idle connections. Eventually pg_pool eviction or autovacuum cleans it up, but row locks held in the meantime can starve other handlers.
+
+Peer-review's recommendation was: *"Move BEGIN after all input validation, OR add explicit ROLLBACK before the early returns. Defense-in-depth: add idle_in_transaction_session_timeout."* The defense-in-depth ceiling already landed in §2.1.
+
+**Change.** Added `await client.query('ROLLBACK').catch(() => {});` immediately before each of the four `return;` statements. Chose the surgical add-rollback path over the move-BEGIN refactor because:
+
+- The handler's section between `BEGIN` (645) and the first leaked return (730) doesn't do any writes; it's just SELECTs for the parent-visibility computation. Moving `BEGIN` would also work but requires rearranging the document_type change handling at `:791-829` (which contains `pg_advisory_xact_lock` and the ticket-number MAX query — both require being inside a transaction).
+- Surgical rollback keeps the handler shape identical for code reviewers; the change is four 1-line additions and easy to verify.
+- The `.catch(() => {})` matches the existing pattern in the `catch` block at `:1093`, which already does `await client.query('ROLLBACK').catch(() => {});`. Rationale: if the connection is already in a weird state when ROLLBACK is sent, swallow the secondary error and let the original 4xx response flow.
+
+**Audit of all other transactional handlers.** Per peer-review's note (*"worth auditing every transactional handler"*), grepped every `client.query('BEGIN')` site in `api/src/routes/` (13 total):
+
+| File:line | Handler | Status |
+| --- | --- | --- |
+| `documents.ts:531` | POST /api/documents | Clean — no post-BEGIN early returns |
+| `documents.ts:645` | PATCH /api/documents/:id | **Fixed** (this change) |
+| `documents.ts:1200` | POST /api/documents/:id/convert | Clean — all validation pre-BEGIN |
+| `documents.ts:1379` | POST /api/documents/:id/undo-conversion | Clean — already calls ROLLBACK before its one post-BEGIN early return |
+| `issues.ts:585` | POST /api/issues | Clean — validation pre-BEGIN |
+| `issues.ts:918` | PATCH /api/issues/:id | Clean — validation pre-BEGIN (called out in peer-review as safer) |
+| `issues.ts:1145` | POST /api/issues/bulk | Clean — already calls ROLLBACK before its two post-BEGIN early returns |
+| `weekly-plans.ts:250` | POST /api/weekly-plans | Clean |
+| `weekly-plans.ts:626` | POST /api/weekly-retros | Clean |
+| `weeks.ts:2628` | weeks comment/approval handler | Clean (no post-BEGIN early returns) |
+| `programs.ts:775` | POST /api/programs/:id/merge | Clean |
+| `backlinks.ts:118` | backlinks transactional update | Clean |
+| `admin.ts:1678` | admin transactional handler | Clean |
+
+Only `documents.ts:645` had the leak. All other transactional handlers either do their validation before `BEGIN` or already include an explicit `ROLLBACK` before each early return.
+
+**After.** Type-check + tests still green (api 451/451, web 151/151). The defense-in-depth `idle_in_transaction_session_timeout: 15s` from §2.1 caps the blast radius if this pattern is reintroduced in a future regression.
+
+**Reproducibility.** Hard to exercise without an instrumented Postgres. The most direct check is to read the modified handler and confirm every `return;` post-BEGIN is preceded by a `ROLLBACK` (either explicit in the new code, or by falling through to the `catch` block at `:1093`). For posterity:
+
+```bash
+# Verify the four leak sites now have explicit ROLLBACK
+grep -B1 "Only workspace admins can set the reports_to field\|Only the document creator can change its type\|Cannot change to or from program or person\|No fields to update" api/src/routes/documents.ts | grep "ROLLBACK"
+# Expect: 4 matches.
+```
 
 ## Phase 4 — Query rewrites
 
