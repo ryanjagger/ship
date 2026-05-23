@@ -8,7 +8,7 @@ Work is ordered easiest-lift first. Phase 1 is one-line config / middleware addi
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| **1. One-line wins** | `compression()` middleware, throttle session/api_token write churn, add missing `api_tokens.token_hash` index | In progress (1.1, 1.2, 1.3 done) |
+| **1. One-line wins** | `compression()` middleware, throttle session/api_token write churn, add missing `api_tokens.token_hash` index | **Done** (4 / 4 items landed) |
 | **2. Small code edits** | Carry `isAdmin` on `req` to eliminate 4th auth-path query; tighten PATCH `pool.connect()` scope; static `Cache-Control` on app-shell endpoints | Pending |
 | **3. Targeted refactors** | Replace `MemoryStore`-backed `express-session`; SQL-side or denormalized `hasContent` for accountability grid; ETag (content-hash) on cacheable list endpoints | Pending |
 | **4. Structural** | Separate `Pool` for collaboration persistence + collapse pre-UPDATE SELECT; `pino-http` + Postgres slow-query log; `/api/issues` pagination; generated `priority_rank` column for issue ORDER BY | Pending |
@@ -174,9 +174,9 @@ psql -d ship_dev -tA -c "SELECT last_used_at FROM api_tokens WHERE id='$TOKEN_ID
 
 Within 60 s the timestamp stays put; after a 65 s gap the next request advances it.
 
-### 1.4 Add `idx_api_tokens_hash` index — Status: Pending
+### 1.4 Add `idx_api_tokens_hash` index — Status: **Done**
 
-**Before.** `validateApiToken` (`api/src/middleware/auth.ts:33-39`) filters `api_tokens` by `token_hash = $1`. Per peer-review §6, there is no index on `api_tokens.token_hash` — the existing indexes (`schema.sql:404-406`) cover `user_id`, `workspace_id`, `token_prefix`, none of which are queried in the auth path. With N tokens this is a seq scan on every API-token-authenticated request.
+**Before.** `validateApiToken` (`api/src/middleware/auth.ts`) filters `api_tokens` by `token_hash = $1`. Per peer-review §6, there was no index on `api_tokens.token_hash` — the existing indexes (`schema.sql:409-411`) covered `user_id`, `workspace_id`, `token_prefix`, none of which are queried in the auth path. With N tokens this is a seq scan on every API-token-authenticated request.
 
 **Change.** New migration `api/src/db/migrations/044_api_tokens_hash_index.sql`:
 
@@ -188,19 +188,44 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_hash
 ANALYZE api_tokens;
 ```
 
-Partial-on-`revoked_at IS NULL` matches the route's filter (`api_tokens` validation never accepts a revoked token) so revoked rows don't bloat the index. Closing `ANALYZE` so the planner picks up stats immediately — same convention as Phase 1 of the DB-audit migrations.
+Partial-on-`revoked_at IS NULL` matches the route's filter (`api_tokens` validation never accepts a revoked token) so revoked rows don't bloat the index. Closing `ANALYZE` so the planner picks up stats immediately — same convention as the DB-audit Phase 1 migrations.
 
-**Expected after.** `EXPLAIN ANALYZE SELECT … FROM api_tokens WHERE token_hash = $1 AND revoked_at IS NULL` switches from a seq scan to an `Index Scan using idx_api_tokens_hash`. The seq scan cost grows linearly with row count; the index keeps lookup constant-time. Per peer-review: "tens of ms per API-token request once any non-trivial number of tokens exist."
+**After (verified 2026-05-23 against `ship_dev`).** `\d api_tokens` lists the new index:
 
-**Reproducibility.**
+```
+"idx_api_tokens_hash" btree (token_hash) WHERE revoked_at IS NULL
+```
+
+`EXPLAIN ANALYZE` against 100 synthetic tokens:
+
+```sql
+-- Planner-default plan:
+Seq Scan on api_tokens (cost=2.04..6.29 rows=1 width=32)
+  Filter: ((revoked_at IS NULL) AND (token_hash = $0))
+  Rows Removed by Filter: 99 / Buffers: shared hit=5
+Execution Time: 0.059 ms
+
+-- Forced index (SET enable_seqscan = off):
+Index Scan using idx_api_tokens_hash on api_tokens
+  Index Cond: (token_hash = $0)
+Execution Time: 0.014 ms (actual time for the scan)
+```
+
+At 100 rows the table fits in ~2 pages and the planner correctly prefers the Seq Scan — cheaper than the index lookup at that scale. As the table grows to thousands of tokens (CI / CLI / Claude-integration usage), the planner will switch to `idx_api_tokens_hash` automatically; the index is functional and the partial predicate is matched. Per peer-review: "tens of ms per API-token request once any non-trivial number of tokens exist."
+
+Tests: api 451/451, web 151/151 still green.
+
+**Migration apply caveat.** The repo's `api/src/db/migrate.ts` has a pre-existing bug: when `schema.sql` throws "already exists" on a database that already has the base schema, the surrounding `catch` swallows the error but also short-circuits past the pending-migration loop. Most of migrations 010-042 are visibly applied to `ship_dev` but only 11 rows exist in `schema_migrations` (`001-009` + `043`), confirming the migrations have been getting applied via side channels (manual `psql -f`, direct DB resets, etc.). This change was applied the same way: `psql -f .../044_api_tokens_hash_index.sql` + an explicit `INSERT INTO schema_migrations`. Worth fixing separately so prod deploys don't silently skip migrations — out of scope for this audit.
+
+**Reproducibility.** Once the migrate-script bug is fixed, the canonical apply is `pnpm db:migrate`. Today:
 
 ```bash
-pnpm db:migrate
-psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
-  SELECT id FROM api_tokens
-  WHERE token_hash = (SELECT token_hash FROM api_tokens LIMIT 1)
-    AND revoked_at IS NULL;"
-# Expect: Index Scan using idx_api_tokens_hash
+psql -d ship_dev -f api/src/db/migrations/044_api_tokens_hash_index.sql
+psql -d ship_dev -c "INSERT INTO schema_migrations (version) VALUES ('044_api_tokens_hash_index') ON CONFLICT DO NOTHING;"
+
+# Verify
+psql -d ship_dev -c "\d api_tokens" | grep idx_api_tokens_hash
+# Expect: "idx_api_tokens_hash" btree (token_hash) WHERE revoked_at IS NULL
 ```
 
 ## Phase 2 — Small code edits
