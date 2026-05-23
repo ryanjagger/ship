@@ -121,9 +121,12 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
 
+    // Note: d.content is intentionally NOT selected. The list view does not
+    // render TipTap content; it's available via GET /api/issues/:id when
+    // an issue is opened. Skipping content here avoids shipping tens of KB
+    // per issue from the DB through the API for no consumer.
     let query = `
       SELECT d.id, d.title, d.properties, d.ticket_number,
-             d.content,
              d.created_at, d.updated_at, d.created_by,
              d.started_at, d.completed_at, d.cancelled_at, d.reopened_at,
              d.converted_from_id,
@@ -135,9 +138,9 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
         AND person_doc.document_type = 'person'
         AND person_doc.properties->>'user_id' = d.properties->>'assignee_id'
       WHERE d.workspace_id = $1 AND d.document_type = 'issue'
-        AND ${VISIBILITY_FILTER_SQL('d', '$2', '$3')}
+        AND ${VISIBILITY_FILTER_SQL('d', '$2', isAdmin)}
     `;
-    const params: (string | boolean | null)[] = [workspaceId, userId, isAdmin];
+    const params: (string | boolean | null)[] = [workspaceId, userId];
 
     // Exclude archived and deleted issues by default
     query += ` AND d.archived_at IS NULL AND d.deleted_at IS NULL`;
@@ -436,9 +439,9 @@ router.get('/:id/children', authMiddleware, async (req: Request, res: Response) 
 
     // Query junction table for sub-issues
     // Sub-issues have document_id pointing to this issue's id via relationship_type='parent'
+    // Note: d.content omitted; sub-issue list display does not render content.
     const result = await pool.query(
       `SELECT d.id, d.title, d.properties, d.ticket_number,
-              d.content,
               d.created_at, d.updated_at, d.created_by,
               d.started_at, d.completed_at, d.cancelled_at, d.reopened_at,
               d.converted_from_id,
@@ -623,13 +626,13 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
     const newIssueId = result.rows[0].id;
 
-    // Create associations from belongs_to array
-    for (const assoc of belongs_to) {
+    // Create associations from belongs_to in a single round-trip via unnest().
+    if (belongs_to.length > 0) {
       await client.query(
         `INSERT INTO document_associations (document_id, related_id, relationship_type)
-         VALUES ($1, $2, $3)
+         SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
          ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
-        [newIssueId, assoc.id, assoc.type]
+        [newIssueId, belongs_to.map(a => a.id), belongs_to.map(a => a.type)]
       );
     }
 
@@ -941,13 +944,13 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
         [id]
       );
 
-      // Insert new associations
-      for (const assoc of newBelongsTo) {
+      // Insert new associations in a single round-trip via unnest().
+      if (newBelongsTo.length > 0) {
         await client.query(
           `INSERT INTO document_associations (document_id, related_id, relationship_type)
-           VALUES ($1, $2, $3)
+           SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
            ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
-          [id, assoc.id, assoc.type]
+          [id, newBelongsTo.map(a => a.id), newBelongsTo.map(a => a.type)]
         );
       }
     }

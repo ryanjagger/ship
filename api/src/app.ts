@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
@@ -106,6 +107,10 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
       next();
     });
   }
+
+  // gzip/deflate JSON responses. Default threshold is 1KB; list endpoints
+  // like /api/issues and /api/documents?type=wiki are highly compressible.
+  app.use(compression());
 
   // Middleware - Security headers
   app.use(helmet({

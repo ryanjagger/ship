@@ -31,10 +31,11 @@ async function validateApiToken(token: string): Promise<{
   const tokenHash = hashToken(token);
 
   const result = await pool.query(
-    `SELECT t.id, t.user_id, t.workspace_id, t.expires_at, t.revoked_at, u.is_super_admin
+    `SELECT t.id, t.user_id, t.workspace_id, t.expires_at, t.last_used_at,
+            u.is_super_admin
      FROM api_tokens t
      JOIN users u ON t.user_id = u.id
-     WHERE t.token_hash = $1`,
+     WHERE t.token_hash = $1 AND t.revoked_at IS NULL`,
     [tokenHash]
   );
 
@@ -42,17 +43,23 @@ async function validateApiToken(token: string): Promise<{
 
   if (!tokenRow) return null;
 
-  // Check if revoked
-  if (tokenRow.revoked_at) return null;
-
   // Check if expired
   if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) return null;
 
-  // Update last_used_at
-  await pool.query(
-    'UPDATE api_tokens SET last_used_at = NOW() WHERE id = $1',
-    [tokenRow.id]
-  );
+  // Throttle last_used_at UPDATE to once per 60s. Same rationale as the
+  // sessions.last_activity throttle in authMiddleware: per-request hot-row
+  // writes contend under sustained API-token automation traffic, and the
+  // admin UI only needs ~minute resolution on this timestamp.
+  const TOKEN_USE_REFRESH_THRESHOLD_MS = 60 * 1000;
+  const lastUsedMs = tokenRow.last_used_at
+    ? new Date(tokenRow.last_used_at).getTime()
+    : 0;
+  if (Date.now() - lastUsedMs > TOKEN_USE_REFRESH_THRESHOLD_MS) {
+    await pool.query(
+      'UPDATE api_tokens SET last_used_at = NOW() WHERE id = $1',
+      [tokenRow.id]
+    );
+  }
 
   return {
     userId: tokenRow.user_id,
@@ -201,16 +208,16 @@ export async function authMiddleware(
       }
     }
 
-    // Update last activity
-    await pool.query(
-      'UPDATE sessions SET last_activity = $1 WHERE id = $2',
-      [now, sessionId]
-    );
-
-    // Refresh cookie with sliding expiration (throttled to avoid overhead)
-    // Only refresh if more than 60 seconds since last activity
-    const COOKIE_REFRESH_THRESHOLD_MS = 60 * 1000;
-    if (inactivityMs > COOKIE_REFRESH_THRESHOLD_MS) {
+    // Throttle the last_activity UPDATE and the sliding-expiration cookie
+    // refresh to once per 60s. Inactivity timeout is 15 minutes, so a stale
+    // last_activity value up to 60s old still detects an expired session on
+    // the next request without thrashing a hot-row UPDATE per request.
+    const ACTIVITY_REFRESH_THRESHOLD_MS = 60 * 1000;
+    if (inactivityMs > ACTIVITY_REFRESH_THRESHOLD_MS) {
+      await pool.query(
+        'UPDATE sessions SET last_activity = $1 WHERE id = $2',
+        [now, sessionId]
+      );
       res.cookie('session_id', sessionId, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',

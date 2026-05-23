@@ -340,73 +340,88 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
       orderByClause = `d.${sortField} ${sortDir}`;
     }
 
-    // Subquery to compute inferred status based on sprint allocations
-    // Priority: archived > completed (retro done) > active (current sprint allocation) > planned (future allocation) > backlog
-    // Sprint timing is computed from sprint_number + workspace.sprint_start_date:
-    //   - current: today is within the sprint's 7-day window
-    //   - future: sprint hasn't started yet
-    //   - past: sprint window has passed
-    // Allocations are tracked via sprint documents with properties.project_id
-    const inferredStatusSubquery = `
-      CASE
-        WHEN d.archived_at IS NOT NULL THEN 'archived'
-        WHEN d.properties->>'plan_validated' IS NOT NULL THEN 'completed'
-        ELSE COALESCE(
-          (
-            SELECT
-              CASE MAX(
-                CASE
-                  -- Compute sprint timing: current=3, future=2, past=1
-                  WHEN CURRENT_DATE BETWEEN
-                    (w.sprint_start_date + ((sprint.properties->>'sprint_number')::int - 1) * 7)
-                    AND (w.sprint_start_date + ((sprint.properties->>'sprint_number')::int - 1) * 7 + 6)
-                  THEN 3  -- current sprint
-                  WHEN CURRENT_DATE < (w.sprint_start_date + ((sprint.properties->>'sprint_number')::int - 1) * 7)
-                  THEN 2  -- future sprint
-                  ELSE 1  -- past sprint
-                END
-              )
-              WHEN 3 THEN 'active'
-              WHEN 2 THEN 'planned'
-              ELSE NULL  -- past allocations don't count
-              END
-            FROM documents sprint
-            JOIN workspaces w ON w.id = sprint.workspace_id
-            WHERE sprint.document_type = 'sprint'
-              AND sprint.workspace_id = d.workspace_id
-              AND (sprint.properties->>'project_id')::uuid = d.id
-              AND jsonb_array_length(COALESCE(sprint.properties->'assignee_ids', '[]'::jsonb)) > 0
-          ),
-          'backlog'
-        )
-      END
+    // CTE-based rewrite of the project list. The pre-rewrite shape ran three
+    // correlated subqueries per project (sprint_count, issue_count,
+    // inferred_status) — at 15 projects that was 235+ inner loops dominated
+    // by per-project rescans of document_associations and sprint documents.
+    // The CTEs below do one grouped scan each, joined back to the visible
+    // project rows.
+    //
+    // Inferred status priority: archived > completed (plan_validated set) >
+    // active (current sprint allocation) > planned (future allocation) >
+    // backlog. Sprint timing is computed from sprint_number +
+    // workspace.sprint_start_date. Allocations are tracked via sprint
+    // documents with properties.project_id.
+    const archivedFilter = includeArchived ? '' : ' AND d.archived_at IS NULL';
+    const query = `
+      WITH visible_projects AS (
+        SELECT d.id, d.title, d.properties, d.workspace_id,
+               d.archived_at, d.created_at, d.updated_at, d.converted_from_id,
+               (d.properties->>'owner_id')::uuid AS owner_id
+        FROM documents d
+        WHERE d.workspace_id = $1 AND d.document_type = 'project'
+          AND ${VISIBILITY_FILTER_SQL('d', '$2', isAdmin)}
+          ${archivedFilter}
+      ),
+      association_counts AS (
+        SELECT da.related_id AS project_id,
+               COUNT(*) FILTER (WHERE x.document_type = 'sprint') AS sprint_count,
+               COUNT(*) FILTER (WHERE x.document_type = 'issue') AS issue_count
+        FROM document_associations da
+        JOIN documents x ON x.id = da.document_id
+                        AND x.document_type IN ('sprint', 'issue')
+        JOIN visible_projects vp ON vp.id = da.related_id
+        WHERE da.relationship_type = 'project'
+        GROUP BY da.related_id
+      ),
+      sprint_status AS (
+        SELECT (s.properties->>'project_id')::uuid AS project_id,
+               CASE MAX(
+                 CASE
+                   WHEN CURRENT_DATE BETWEEN
+                     (w.sprint_start_date + ((s.properties->>'sprint_number')::int - 1) * 7)
+                     AND (w.sprint_start_date + ((s.properties->>'sprint_number')::int - 1) * 7 + 6)
+                   THEN 3  -- current sprint
+                   WHEN CURRENT_DATE < (w.sprint_start_date + ((s.properties->>'sprint_number')::int - 1) * 7)
+                   THEN 2  -- future sprint
+                   ELSE 1  -- past sprint
+                 END
+               )
+               WHEN 3 THEN 'active'
+               WHEN 2 THEN 'planned'
+               ELSE NULL  -- past allocations don't count
+               END AS allocation_status
+        FROM documents s
+        JOIN workspaces w ON w.id = s.workspace_id
+        JOIN visible_projects vp ON vp.workspace_id = s.workspace_id
+                                AND vp.id = (s.properties->>'project_id')::uuid
+        WHERE s.document_type = 'sprint'
+          AND s.workspace_id = $1  -- match the previous correlated-subquery scope
+          AND jsonb_array_length(COALESCE(s.properties->'assignee_ids', '[]'::jsonb)) > 0
+        GROUP BY (s.properties->>'project_id')::uuid
+      )
+      SELECT d.id, d.title, d.properties, prog_da.related_id AS program_id,
+             d.archived_at, d.created_at, d.updated_at, d.converted_from_id,
+             d.owner_id,
+             u.name AS owner_name, u.email AS owner_email,
+             COALESCE(ac.sprint_count, 0) AS sprint_count,
+             COALESCE(ac.issue_count, 0) AS issue_count,
+             CASE
+               WHEN d.archived_at IS NOT NULL THEN 'archived'
+               WHEN d.properties->>'plan_validated' IS NOT NULL THEN 'completed'
+               ELSE COALESCE(ss.allocation_status, 'backlog')
+             END AS inferred_status
+      FROM visible_projects d
+      LEFT JOIN users u ON u.id = d.owner_id
+      LEFT JOIN document_associations prog_da
+        ON prog_da.document_id = d.id AND prog_da.relationship_type = 'program'
+      LEFT JOIN association_counts ac ON ac.project_id = d.id
+      LEFT JOIN sprint_status ss ON ss.project_id = d.id
+      ORDER BY ${orderByClause}
     `;
-
-    let query = `
-      SELECT d.id, d.title, d.properties, prog_da.related_id as program_id, d.archived_at, d.created_at, d.updated_at,
-             d.converted_from_id,
-             (d.properties->>'owner_id')::uuid as owner_id,
-             u.name as owner_name, u.email as owner_email,
-             (SELECT COUNT(*) FROM documents s
-              JOIN document_associations da ON da.document_id = s.id AND da.related_id = d.id AND da.relationship_type = 'project'
-              WHERE s.document_type = 'sprint') as sprint_count,
-             (SELECT COUNT(*) FROM documents i
-              JOIN document_associations da ON da.document_id = i.id AND da.related_id = d.id AND da.relationship_type = 'project'
-              WHERE i.document_type = 'issue') as issue_count,
-             (${inferredStatusSubquery}) as inferred_status
-      FROM documents d
-      LEFT JOIN users u ON u.id = (d.properties->>'owner_id')::uuid
-      LEFT JOIN document_associations prog_da ON prog_da.document_id = d.id AND prog_da.relationship_type = 'program'
-      WHERE d.workspace_id = $1 AND d.document_type = 'project'
-        AND ${VISIBILITY_FILTER_SQL('d', '$2', '$3')}
-    `;
-    const params: (string | boolean)[] = [workspaceId, userId, isAdmin];
-
-    if (!includeArchived) {
-      query += ` AND d.archived_at IS NULL`;
-    }
-
-    query += ` ORDER BY ${orderByClause}`;
+    const params: (string | boolean)[] = [workspaceId, userId];
+    // Note: isAdmin is baked into the SQL by VISIBILITY_FILTER_SQL and is
+    // NOT pushed into params. The planner constant-folds the OR.
 
     const result = await pool.query(query, params);
     res.json(result.rows.map(extractProjectFromRow));

@@ -33,23 +33,49 @@ export async function getVisibilityContext(
 
 /**
  * SQL fragment for visibility filtering.
- * Use with parameterized queries where:
- * - $N is userId
- * - $N+1 is isAdmin boolean
  *
- * Example:
+ * Two calling shapes are supported:
+ *
+ * 1. Placeholder string (legacy): pass a SQL placeholder like '$3' for isAdmin
+ *    and bind the boolean value in the params array. The clause becomes
+ *    `(visibility = 'workspace' OR created_by = $userId OR $isAdmin = TRUE)`.
+ *
+ * 2. Resolved boolean (preferred for new code): pass the actual isAdmin
+ *    boolean returned by getVisibilityContext. When true, the entire
+ *    clause collapses to `TRUE` at SQL-construction time, so the planner
+ *    can pick partial indexes that the OR shape would defeat. When false,
+ *    the OR with the always-false branch is elided.
+ *
+ * Both shapes accept arbitrary table aliases. The boolean shape avoids
+ * binding isAdmin as a parameter — callers should not push it into the
+ * params array when using shape (2).
+ *
+ * Example (shape 1, legacy):
  *   const { isAdmin } = await getVisibilityContext(userId, workspaceId);
- *   const query = `
- *     SELECT * FROM documents d
- *     WHERE d.workspace_id = $1
- *       AND ${VISIBILITY_FILTER_SQL('d', '$2', '$3')}
- *   `;
+ *   const query = `SELECT * FROM documents d
+ *     WHERE d.workspace_id = $1 AND ${VISIBILITY_FILTER_SQL('d', '$2', '$3')}`;
  *   await pool.query(query, [workspaceId, userId, isAdmin]);
+ *
+ * Example (shape 2, preferred):
+ *   const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+ *   const query = `SELECT * FROM documents d
+ *     WHERE d.workspace_id = $1 AND ${VISIBILITY_FILTER_SQL('d', '$2', isAdmin)}`;
+ *   await pool.query(query, [workspaceId, userId]);
  */
 export function VISIBILITY_FILTER_SQL(
   tableAlias: string,
   userIdParam: string,
-  isAdminParam: string
+  isAdminParamOrValue: string | boolean
 ): string {
-  return `(${tableAlias}.visibility = 'workspace' OR ${tableAlias}.created_by = ${userIdParam} OR ${isAdminParam} = TRUE)`;
+  // For boolean shapes, the OR clause is replaced with a literal TRUE/FALSE
+  // so the planner can constant-fold at planning time instead of treating
+  // isAdmin as an opaque parameter. The userIdParam reference is preserved
+  // so callers can keep userId in their params array regardless of shape.
+  if (isAdminParamOrValue === true) {
+    return `(${tableAlias}.visibility = 'workspace' OR ${tableAlias}.created_by = ${userIdParam} OR TRUE)`;
+  }
+  if (isAdminParamOrValue === false) {
+    return `(${tableAlias}.visibility = 'workspace' OR ${tableAlias}.created_by = ${userIdParam})`;
+  }
+  return `(${tableAlias}.visibility = 'workspace' OR ${tableAlias}.created_by = ${userIdParam} OR ${isAdminParamOrValue} = TRUE)`;
 }

@@ -7,7 +7,7 @@ Companion to `README.md` (audit baseline, 2026-05-19). Documents what was fixed,
 | Area | Before | After | Commit |
 | --- | --- | --- | --- |
 | Root `pnpm test` scope | API only (451 tests) | API + web (602 tests) | `3282195` |
-| Web vitest pass rate | 138/151 (13 failing) | 151/151 | `5203450`, `01a7b18` (+ 1 stashed) |
+| Web vitest pass rate | 138/151 (13 failing) | 151/151 | `5203450`, `01a7b18`, `4044dc0` |
 | API coverage script | Blocked by missing provider | Runs, emits text + HTML report | `e42e29e` |
 | `my-week-stale-data.spec.ts` plan test | Flaky (1 audit run) | 6/6 deterministic | `2e8ff40` |
 | `my-week-stale-data.spec.ts` retro test | Flaky (3/3 audit runs) | 6/6 deterministic | `2e8ff40` |
@@ -89,14 +89,16 @@ Tests still asserted the pre-refactor shape: looked for `sprints` tab id, expect
 **Change.**
 - Added a `jsonResponse(data, status?)` helper at the top of the file that returns a Response-like object with a working `headers.get('content-type')` and resolvable `json()`.
 - Replaced all 7 broken `{ ok: true, json: async () => ({ success: true }) }` mock sites with `jsonResponse({ success: true, token: 'csrf-token' })`.
-- Added `expect(onTimeout).not.toHaveBeenCalled()` to 7 `resetTimer` success-path tests so any future regression in the catch path fails loudly instead of silently triggering force-logout.
+- Added `expect(onTimeout).not.toHaveBeenCalled()` to the `resetTimer` success-path tests so any future regression in the catch path fails loudly instead of silently triggering force-logout.
 - Imported `clearCsrfToken` from `@/lib/api` and called it in both `beforeEach` blocks (main describe + Edge Cases) so the module-level CSRF cache doesn't leak across tests.
 
-**After.** 34/34 useSessionTimeout tests pass with no stderr noise. Full web suite: 151/151.
+**Follow-up (P2 found during commit).** The "activity does NOT reset absolute timeout" test had been overlooked in the first pass — it used `mockResolvedValue` with the broken shape and silently force-logged-out from the `resetTimer` call, just like the others. Two extra changes there:
+- Switched to `mockImplementation` that branches by URL: `/api/auth/session` (raw fetch, no Response-shape needs) keeps the session-info data shape; CSRF + extend-session calls get `jsonResponse(...)`.
+- `onTimeout.mockClear()` is called *between* the 11h45m time-advance and the `resetTimer` call, and `expect(onTimeout).not.toHaveBeenCalled()` runs immediately after `resetTimer`. This scopes the regression guard to "resetTimer didn't force-logout" without being tripped by the inactivity countdown's `setInterval` firing thousands of times during the long simulated advance — a separate fake-timers + React batching artifact (vi keeps queuing 1s interval ticks because the `clearInterval` inside the state updater doesn't take effect until React commits) that isn't in scope for this test.
 
-**Status.** Stashed for separate review (`stash@{0}` on `implement/test-coverage`); not in any commit yet.
+**After.** 34/34 useSessionTimeout tests pass with no `Network error extending session - forcing logout` stderr. Full web suite: 151/151.
 
-**Reproducibility (once unstashed).** `pnpm --filter @ship/web exec vitest run src/hooks/useSessionTimeout.test.ts`
+**Reproducibility.** `pnpm --filter @ship/web exec vitest run src/hooks/useSessionTimeout.test.ts`
 
 ## E2E flake fixes
 
@@ -217,6 +219,5 @@ Worth flagging this pattern as a code-review checklist item for new e2e tests: i
 
 ## Branch state at time of writing
 
-- **7 commits** on `implement/test-coverage`: `3282195`, `5203450`, `01a7b18`, `e42e29e`, `2e8ff40`, `229ddc5`, `34efdc7`
-- **1 stashed change set**: useSessionTimeout hardening (bucket 3 + P2/P3) — `stash@{0}`
-- All committed changes verified locally; nothing pushed to a remote yet
+- **9 commits** on `implement/test-coverage`: `3282195`, `5203450`, `01a7b18`, `e42e29e`, `2e8ff40`, `229ddc5`, `34efdc7`, `3304378`, `4044dc0`
+- All committed changes verified locally; branch pushed to origin

@@ -163,7 +163,7 @@ export function DocumentListToolbar({
                     checked={visibleColumns.has(col.key)}
                     onChange={() => col.hideable && onToggleColumn(col.key)}
                     disabled={!col.hideable}
-                    className="h-4 w-4 rounded border-border text-accent focus:ring-accent"
+                    className="h-4 w-4 rounded border-border text-accent-text focus:ring-accent"
                   />
                   <span>{col.label}</span>
                 </label>

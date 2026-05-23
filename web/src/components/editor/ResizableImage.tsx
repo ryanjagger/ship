@@ -74,6 +74,22 @@ function ResizableImageComponent({ node, updateAttributes, selected }: NodeViewP
           />
         )}
       </div>
+      {/* Alt text editor - visible only when image is selected */}
+      {selected && !isResizing && (
+        <div className="mt-2 flex items-center gap-2">
+          <label className="text-xs text-muted shrink-0" htmlFor="image-alt-input">
+            Alt text:
+          </label>
+          <input
+            id="image-alt-input"
+            type="text"
+            value={node.attrs.alt ?? ''}
+            onChange={(e) => updateAttributes({ alt: e.target.value })}
+            placeholder="Describe this image for screen readers (leave blank if decorative)"
+            className="flex-1 min-w-0 max-w-md px-2 py-1 text-xs bg-background border border-border rounded text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent"
+          />
+        </div>
+      )}
       {/* Size indicator when resizing */}
       {isResizing && (
         <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-muted text-xs text-muted-foreground rounded">

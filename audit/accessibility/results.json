@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-19T21:26:42.511Z",
+  "generatedAt": "2026-05-22T17:38:20.579Z",
   "routes": [
     {
       "name": "Login",
@@ -64,329 +64,12 @@
   ],
   "lighthouse": {
     "Login": {
-      "score": 98,
-      "failingAudits": [
-        {
-          "id": "landmark-one-main",
-          "title": "Document does not have a main landmark.",
-          "scoreDisplayMode": "binary",
-          "description": "One main landmark helps screen reader users navigate a web page. [Learn more about landmarks](https://dequeuniversity.com/rules/axe/4.11/landmark-one-main).",
-          "details": {
-            "type": "table",
-            "headings": [
-              {
-                "key": "node",
-                "valueType": "node",
-                "subItemsHeading": {
-                  "key": "relatedNode",
-                  "valueType": "node"
-                },
-                "label": "Failing Elements"
-              }
-            ],
-            "items": [
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-0-HTML",
-                  "path": "1,HTML",
-                  "selector": "html",
-                  "boundingRect": {
-                    "top": 0,
-                    "bottom": 1000,
-                    "left": 0,
-                    "right": 1440,
-                    "width": 1440,
-                    "height": 1000
-                  },
-                  "snippet": "<html lang=\"en\">",
-                  "nodeLabel": "html",
-                  "explanation": "Fix all of the following:\n  Document does not have a main landmark"
-                }
-              }
-            ],
-            "debugData": {
-              "type": "debugdata",
-              "impact": "moderate",
-              "tags": [
-                "cat.semantics",
-                "best-practice"
-              ]
-            }
-          }
-        }
-      ]
+      "score": 100,
+      "failingAudits": []
     },
     "My Week": {
-      "score": 95,
-      "failingAudits": [
-        {
-          "id": "color-contrast",
-          "title": "Background and foreground colors do not have a sufficient contrast ratio.",
-          "scoreDisplayMode": "binary",
-          "description": "Low-contrast text is difficult or impossible for many users to read. [Learn how to provide sufficient color contrast](https://dequeuniversity.com/rules/axe/4.11/color-contrast).",
-          "details": {
-            "type": "table",
-            "headings": [
-              {
-                "key": "node",
-                "valueType": "node",
-                "subItemsHeading": {
-                  "key": "relatedNode",
-                  "valueType": "node"
-                },
-                "label": "Failing Elements"
-              }
-            ],
-            "items": [
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-0-SPAN",
-                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,0,DIV,0,DIV,1,SPAN",
-                  "selector": "div.flex > div.flex > div.flex > span.text-xs",
-                  "boundingRect": {
-                    "top": 60,
-                    "bottom": 80,
-                    "left": 163,
-                    "right": 218,
-                    "width": 55,
-                    "height": 20
-                  },
-                  "snippet": "<span class=\"text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded\">",
-                  "nodeLabel": "Current",
-                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.55 (foreground color: #005ea2, background color: #0a1d2b, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-                },
-                "subItems": {
-                  "type": "subitems",
-                  "items": [
-                    {
-                      "relatedNode": {
-                        "type": "node",
-                        "lhId": "1-1-DIV",
-                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
-                        "selector": "body > div#root > div.flex",
-                        "boundingRect": {
-                          "top": 0,
-                          "bottom": 1000,
-                          "left": 0,
-                          "right": 1440,
-                          "width": 1440,
-                          "height": 1000
-                        },
-                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
-                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
-                      }
-                    }
-                  ]
-                }
-              },
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-2-SPAN",
-                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,5,BUTTON,0,DIV,0,SPAN",
-                  "selector": "div.space-y-1.5 > button.flex > div.w-20 > span.text-xs",
-                  "boundingRect": {
-                    "top": 730,
-                    "bottom": 745,
-                    "left": 401,
-                    "right": 422,
-                    "width": 21,
-                    "height": 15
-                  },
-                  "snippet": "<span class=\"text-xs font-medium text-accent\">",
-                  "nodeLabel": "Tue",
-                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.82 (foreground color: #005ea2, background color: #0c1114, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-                },
-                "subItems": {
-                  "type": "subitems",
-                  "items": [
-                    {
-                      "relatedNode": {
-                        "type": "node",
-                        "lhId": "1-3-BUTTON",
-                        "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,5,BUTTON",
-                        "selector": "div.max-w-3xl > section.mb-6 > div.space-y-1.5 > button.flex",
-                        "boundingRect": {
-                          "top": 713,
-                          "bottom": 759,
-                          "left": 384,
-                          "right": 1104,
-                          "width": 720,
-                          "height": 46
-                        },
-                        "snippet": "<button class=\"flex items-center gap-3 rounded-lg border px-4 py-2.5 border-accent/30 bg-…\">",
-                        "nodeLabel": "Tue5/19\n+ Write update"
-                      }
-                    },
-                    {
-                      "relatedNode": {
-                        "type": "node",
-                        "lhId": "1-1-DIV",
-                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
-                        "selector": "body > div#root > div.flex",
-                        "boundingRect": {
-                          "top": 0,
-                          "bottom": 1000,
-                          "left": 0,
-                          "right": 1440,
-                          "width": 1440,
-                          "height": 1000
-                        },
-                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
-                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
-                      }
-                    }
-                  ]
-                }
-              },
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-4-SPAN",
-                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,6,DIV,0,DIV,0,SPAN",
-                  "selector": "div.space-y-1.5 > div.flex > div.w-20 > span.text-xs",
-                  "boundingRect": {
-                    "top": 782,
-                    "bottom": 797,
-                    "left": 401,
-                    "right": 427,
-                    "width": 26,
-                    "height": 15
-                  },
-                  "snippet": "<span class=\"text-xs font-medium text-muted\">",
-                  "nodeLabel": "Wed",
-                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 1.84 (foreground color: #3f3f3f, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-                },
-                "subItems": {
-                  "type": "subitems",
-                  "items": [
-                    {
-                      "relatedNode": {
-                        "type": "node",
-                        "lhId": "1-1-DIV",
-                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
-                        "selector": "body > div#root > div.flex",
-                        "boundingRect": {
-                          "top": 0,
-                          "bottom": 1000,
-                          "left": 0,
-                          "right": 1440,
-                          "width": 1440,
-                          "height": 1000
-                        },
-                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
-                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
-                      }
-                    }
-                  ]
-                }
-              },
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-5-SPAN",
-                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,6,DIV,0,DIV,1,SPAN",
-                  "selector": "div.space-y-1.5 > div.flex > div.w-20 > span.text-xs",
-                  "boundingRect": {
-                    "top": 782,
-                    "bottom": 797,
-                    "left": 431,
-                    "right": 457,
-                    "width": 26,
-                    "height": 15
-                  },
-                  "snippet": "<span class=\"text-xs text-muted ml-1\">",
-                  "nodeLabel": "5/20",
-                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 1.84 (foreground color: #3f3f3f, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-                },
-                "subItems": {
-                  "type": "subitems",
-                  "items": [
-                    {
-                      "relatedNode": {
-                        "type": "node",
-                        "lhId": "1-1-DIV",
-                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
-                        "selector": "body > div#root > div.flex",
-                        "boundingRect": {
-                          "top": 0,
-                          "bottom": 1000,
-                          "left": 0,
-                          "right": 1440,
-                          "width": 1440,
-                          "height": 1000
-                        },
-                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
-                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
-                      }
-                    }
-                  ]
-                }
-              },
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-6-SPAN",
-                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,3,SECTION,1,DIV,6,DIV,1,DIV,0,SPAN",
-                  "selector": "div.space-y-1.5 > div.flex > div.flex-1 > span.text-xs",
-                  "boundingRect": {
-                    "top": 782,
-                    "bottom": 797,
-                    "left": 493,
-                    "right": 551,
-                    "width": 58,
-                    "height": 15
-                  },
-                  "snippet": "<span class=\"text-xs text-muted italic\">",
-                  "nodeLabel": "Upcoming",
-                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 1.84 (foreground color: #3f3f3f, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-                },
-                "subItems": {
-                  "type": "subitems",
-                  "items": [
-                    {
-                      "relatedNode": {
-                        "type": "node",
-                        "lhId": "1-1-DIV",
-                        "path": "1,HTML,1,BODY,0,DIV,0,DIV",
-                        "selector": "body > div#root > div.flex",
-                        "boundingRect": {
-                          "top": 0,
-                          "bottom": 1000,
-                          "left": 0,
-                          "right": 1440,
-                          "width": 1440,
-                          "height": 1000
-                        },
-                        "snippet": "<div class=\"flex h-screen flex-col overflow-hidden bg-background\">",
-                        "nodeLabel": "Skip to main content\n33 overdue accountability items need attention.\n33\nView it…"
-                      }
-                    }
-                  ]
-                }
-              }
-            ],
-            "debugData": {
-              "type": "debugdata",
-              "impact": "serious",
-              "tags": [
-                "cat.color",
-                "wcag2aa",
-                "wcag143",
-                "TTv5",
-                "TT13.c",
-                "EN-301-549",
-                "EN-9.1.4.3",
-                "ACT",
-                "RGAAv4",
-                "RGAA-3.2.1"
-              ]
-            }
-          }
-        }
-      ]
+      "score": 100,
+      "failingAudits": []
     },
     "Docs": {
       "score": 100,
@@ -405,242 +88,20 @@
       "failingAudits": []
     },
     "Team Allocation": {
-      "score": 96,
-      "failingAudits": [
-        {
-          "id": "color-contrast",
-          "title": "Background and foreground colors do not have a sufficient contrast ratio.",
-          "scoreDisplayMode": "binary",
-          "description": "Low-contrast text is difficult or impossible for many users to read. [Learn how to provide sufficient color contrast](https://dequeuniversity.com/rules/axe/4.11/color-contrast).",
-          "details": {
-            "type": "table",
-            "headings": [
-              {
-                "key": "node",
-                "valueType": "node",
-                "subItemsHeading": {
-                  "key": "relatedNode",
-                  "valueType": "node"
-                },
-                "label": "Failing Elements"
-              }
-            ],
-            "items": [
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-0-SPAN",
-                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,1,DIV,0,DIV,0,DIV,0,SPAN",
-                  "selector": "div.flex > div.flex > div.group > span.text-xs",
-                  "boundingRect": {
-                    "top": 84,
-                    "bottom": 100,
-                    "left": 519,
-                    "right": 566,
-                    "width": 48,
-                    "height": 16
-                  },
-                  "snippet": "<span class=\"text-xs font-medium text-accent\">",
-                  "nodeLabel": "Week 13",
-                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.89 (foreground color: #005ea2, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-                },
-                "subItems": {
-                  "type": "subitems",
-                  "items": [
-                    {
-                      "relatedNode": {
-                        "type": "node",
-                        "lhId": "1-1-DIV",
-                        "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,0,DIV,1,DIV,0,DIV,0,DIV",
-                        "selector": "div.inline-flex > div.flex > div.flex > div.group",
-                        "boundingRect": {
-                          "top": 80,
-                          "bottom": 120,
-                          "left": 453,
-                          "right": 633,
-                          "width": 180,
-                          "height": 40
-                        },
-                        "snippet": "<div class=\"group flex h-10 w-[180px] flex-col items-center justify-center border-b bo…\">",
-                        "nodeLabel": "Week 13\nMay 14-20"
-                      }
-                    }
-                  ]
-                }
-              }
-            ],
-            "debugData": {
-              "type": "debugdata",
-              "impact": "serious",
-              "tags": [
-                "cat.color",
-                "wcag2aa",
-                "wcag143",
-                "TTv5",
-                "TT13.c",
-                "EN-301-549",
-                "EN-9.1.4.3",
-                "ACT",
-                "RGAAv4",
-                "RGAA-3.2.1"
-              ]
-            }
-          }
-        }
-      ]
+      "score": 100,
+      "failingAudits": []
     },
     "Team Directory": {
       "score": 100,
       "failingAudits": []
     },
     "Team Status": {
-      "score": 96,
-      "failingAudits": [
-        {
-          "id": "color-contrast",
-          "title": "Background and foreground colors do not have a sufficient contrast ratio.",
-          "scoreDisplayMode": "binary",
-          "description": "Low-contrast text is difficult or impossible for many users to read. [Learn how to provide sufficient color contrast](https://dequeuniversity.com/rules/axe/4.11/color-contrast).",
-          "details": {
-            "type": "table",
-            "headings": [
-              {
-                "key": "node",
-                "valueType": "node",
-                "subItemsHeading": {
-                  "key": "relatedNode",
-                  "valueType": "node"
-                },
-                "label": "Failing Elements"
-              }
-            ],
-            "items": [
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-0-SPAN",
-                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,1,DIV,0,DIV,1,DIV,6,DIV,0,DIV,0,SPAN",
-                  "selector": "div.flex > div.flex > div.flex > span.text-xs",
-                  "boundingRect": {
-                    "top": 115,
-                    "bottom": 131,
-                    "left": 1139,
-                    "right": 1186,
-                    "width": 48,
-                    "height": 16
-                  },
-                  "snippet": "<span class=\"text-xs font-medium text-accent\">",
-                  "nodeLabel": "Week 13",
-                  "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 2.89 (foreground color: #005ea2, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-                },
-                "subItems": {
-                  "type": "subitems",
-                  "items": [
-                    {
-                      "relatedNode": {
-                        "type": "node",
-                        "lhId": "1-1-DIV",
-                        "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,1,DIV,1,DIV,0,DIV,1,DIV,6,DIV,0,DIV",
-                        "selector": "div.inline-flex > div.flex > div.flex > div.flex",
-                        "boundingRect": {
-                          "top": 111,
-                          "bottom": 151,
-                          "left": 1113,
-                          "right": 1213,
-                          "width": 100,
-                          "height": 40
-                        },
-                        "snippet": "<div class=\"flex h-10 w-[100px] flex-col items-center justify-center border-b border-r…\">",
-                        "nodeLabel": "Week 13\nMay 14-20"
-                      }
-                    }
-                  ]
-                }
-              }
-            ],
-            "debugData": {
-              "type": "debugdata",
-              "impact": "serious",
-              "tags": [
-                "cat.color",
-                "wcag2aa",
-                "wcag143",
-                "TTv5",
-                "TT13.c",
-                "EN-301-549",
-                "EN-9.1.4.3",
-                "ACT",
-                "RGAAv4",
-                "RGAA-3.2.1"
-              ]
-            }
-          }
-        }
-      ]
+      "score": 100,
+      "failingAudits": []
     },
     "Settings": {
-      "score": 94,
-      "failingAudits": [
-        {
-          "id": "select-name",
-          "title": "Select elements do not have associated label elements.",
-          "scoreDisplayMode": "binary",
-          "description": "Form elements without effective labels can create frustrating experiences for screen reader users. [Learn more about the `select` element](https://dequeuniversity.com/rules/axe/4.11/select-name).",
-          "details": {
-            "type": "table",
-            "headings": [
-              {
-                "key": "node",
-                "valueType": "node",
-                "subItemsHeading": {
-                  "key": "relatedNode",
-                  "valueType": "node"
-                },
-                "label": "Failing Elements"
-              }
-            ],
-            "items": [
-              {
-                "node": {
-                  "type": "node",
-                  "lhId": "1-0-SELECT",
-                  "path": "1,HTML,1,BODY,0,DIV,0,DIV,2,DIV,2,MAIN,0,DIV,2,MAIN,0,DIV,1,DIV,0,TABLE,1,TBODY,0,TR,2,TD,0,SELECT",
-                  "selector": "tbody.divide-y > tr > td.px-4 > select.px-2",
-                  "boundingRect": {
-                    "top": 256,
-                    "bottom": 285,
-                    "left": 893,
-                    "right": 987,
-                    "width": 94,
-                    "height": 29
-                  },
-                  "snippet": "<select class=\"px-2 py-1 rounded text-sm bg-background border border-border\">",
-                  "nodeLabel": "Admin\nMember",
-                  "explanation": "Fix any of the following:\n  Element does not have an implicit (wrapped) <label>\n  Element does not have an explicit <label>\n  aria-label attribute does not exist or is empty\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\n  Element has no title attribute\n  Element's default semantics were not overridden with role=\"none\" or role=\"presentation\""
-                }
-              }
-            ],
-            "debugData": {
-              "type": "debugdata",
-              "impact": "critical",
-              "tags": [
-                "cat.forms",
-                "wcag2a",
-                "wcag412",
-                "section508",
-                "section508.22.n",
-                "TTv5",
-                "TT5.c",
-                "EN-301-549",
-                "EN-9.4.1.2",
-                "ACT",
-                "RGAAv4",
-                "RGAA-11.1.1"
-              ]
-            }
-          }
-        }
-      ]
+      "score": 100,
+      "failingAudits": []
     }
   },
   "axe": {
@@ -649,26 +110,8 @@
       "violations": []
     },
     "My Week": {
-      "countsByImpact": {
-        "serious": 1
-      },
-      "violations": [
-        {
-          "id": "color-contrast",
-          "impact": "serious",
-          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
-          "help": "Elements must meet minimum color contrast ratio thresholds",
-          "nodes": [
-            {
-              "target": [
-                ".bg-accent\\/20.py-0\\.5.px-1\\.5"
-              ],
-              "html": "<span class=\"text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded\">Current</span>",
-              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.55 (foreground color: #005ea2, background color: #0a1d2b, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-            }
-          ]
-        }
-      ]
+      "countsByImpact": {},
+      "violations": []
     },
     "Docs": {
       "countsByImpact": {},
@@ -687,74 +130,20 @@
       "violations": []
     },
     "Team Allocation": {
-      "countsByImpact": {
-        "serious": 1
-      },
-      "violations": [
-        {
-          "id": "color-contrast",
-          "impact": "serious",
-          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
-          "help": "Elements must meet minimum color contrast ratio thresholds",
-          "nodes": [
-            {
-              "target": [
-                ".text-accent.font-medium.text-xs"
-              ],
-              "html": "<span class=\"text-xs font-medium text-accent\">Week 13</span>",
-              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.89 (foreground color: #005ea2, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-            }
-          ]
-        }
-      ]
+      "countsByImpact": {},
+      "violations": []
     },
     "Team Directory": {
       "countsByImpact": {},
       "violations": []
     },
     "Team Status": {
-      "countsByImpact": {
-        "serious": 1
-      },
-      "violations": [
-        {
-          "id": "color-contrast",
-          "impact": "serious",
-          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
-          "help": "Elements must meet minimum color contrast ratio thresholds",
-          "nodes": [
-            {
-              "target": [
-                ".text-accent.font-medium.text-xs"
-              ],
-              "html": "<span class=\"text-xs font-medium text-accent\">Week 13</span>",
-              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.89 (foreground color: #005ea2, background color: #0d0d0d, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
-            }
-          ]
-        }
-      ]
+      "countsByImpact": {},
+      "violations": []
     },
     "Settings": {
-      "countsByImpact": {
-        "critical": 1
-      },
-      "violations": [
-        {
-          "id": "select-name",
-          "impact": "critical",
-          "description": "Ensure select element has an accessible name",
-          "help": "Select element must have an accessible name",
-          "nodes": [
-            {
-              "target": [
-                "tr:nth-child(1) > td:nth-child(3) > select"
-              ],
-              "html": "<select class=\"px-2 py-1 rounded text-sm bg-background border border-border\"><option value=\"admin\">Admin</option><option value=\"member\">Member</option></select>",
-              "failureSummary": "Fix any of the following:\n  Element does not have an implicit (wrapped) <label>\n  Element does not have an explicit <label>\n  aria-label attribute does not exist or is empty\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\n  Element has no title attribute\n  Element's default semantics were not overridden with role=\"none\" or role=\"presentation\""
-            }
-          ]
-        }
-      ]
+      "countsByImpact": {},
+      "violations": []
     }
   },
   "keyboard": [
@@ -782,23 +171,23 @@
         "a Ship Core RedesignShip Core",
         "button Create retro",
         "button Due today+ Create plan for this week",
-        "button + Create retro for this week",
-        "button Thu5/14+ Write update",
-        "button Fri5/15+ Write update",
-        "button Sat5/16+ Write update",
+        "button Due today+ Create retro for this week",
         "button Sun5/17+ Write update",
         "button Mon5/18+ Write update",
         "button Tue5/19+ Write update",
+        "button Wed5/20+ Write update",
+        "button Thu5/21+ Write update",
+        "button Fri5/22+ Write update",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button Collapse sidebar",
         "button My Work",
         "button Overview"
@@ -831,14 +220,14 @@
         "button Add sub-document",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button New document",
         "button Collapse sidebar",
         "button Expand",
@@ -874,63 +263,63 @@
         "button Done",
         "button Cancelled",
         "table Issues list",
-        "button Select item ac71f54b-ae9c-4115-8f2e-541a80355de9",
-        "button Select item 9d823334-65da-41f0-9d84-057f67c4aaae",
-        "button Select item 250afd80-1777-4df0-94d9-fefe6e9045cc",
-        "button Select item b3ce4e79-0cde-4320-9dcc-a506f4446b4d",
-        "button Select item 101aac0e-8261-4887-8d78-88860628861a",
-        "button Select item ab42a44d-c57f-474b-a23c-71df2bbd5221",
-        "button Select item 0e192d1f-d37e-467d-87c9-4bcc39bbd7d1",
-        "button Select item 277e33e3-43eb-4f2b-a086-8a12f0ad9528",
-        "button Select item e00b2e72-3960-43f5-8f6e-78e81c395639",
-        "button Select item 1d0440ff-3f88-44dc-bdf9-b7c8c5fbc561",
-        "button Select item cb5265bb-d8bc-4c54-8ad3-d222e7a15678",
-        "button Select item b141ff95-0be2-409f-bd11-86b0ab8716f1",
-        "button Select item 63636485-21a2-477c-9e0f-5400b0c93d5a",
-        "button Select item e1ddf800-2589-4c63-8520-f1dd4ef7f067",
-        "button Select item 771dbdfa-895a-431e-b9b1-d3913de8724c",
-        "button Select item e8c21e8c-5374-4f26-a9e3-4862f1b92fc4",
-        "button Select item 691bc2d1-c719-4efa-8b45-2fa682a4dccf",
-        "button Select item d878313e-af6c-4bb5-b6d6-c6ab38d57ee3",
-        "button Select item 6aaae52e-52a7-446b-b409-29f22aa4b335",
-        "button Select item c56b4594-1992-45bf-b47f-98a90ecb178e",
-        "button Select item bac31da9-4c61-4569-860f-cccc53cb849a",
-        "button Select item 690c24d0-1975-47b0-bbe4-e8e1d1ee07ac",
-        "button Select item 855a4c08-a10e-4a63-af88-21675411b52f",
-        "button Select item dc844a23-fbca-4f14-9488-27f24f09f076",
-        "button Select item 1fea92e1-cc5a-4709-9740-e804b7227b0d",
-        "button Select item ca09a218-dc23-48e4-b2c8-23e232a6f53a",
-        "button Select item 0abec412-6196-4b60-b3a4-6ffbb83954ec",
-        "button Select item f689fc85-ba70-4b73-8f3c-6090f796018d",
-        "button Select item 40a2c2a2-12d4-4ec1-bd6d-fbc963626998",
-        "button Select item 5782d002-0060-42cc-afc5-d61c2f88765d",
-        "button Select item 32d959a3-79dd-4fa6-9a16-6154c7b38191",
-        "button Select item 1f1e74e3-59ef-4afc-8263-0b85986caadc",
-        "button Select item 57d92855-347d-4396-b6e6-51f01f65c825",
-        "button Select item 4dcc0078-883f-4204-a5c0-f3bd48bcd6e7",
-        "button Select item 02c264b8-1ce4-4f78-8040-1a3f1e889335",
-        "button Select item f9b66d65-133d-43e6-bda9-81baaaaae8c5",
-        "button Select item 75d3120e-b7b5-4413-9604-a0c97b2e9ff1",
-        "button Select item 07f071ca-d204-48eb-9390-ead0be933de7",
-        "button Select item 8962d488-c539-4509-938d-4be6a54ad566",
-        "button Select item c643c5c6-203a-4c62-a96c-624be501a29d",
-        "button Select item 7a50b2f1-6d1e-4d91-acc7-f3c920f87df8",
-        "button Select item 179db1dc-6ead-4eae-876a-5dab1c62ee3d",
-        "button Select item 41ed5cd3-241c-4152-9c69-5c480b571a1a",
-        "button Select item 48ad23b3-48d2-4082-8b9f-16b32814bb43",
-        "button Select item e7d306c1-8982-4a97-9bcb-913925f127bb",
-        "button Select item 88d3a79f-92ae-4e71-9010-ec8695d6d542",
-        "button Select item 2b69b678-2af9-4f1e-868e-301f273b434e",
+        "button Select item 2f125a88-bf1e-4e35-a916-79f483a2593d",
+        "button Select item 61b2f645-e602-412c-bcab-f93b0c0147f3",
+        "button Select item ecd20308-5732-4eab-a548-1eaf9fdb04f0",
+        "button Select item e6d3136c-6e96-42f9-9f23-d63ea08dc2f4",
+        "button Select item 3be9051e-4a1f-4181-843e-e178b5357529",
+        "button Select item e3478908-d9a3-4301-85fe-10d5541368b6",
+        "button Select item a4941c64-01f8-4af2-8ca1-443a970d8851",
+        "button Select item 9df4ab7e-2ad0-4d8e-95bd-7b135071ff0c",
+        "button Select item 6b1514c8-1409-4493-abf1-2aa609e47dbe",
+        "button Select item 72a697d3-97bb-4b8d-8769-c256b8c73764",
+        "button Select item 3f5b21f7-0bd6-4f19-8e8d-0e99575bc981",
+        "button Select item 6172144a-a1f8-4029-a05c-eebf32972a64",
+        "button Select item c5f7aa47-82a5-4780-883c-10f107b1304c",
+        "button Select item 3c56d361-2080-48e3-9f61-1d924ae67509",
+        "button Select item baa16308-3d3d-4c29-a67f-256609c39fe1",
+        "button Select item 61390d19-d19a-4696-9ea0-0100ae2b9f3e",
+        "button Select item 13979c58-031b-4433-a4a8-b774b38eec28",
+        "button Select item ace9bc37-cd53-4ac6-a4d8-5029a0534bc0",
+        "button Select item 955fc54c-e717-4b60-915c-8793a595e666",
+        "button Select item 64589dc3-7090-48b1-8b61-9d12cca4f0fe",
+        "button Select item 0f742a5e-a366-438b-a67b-8a14b0c228dd",
+        "button Select item e139aee8-338b-49a4-8519-0ec37a4d620c",
+        "button Select item 7177a9e5-e618-46ed-a664-e192efcc0e7b",
+        "button Select item 081c2d67-d88c-447c-acbd-6f074ebb043c",
+        "button Select item 83c7f2ed-7031-4858-ac74-6259a4870133",
+        "button Select item d9175818-ef97-42c3-b7bc-9ed12d770b7e",
+        "button Select item 1ea46a8d-4457-4390-86e0-3f5675a24074",
+        "button Select item 9347c26e-e42e-4945-9a36-06930e33fdfa",
+        "button Select item 589a9ff4-885d-4f12-98b0-05a99f624925",
+        "button Select item bf538ae0-c269-433c-8e93-228597dca53b",
+        "button Select item 8c61b758-503f-45e2-bcac-2bf35f8d75f9",
+        "button Select item 09f6daf8-c9b1-4fde-bdcc-024b24f2bf50",
+        "button Select item da56717b-a67d-44ed-95f2-a7a5ace9e63b",
+        "button Select item 60214d2b-d802-4d25-81bf-a6e6dfd0edf2",
+        "button Select item 1155dd6f-8a69-47ab-9287-8508e8c34046",
+        "button Select item 8745ea92-851d-4ab7-8d0e-51e8c186e9cf",
+        "button Select item 53d55113-2043-4783-896d-faf00015480d",
+        "button Select item fcffca48-82f9-4a71-957a-fe8a6474033e",
+        "button Select item 98312470-0c12-4124-b75a-266c81c1278e",
+        "button Select item 277a619c-4551-4679-aab1-46e0b10097e1",
+        "button Select item e4bd6d4c-7cf6-41d2-b461-6421a459fce0",
+        "button Select item ffe95a06-31f9-4f99-aaa1-4b1898078f22",
+        "button Select item 95bb5b6d-457d-486d-946a-92a0b806ccda",
+        "button Select item 128b2673-b6da-4b4b-bf6b-c4a5623a7f58",
+        "button Select item 7f3b808f-1ec1-4a5a-b146-1eb7875933f9",
+        "button Select item 5846b5c7-2312-4c2f-9122-87731b8d8df0",
+        "button Select item 0607aacf-00ff-4eea-a1e3-a00d347079f9",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button New issue",
         "button Collapse sidebar",
         "a Infrastructure documentation",
@@ -1040,21 +429,21 @@
         "button Customize columns",
         "button New Program",
         "table Programs list",
-        "button Select item 24141cd9-41ef-47b9-a3ce-d85ec61e366d",
-        "button Select item a7319976-4f7c-41dd-9ae6-7969f1669dc8",
-        "button Select item 1e3fcb02-70cb-49b4-9123-7db801bcf0ab",
-        "button Select item b4cf197c-6198-4bb2-901d-646a84f7b247",
-        "button Select item 4b16f759-f53a-41a8-806d-ff695357d4a0",
+        "button Select item eaafca5e-2c11-4358-803a-898aa59cbefc",
+        "button Select item 4ac6295a-79b3-45b4-8764-dc871eacc396",
+        "button Select item 799ea220-1633-46f4-84b9-4c9e7bc39a1e",
+        "button Select item 15793eff-fa85-4605-a422-057efc48f5e1",
+        "button Select item af925d3f-5ff9-41de-af09-d92e4ff0c8f9",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button Collapse sidebar",
         "button IInfrastructure",
         "button Actions for Infrastructure",
@@ -1085,20 +474,20 @@
         "button Completed0",
         "button Archived0",
         "table Projects list",
-        "button Select item 8c8f5fcf-75d8-4b8c-a04f-3f5c0870e64d",
-        "button Select item 24c080ec-df6d-450c-84ce-21d3c3ba95da",
-        "button Select item a0c86359-01c8-434c-836e-2e1ddae63098",
-        "button Select item 5e62393f-1294-4dbd-8904-d54ee241c7bf",
+        "button Select item e6118c1e-31f3-49a1-ac42-d9cdb94c7fcc",
+        "button Select item 51d009d7-91e1-492a-8fbc-af98f5e3f102",
+        "button Select item e14c6d9a-3630-444f-84e2-e2fa69dc0699",
+        "button Select item 324c91b2-a473-4eb3-9872-e87086b33178",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button New project",
         "button Collapse sidebar",
         "button Expand",
@@ -1153,14 +542,14 @@
         "button +",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button Collapse sidebar",
         "button Allocation",
         "button Directory",
@@ -1180,14 +569,14 @@
         "input",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button Collapse sidebar",
         "button Allocation",
         "button Directory",
@@ -1210,14 +599,14 @@
         "button Weekly Retro (late) (Ship Core Redesign)",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button Collapse sidebar",
         "button Allocation",
         "button Directory",
@@ -1239,18 +628,18 @@
         "button Audit Logs",
         "a Conversions",
         "input",
-        "select AdminMember",
+        "select Role for Bob Martinez",
         "button Archive",
         "a Skip to main content",
         "button 33 overdue accountability items need attention.33View items",
-        "button T",
+        "button Switch workspace (current: Test Workspace)",
         "button Dashboard",
         "button Docs",
         "button Programs",
         "button Projects",
         "button Teams (standup due)",
         "button Settings",
-        "button D",
+        "button Sign out (Dev User)",
         "button Collapse sidebar"
       ]
     }
@@ -1259,7 +648,7 @@
     {
       "route": "Login",
       "h1Count": 1,
-      "mainCount": 0,
+      "mainCount": 1,
       "navCount": 0,
       "unnamedButtons": 0,
       "unnamedLinks": 0,

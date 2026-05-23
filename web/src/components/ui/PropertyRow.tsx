@@ -16,10 +16,10 @@ export function PropertyRow({ label, tooltip, highlighted, children }: PropertyR
   return (
     <div>
       <div className="mb-1 flex items-center gap-1">
-        <label className={`text-xs font-medium ${highlighted ? 'text-amber-500' : 'text-muted'}`}>
+        <div className={`text-xs font-medium ${highlighted ? 'text-amber-500' : 'text-muted'}`}>
           {label}
           {highlighted && <span className="ml-1 text-amber-500">*</span>}
-        </label>
+        </div>
         {tooltip && (
           <Tooltip content={tooltip} side="right" delayDuration={200}>
             <button

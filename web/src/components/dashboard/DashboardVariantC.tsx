@@ -190,7 +190,7 @@ function WeekTimeline({ items, allComplete }: { items: TimelineDay[]; allComplet
             )}
             <div className={cn(
               'text-[10px] font-semibold uppercase tracking-wider mb-1.5',
-              isToday ? 'text-accent' : 'text-muted/50'
+              isToday ? 'text-accent-text' : 'text-muted/50'
             )}>
               {day.label}
             </div>
@@ -312,7 +312,7 @@ function FocusCard({
       ) : (
         <div className="text-sm text-muted">
           No plan written yet &mdash;{' '}
-          <Link to={`/documents/${project.id}`} className="text-accent hover:underline">
+          <Link to={`/documents/${project.id}`} className="text-accent-text hover:underline">
             Write your plan
           </Link>
         </div>

@@ -44,7 +44,7 @@ export function StandupFeed({ sprintId }: StandupFeedProps) {
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
-          class: 'text-accent hover:underline cursor-pointer',
+          class: 'text-accent-text hover:underline cursor-pointer',
         },
       }),
     ],
@@ -61,7 +61,7 @@ export function StandupFeed({ sprintId }: StandupFeedProps) {
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
-          class: 'text-accent hover:underline cursor-pointer',
+          class: 'text-accent-text hover:underline cursor-pointer',
         },
       }),
     ],
@@ -301,7 +301,7 @@ function StandupCard({
       Link.configure({
         openOnClick: true,
         HTMLAttributes: {
-          class: 'text-accent hover:underline cursor-pointer',
+          class: 'text-accent-text hover:underline cursor-pointer',
         },
       }),
     ],
@@ -314,7 +314,7 @@ function StandupCard({
       <div className="flex items-center gap-3 mb-3">
         {/* Author avatar */}
         <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center">
-          <span className="text-sm font-medium text-accent">
+          <span className="text-sm font-medium text-accent-text">
             {standup.author_name?.[0]?.toUpperCase() || standup.author_email?.[0]?.toUpperCase() || '?'}
           </span>
         </div>

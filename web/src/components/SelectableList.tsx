@@ -131,9 +131,9 @@ export function SelectableList<T extends { id: string }>({
         {columns && (
           <thead className="sticky top-0 bg-background z-10">
             <tr className="border-b border-border text-left text-xs text-muted">
-              {selectable && <th className="w-10 px-2 py-2" aria-label="Selection"></th>}
+              {selectable && <th scope="col" role="columnheader" className="w-10 px-2 py-2" aria-label="Selection"></th>}
               {columns.map((col) => (
-                <th key={col.key} className={cn('px-4 py-2 font-medium', col.className)}>
+                <th scope="col" role="columnheader" key={col.key} className={cn('px-4 py-2 font-medium', col.className)}>
                   {col.label}
                 </th>
               ))}

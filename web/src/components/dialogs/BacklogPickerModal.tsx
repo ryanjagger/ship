@@ -301,7 +301,7 @@ export function BacklogPickerModal({ isOpen, onClose, context, onIssuesAdded }: 
                       disabled={isInContext}
                       onChange={() => toggleSelection(issue.id)}
                       onClick={(e) => e.stopPropagation()}
-                      className="h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:opacity-50"
+                      className="h-4 w-4 rounded border-border text-accent-text focus:ring-accent disabled:opacity-50"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">

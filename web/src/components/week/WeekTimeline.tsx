@@ -146,7 +146,7 @@ function WeekWindowCard({
         <div className="flex items-center justify-between mb-1">
           <span className="font-medium text-foreground text-sm">
             {formatWeekName(start_date)}
-            {isCurrentWindow && <span className="text-accent ml-1">(Current)</span>}
+            {isCurrentWindow && <span className="text-accent-text ml-1">(Current)</span>}
           </span>
           <div className="flex items-center gap-1">
             {sprint.is_complete === false && (
@@ -182,7 +182,7 @@ function WeekWindowCard({
         <div className="mt-2 flex items-center justify-between text-xs">
           <span className={cn(
             'rounded px-1.5 py-0.5 whitespace-nowrap',
-            status === 'active' ? 'bg-accent/20 text-accent' : sprintStatusColors[status]
+            status === 'active' ? 'bg-accent/20 text-accent-text' : sprintStatusColors[status]
           )}>
             {status.charAt(0).toUpperCase() + status.slice(1)}
           </span>
@@ -211,7 +211,7 @@ function WeekWindowCard({
     >
       <div className="font-medium text-muted text-sm mb-1">
         {formatWeekName(start_date)}
-        {isCurrentWindow && <span className="text-accent ml-1">(Current)</span>}
+        {isCurrentWindow && <span className="text-accent-text ml-1">(Current)</span>}
       </div>
       <div className="text-xs text-muted mb-2">
         {formatDate(start_date.toISOString())} - {formatDate(end_date.toISOString())}
@@ -429,7 +429,7 @@ export function WeekTimeline({
                 <div className="absolute top-0 bottom-0 w-0.5 bg-accent" />
                 {/* Today label */}
                 <div className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                  <span className="text-xs font-medium text-accent bg-background px-1 rounded">
+                  <span className="text-xs font-medium text-accent-text bg-background px-1 rounded">
                     Today
                   </span>
                 </div>

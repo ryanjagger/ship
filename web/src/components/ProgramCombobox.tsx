@@ -170,7 +170,7 @@ export function ProgramCombobox({
                   className={cn(
                     'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm',
                     'data-[selected=true]:bg-border/50',
-                    value === program.id && 'text-accent'
+                    value === program.id && 'text-accent-text'
                   )}
                 >
                   <span
@@ -181,7 +181,7 @@ export function ProgramCombobox({
                   </span>
                   <span className="truncate">{program.name}</span>
                   {value === program.id && (
-                    <CheckIcon className="ml-auto h-4 w-4 text-accent" />
+                    <CheckIcon className="ml-auto h-4 w-4 text-accent-text" />
                   )}
                 </Command.Item>
               ))}
