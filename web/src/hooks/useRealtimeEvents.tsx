@@ -29,6 +29,13 @@ interface RealtimeEventsContextType {
 
 const RealtimeEventsContext = createContext<RealtimeEventsContextType | null>(null);
 
+const DISABLE_REALTIME_EVENTS_FLAG = 'ship:disableRealtimeEvents';
+
+function areRealtimeEventsDisabled(): boolean {
+  return typeof window !== 'undefined' &&
+    window.localStorage.getItem(DISABLE_REALTIME_EVENTS_FLAG) === 'true';
+}
+
 // Exponential backoff with full jitter, capped at 30s.
 // Server enforces 30 connections/IP/minute, so we must NOT reconnect on a fixed 3s timer.
 const RECONNECT_BASE_MS = 1000;
@@ -85,6 +92,12 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
 
   // Connect to WebSocket
   const connect = useCallback(() => {
+    if (areRealtimeEventsDisabled()) {
+      setIsConnected(false);
+      setStatus('disconnected');
+      return;
+    }
+
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
     if (wsRef.current?.readyState === WebSocket.CLOSING) return;
@@ -180,7 +193,7 @@ export function RealtimeEventsProvider({ children }: { children: ReactNode }) {
 
   // Connect when user logs in, disconnect when they log out
   useEffect(() => {
-    if (user) {
+    if (user && !areRealtimeEventsDisabled()) {
       connect();
     } else {
       disconnect();
