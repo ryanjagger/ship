@@ -9,7 +9,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
-| 2. Tiny code edits | Pool config, admin visibility short-circuit, dead-code removal | Pending |
+| **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **In progress** (1 / 3 items landed) |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
@@ -450,7 +450,38 @@ Both artifacts are detection-side, not real index gaps.
 
 ## Phase 2 — Tiny code edits
 
-_Pending. See `audit/database-query-efficiency/README.md` and `peer-review.md` for the full set._
+### 2.1 Pool config: `idle_in_transaction_session_timeout` + bump connect timeout — Status: **Done**
+
+**Before.** `api/src/db/client.ts:17-26` configured `connectionTimeoutMillis: 2000` (fail-fast at 2s) and no `idle_in_transaction_session_timeout`. Two practical problems per peer-review §5:
+
+1. **2s connect timeout is aggressive under burst.** When traffic spikes hit the `max: 20` pool limit, new acquire calls fail with a connection-acquire error after 2s instead of queuing through the burst. From the client's perspective this surfaces as 502s during otherwise-recoverable load spikes.
+2. **No `idle_in_transaction_session_timeout`.** If a route handler `BEGIN`s a transaction then returns early without `COMMIT`/`ROLLBACK` (peer-review §4 documents this pattern in `documents.ts:732, 795, 802, 839`), Postgres holds the connection open with row locks until autovacuum or some external action clears it. `statement_timeout: 30000` is set but only kills *running* queries, not idle-in-transaction connections.
+
+**Change.** `api/src/db/client.ts`:
+
+```diff
+-  connectionTimeoutMillis: 2000, // Fail fast if can't connect in 2 seconds
++  connectionTimeoutMillis: 8000, // Queue acquires for up to 8s before failing; bursts under load should wait, not 502
+   maxUses: 7500,
+   statement_timeout: 30000,
++  // Defense in depth: if a handler leaks a transaction (BEGIN without
++  // COMMIT/ROLLBACK on an early return), Postgres will reclaim the
++  // connection after 15s instead of holding row locks indefinitely.
++  idle_in_transaction_session_timeout: 15000,
+```
+
+Notes:
+
+- `connectionTimeoutMillis: 8000` is the queueing-vs-failing knob. Peer-review suggested 5–10s; chose 8s as a midpoint. At 8s with `max: 20`, the pool can hold ~160 request-seconds of acquire queue before a request gives up — enough headroom for any reasonable burst, short enough that a stuck pool will still eventually surface.
+- `idle_in_transaction_session_timeout: 15000` is a Postgres GUC, not a node-postgres-native option. node-postgres v8+ accepts arbitrary keys on `Pool` config and sets them via `SET <key> = <value>` on connection — same mechanism `statement_timeout` already uses in this file.
+- The 15s ceiling is short enough that pool-starvation surfaces quickly, long enough that legitimate long-running transactional handlers (issue creation under advisory lock, document patches) have plenty of margin.
+- This is defense-in-depth for the transaction-leak fix planned in Phase 3. After Phase 3 lands, the leaked-transaction case shouldn't exist at all — but if a future regression reintroduces it, this timeout caps the blast radius.
+
+**After.** Type-check passes; api 451/451 and web 151/151 tests still green. No behavior change in normal operation — both settings are bounded ceilings that only fire under pathological conditions.
+
+**Reproducibility.** N/A for normal traffic. To verify the `idle_in_transaction_session_timeout` is being applied, connect via psql and run `SHOW idle_in_transaction_session_timeout;` from a connection acquired through the pool — should return `15s`.
+
+
 
 ## Phase 3 — Targeted code fixes
 

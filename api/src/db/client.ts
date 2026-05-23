@@ -19,10 +19,14 @@ const pool = new Pool({
   // Production-ready pool configuration
   max: isProduction ? 20 : 10, // Max connections (default is 10)
   idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
-  connectionTimeoutMillis: 2000, // Fail fast if can't connect in 2 seconds
+  connectionTimeoutMillis: 8000, // Queue acquires for up to 8s before failing; bursts under load should wait, not 502
   maxUses: 7500, // Recycle connections after 7500 queries to prevent memory leaks
   // DDoS protection: Terminate queries running longer than 30 seconds
   statement_timeout: 30000, // 30 seconds max query duration
+  // Defense in depth: if a handler leaks a transaction (BEGIN without
+  // COMMIT/ROLLBACK on an early return), Postgres will reclaim the
+  // connection after 15s instead of holding row locks indefinitely.
+  idle_in_transaction_session_timeout: 15000,
 });
 
 // Without this, an error on an idle client (RDS failover, network blip,
