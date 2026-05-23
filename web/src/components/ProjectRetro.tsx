@@ -197,9 +197,9 @@ export function ProjectRetro({ projectId }: ProjectRetroProps) {
 
             {/* Plan Validation */}
             <div className="space-y-2 mb-6">
-              <label className="text-xs font-medium text-muted uppercase tracking-wide">
+              <div className="text-xs font-medium text-muted uppercase tracking-wide">
                 Plan Validation
-              </label>
+              </div>
               <div className="flex flex-col gap-2">
                 <button
                   onClick={() => {
@@ -252,9 +252,9 @@ export function ProjectRetro({ projectId }: ProjectRetroProps) {
             {/* Monetary Impact Expected */}
             {retroData?.monetary_impact_expected && (
               <div className="space-y-2 mb-6">
-                <label className="text-xs font-medium text-muted uppercase tracking-wide">
+                <div className="text-xs font-medium text-muted uppercase tracking-wide">
                   Expected Impact
-                </label>
+                </div>
                 <div className="text-sm text-foreground bg-border/30 rounded-md px-3 py-2">
                   {retroData.monetary_impact_expected}
                 </div>
@@ -263,9 +263,9 @@ export function ProjectRetro({ projectId }: ProjectRetroProps) {
 
             {/* Monetary Impact Actual */}
             <div className="space-y-2 mb-6">
-              <label className="text-xs font-medium text-muted uppercase tracking-wide">
+              <div className="text-xs font-medium text-muted uppercase tracking-wide">
                 Actual Monetary Impact
-              </label>
+              </div>
               <input
                 type="text"
                 value={monetaryImpactActual}
@@ -280,9 +280,9 @@ export function ProjectRetro({ projectId }: ProjectRetroProps) {
 
             {/* Success Criteria */}
             <div className="space-y-2 mb-6">
-              <label className="text-xs font-medium text-muted uppercase tracking-wide">
+              <div className="text-xs font-medium text-muted uppercase tracking-wide">
                 Success Criteria
-              </label>
+              </div>
               <div className="space-y-2">
                 {successCriteria.map((criterion, index) => (
                   <div key={index} className="flex items-center gap-2 group">
@@ -328,9 +328,9 @@ export function ProjectRetro({ projectId }: ProjectRetroProps) {
             {/* Sprints */}
             {retroData?.weeks && retroData.weeks.length > 0 && (
               <div className="space-y-2 mb-6">
-                <label className="text-xs font-medium text-muted uppercase tracking-wide">
+                <div className="text-xs font-medium text-muted uppercase tracking-wide">
                   Sprints ({retroData.weeks.length})
-                </label>
+                </div>
                 <div className="space-y-1">
                   {retroData.weeks.map((sprint) => (
                     <div key={sprint.id} className="text-sm text-foreground">

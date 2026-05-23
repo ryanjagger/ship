@@ -125,7 +125,7 @@ export function Combobox({
                   className={cn(
                     'flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-sm',
                     'data-[selected=true]:bg-border/50',
-                    value === option.value && 'text-accent'
+                    value === option.value && 'text-accent-text'
                   )}
                 >
                   <div className="flex flex-col">
@@ -135,7 +135,7 @@ export function Combobox({
                     )}
                   </div>
                   {value === option.value && (
-                    <CheckIcon className="h-4 w-4 text-accent" />
+                    <CheckIcon className="h-4 w-4 text-accent-text" />
                   )}
                 </Command.Item>
               ))}

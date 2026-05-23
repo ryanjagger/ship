@@ -125,8 +125,12 @@ test.describe('Inline Comments', () => {
     const commentInput = page.getByRole('textbox', { name: 'Write a comment...' })
     await expect(commentInput).toBeVisible({ timeout: 3000 })
 
-    // Press Escape to cancel
-    await page.keyboard.press('Escape')
+    // Press Escape on the input itself. locator.press() focuses first, which
+    // matters here because the input is auto-focused via requestAnimationFrame
+    // in a ProseMirror decoration widget — under load, the rAF can be delayed
+    // past page.keyboard.press, and the cancel handler only fires when the
+    // pending input is the event target.
+    await commentInput.press('Escape')
 
     // Highlight should be removed (auto-retries until timeout)
     await expect(page.locator('.comment-highlight')).not.toBeVisible({ timeout: 10000 })

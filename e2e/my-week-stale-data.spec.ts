@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/isolated-env'
+import { test, expect, type Page } from './fixtures/isolated-env'
 
 /**
  * Tests that /my-week reflects plan/retro edits after navigating back.
@@ -7,14 +7,40 @@ import { test, expect } from './fixtures/isolated-env'
  * Yjs WebSocket (no client-side mutation), so navigating back showed stale data.
  * Fix: staleTime set to 0 so every mount refetches fresh data from the API.
  *
- * KNOWN FLAKY: The retro test fails on first attempt but passes on retry.
- * The retro document IS created (shows as a link), but its Yjs content isn't
- * persisted to the `content` column by the time the /my-week API reads it —
- * even with a 10s wait. The plan test (same pattern, runs first) always passes.
- * Root cause is likely in how the Yjs collaboration server handles JSON-to-Yjs
- * conversion for newly created documents (no yjs_state yet, only template JSON
- * in the content column). Needs investigation on a separate branch.
+ * Flake fix: "Saved" only signals that the Yjs WebSocket synced; it does not
+ * mean the collaboration server has flushed Yjs state through to the `content`
+ * JSONB column that /my-week reads. We poll the document API until the typed
+ * text appears in `content` before navigating — that's the actual contract
+ * /my-week depends on. Risk mitigated: users can return to My Week and see
+ * stale or missing plan/retro content after editing.
  */
+
+/**
+ * Wait until the document API's `content` column contains expectedText. This
+ * is the deterministic persistence signal — the collaboration server flushes
+ * Yjs edits to `content` asynchronously, and /my-week reads from `content`.
+ */
+async function waitForDocumentContent(page: Page, expectedText: string) {
+  const match = page.url().match(/\/documents\/([a-f0-9-]+)/)
+  if (!match) throw new Error(`Expected /documents/:id in URL, got ${page.url()}`)
+  const documentId = match[1]
+
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(`/api/documents/${documentId}`)
+        if (!response.ok()) return ''
+        const body = await response.json()
+        return JSON.stringify(body.content ?? '')
+      },
+      {
+        message: `document ${documentId} content never contained "${expectedText}"`,
+        timeout: 15000,
+        intervals: [250, 500, 1000],
+      }
+    )
+    .toContain(expectedText)
+}
 
 test.describe('My Week - stale data after editing plan/retro', () => {
   test.beforeEach(async ({ page }) => {
@@ -45,10 +71,10 @@ test.describe('My Week - stale data after editing plan/retro', () => {
     await editor.click()
     await page.keyboard.type('1. Ship the new dashboard feature')
 
-    // 6. Wait for the collaboration server to persist the content
-    // "Saved" means WebSocket synced; add extra time for DB write completion
-    await expect(page.getByText('Saved')).toBeVisible({ timeout: 10000 })
-    await page.waitForTimeout(3000)
+    // 6. Wait until the collaboration server has flushed Yjs state to the
+    // `content` JSONB column (the column /my-week reads). "Saved" only
+    // signals the WebSocket round-trip; the JSONB write is async.
+    await waitForDocumentContent(page, 'Ship the new dashboard feature')
 
     // 7. Navigate back to /my-week using client-side navigation (Dashboard icon in rail)
     await page.getByRole('button', { name: 'Dashboard' }).click()
@@ -79,9 +105,9 @@ test.describe('My Week - stale data after editing plan/retro', () => {
     await editor.click()
     await page.keyboard.type('1. Completed the API refactoring')
 
-    // 6. Wait for the collaboration server to persist the content
-    await expect(page.getByText('Saved')).toBeVisible({ timeout: 10000 })
-    await page.waitForTimeout(3000)
+    // 6. Wait until the collaboration server has flushed Yjs state to the
+    // `content` JSONB column — same race as the plan test above.
+    await waitForDocumentContent(page, 'Completed the API refactoring')
 
     // 7. Navigate back to /my-week using client-side navigation
     await page.getByRole('button', { name: 'Dashboard' }).click()

@@ -76,7 +76,7 @@ export function DocumentTreeItem({
         className={cn(
           'group flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm',
           'hover:bg-border/30 transition-colors',
-          isActive && 'bg-accent/10 text-accent'
+          isActive && 'bg-accent/10 text-accent-text'
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onMouseEnter={() => setIsHovered(true)}

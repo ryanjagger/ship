@@ -136,7 +136,7 @@ export function PersonCombobox({
                   className={cn(
                     'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm',
                     'data-[selected=true]:bg-border/50',
-                    value === person.user_id && 'text-accent'
+                    value === person.user_id && 'text-accent-text'
                   )}
                 >
                   <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-medium text-white">
@@ -147,7 +147,7 @@ export function PersonCombobox({
                     <div className="truncate text-xs text-muted">{person.email}</div>
                   </div>
                   {value === person.user_id && (
-                    <CheckIcon className="ml-auto h-4 w-4 shrink-0 text-accent" />
+                    <CheckIcon className="ml-auto h-4 w-4 shrink-0 text-accent-text" />
                   )}
                 </Command.Item>
               ))}

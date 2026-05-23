@@ -592,7 +592,7 @@ export function TeamModePage() {
             )}
           </div>
           {viewAsSprintNumber !== null && (
-            <div className="flex items-center gap-1.5 rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent">
+            <div className="flex items-center gap-1.5 rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent-text">
               <span>Viewing as {data.weeks.find(w => w.number === viewAsSprintNumber)?.name ?? `Week ${viewAsSprintNumber}`}</span>
               <button
                 onClick={() => setViewAsSprintNumber(null)}
@@ -626,7 +626,7 @@ export function TeamModePage() {
               type="checkbox"
               checked={showArchived}
               onChange={(e) => setShowArchived(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent/50"
+              className="h-3.5 w-3.5 rounded border-border text-accent-text focus:ring-accent/50"
             />
             <span className="text-xs text-muted">Show archived</span>
           </label>
@@ -749,7 +749,7 @@ export function TeamModePage() {
                   >
                     <span className={cn(
                       'text-xs font-medium',
-                      sprint.isCurrent ? 'text-accent' : 'text-foreground'
+                      sprint.isCurrent ? 'text-accent-text' : 'text-foreground'
                     )}>
                       {sprint.name}
                     </span>

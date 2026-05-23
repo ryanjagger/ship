@@ -486,7 +486,7 @@ export function IssueSidebar({
           <button
             onClick={onConvert}
             disabled={isConverting}
-            className="w-full rounded bg-accent/20 px-3 py-2 text-sm font-medium text-accent hover:bg-accent/30 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            className="w-full rounded bg-accent/20 px-3 py-2 text-sm font-medium text-accent-text hover:bg-accent/30 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
           >
             {isConverting ? (
               <>
@@ -524,7 +524,7 @@ export function IssueSidebar({
           <ul className="space-y-1 text-sm">
             {cascadeWarning.incompleteChildren.map((child) => (
               <li key={child.id} className="flex items-center gap-2 text-muted">
-                <span className="font-mono text-xs text-accent">#{child.ticket_number}</span>
+                <span className="font-mono text-xs text-accent-text">#{child.ticket_number}</span>
                 <span className="truncate">{child.title}</span>
                 <span className="ml-auto rounded bg-border px-1.5 py-0.5 text-xs">
                   {child.state}

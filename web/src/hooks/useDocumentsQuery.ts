@@ -195,7 +195,7 @@ export function useDeleteDocument() {
 
 // Compatibility hook that matches the old useDocuments interface
 export function useDocuments() {
-  const { data: documents = [], isLoading: loading, refetch } = useDocumentsQuery('wiki');
+  const { data: documents = [], isLoading: loading, isError, error, refetch } = useDocumentsQuery('wiki');
   const createMutation = useCreateDocument();
   const updateMutation = useUpdateDocument();
   const deleteMutation = useDeleteDocument();
@@ -232,6 +232,8 @@ export function useDocuments() {
   return {
     documents,
     loading,
+    isError,
+    error: error as Error | null,
     createDocument,
     updateDocument,
     deleteDocument,

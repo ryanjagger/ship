@@ -10,6 +10,8 @@ import {
   useCallback,
 } from 'react';
 import { cn } from '@/lib/cn';
+import { uploadFile } from '@/services/upload';
+import { triggerFileUpload } from './FileAttachment';
 
 const API_URL = import.meta.env.VITE_API_URL ?? '';
 
@@ -373,9 +375,6 @@ export function createSlashCommands({ onCreateSubDocument, onNavigateToDocument,
           const file = input.files?.[0];
           if (!file) return;
 
-          // Import and use upload service
-          const { uploadFile } = await import('@/services/upload');
-
           // Create data URL for immediate preview
           const reader = new FileReader();
           reader.onload = async () => {
@@ -439,10 +438,8 @@ export function createSlashCommands({ onCreateSubDocument, onNavigateToDocument,
       description: 'Upload a file attachment',
       aliases: ['file', 'attachment', 'attach', 'pdf', 'doc', 'document'],
       icon: icons.file,
-      command: async ({ editor, range }) => {
+      command: ({ editor, range }) => {
         editor.chain().focus().deleteRange(range).run();
-        // Import and trigger file upload
-        const { triggerFileUpload } = await import('./FileAttachment');
         triggerFileUpload(editor, abortSignal);
       },
     },

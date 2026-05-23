@@ -39,7 +39,7 @@ router.post('/analyze-plan', authMiddleware, async (req: Request, res: Response)
     res.json(result);
   } catch (err) {
     console.error('Analyze plan error:', err);
-    res.json({ error: 'ai_unavailable' });
+    res.status(503).json({ error: 'ai_unavailable' });
   }
 });
 
@@ -69,7 +69,7 @@ router.post('/analyze-retro', authMiddleware, async (req: Request, res: Response
     res.json(result);
   } catch (err) {
     console.error('Analyze retro error:', err);
-    res.json({ error: 'ai_unavailable' });
+    res.status(503).json({ error: 'ai_unavailable' });
   }
 });
 

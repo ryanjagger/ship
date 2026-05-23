@@ -186,6 +186,8 @@ export function Editor({
 }: EditorProps) {
   const [title, setTitle] = useState(initialTitle === 'Untitled' ? '' : initialTitle);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
+  const [commentMenuPos, setCommentMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const commentMenuFirstItemRef = useRef<HTMLButtonElement | null>(null);
 
   // Track if user has made local changes (to prevent stale server responses from overwriting)
   const hasLocalChangesRef = useRef(false);
@@ -225,6 +227,23 @@ export function Editor({
       el.style.height = `${el.scrollHeight}px`;
     }
   }, [title]);
+
+  useEffect(() => {
+    if (!commentMenuPos) return;
+    commentMenuFirstItemRef.current?.focus();
+  }, [commentMenuPos]);
+
+  useEffect(() => {
+    if (!commentMenuPos) return;
+    const handler = (e: MouseEvent) => {
+      const menuEl = document.querySelector('[role="menu"][aria-label="Comment actions"]');
+      if (menuEl && !menuEl.contains(e.target as Node)) {
+        setCommentMenuPos(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [commentMenuPos]);
   const [provider, setProvider] = useState<WebsocketProvider | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('connecting');
   const [isBrowserOnline, setIsBrowserOnline] = useState(navigator.onLine);
@@ -556,7 +575,7 @@ export function Editor({
     Link.configure({
       openOnClick: true,
       HTMLAttributes: {
-        class: 'text-accent hover:underline cursor-pointer',
+        class: 'text-accent-text hover:underline cursor-pointer',
       },
     }),
     ResizableImage,
@@ -622,6 +641,9 @@ export function Editor({
     editorProps: {
       attributes: {
         class: 'prose prose-invert prose-sm max-w-none focus:outline-none min-h-[300px]',
+        'aria-label': 'Document body',
+        'aria-multiline': 'true',
+        role: 'textbox',
       },
     },
   }, [provider, documentType]);
@@ -838,21 +860,20 @@ export function Editor({
           {/* Optional header badge (e.g., issue number) */}
           {headerBadge}
 
-          {/* Title (display only - edit via large title below) - h1 for accessibility */}
-          {/* WCAG 1.4.12: min-w-[3rem] prevents collapse, overflow-visible shows text */}
-          <h1 className="flex-1 min-w-[3rem] overflow-visible text-sm font-medium text-foreground m-0">
+          <div className="flex-1 min-w-[3rem] overflow-visible text-sm font-medium text-foreground m-0">
             {title || 'Untitled'}
             {titleSuffix && <span className="text-muted font-normal"> &mdash; {titleSuffix}</span>}
-          </h1>
+          </div>
 
           {/* Sync status - WCAG 4.1.3 aria-live for status messages */}
           {/* Show 'Offline' when browser is offline, regardless of WebSocket state */}
           {(() => {
             const effectiveStatus = !isBrowserOnline ? 'disconnected' : syncStatus;
+            const isDegraded = effectiveStatus === 'disconnected' || effectiveStatus === 'cached';
             return (
               <div
                 role="status"
-                aria-live="polite"
+                aria-live={isDegraded ? 'polite' : 'off'}
                 aria-atomic="true"
                 className="flex items-center gap-1.5"
                 data-testid="sync-status"
@@ -940,6 +961,7 @@ export function Editor({
                 el.style.height = `${el.scrollHeight}px`;
               }}
               placeholder="Untitled"
+              aria-label="Document title"
               readOnly={titleReadOnly}
               rows={1}
               className={cn(
@@ -954,33 +976,42 @@ export function Editor({
               onContextMenu={(e) => {
                 if (!editor || editor.state.selection.empty) return;
                 e.preventDefault();
-                const menu = document.createElement('div');
-                menu.className = 'comment-context-menu';
-                menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:9999;background:rgb(39,39,42);border:1px solid rgb(63,63,70);border-radius:6px;padding:4px 0;box-shadow:0 4px 12px rgba(0,0,0,0.4);`;
-                const btn = document.createElement('button');
-                btn.textContent = 'Add Comment';
-                btn.style.cssText = 'display:block;width:100%;padding:6px 12px;background:none;border:none;color:rgb(228,228,231);font-size:13px;cursor:pointer;text-align:left;';
-                btn.onmouseenter = () => { btn.style.background = 'rgb(63,63,70)'; };
-                btn.onmouseleave = () => { btn.style.background = 'none'; };
-                btn.onclick = () => {
-                  editor.commands.addComment();
-                  menu.remove();
-                };
-                menu.appendChild(btn);
-                document.body.appendChild(menu);
-                const dismiss = (ev: MouseEvent) => {
-                  if (!menu.contains(ev.target as Node)) {
-                    menu.remove();
-                    document.removeEventListener('mousedown', dismiss);
-                  }
-                };
-                setTimeout(() => document.addEventListener('mousedown', dismiss), 0);
+                setCommentMenuPos({ x: e.clientX, y: e.clientY });
               }}
             >
               <ErrorBoundary>
                 <EditorContent editor={editor} />
               </ErrorBoundary>
             </div>
+            {commentMenuPos && (
+              <div
+                role="menu"
+                aria-label="Comment actions"
+                style={{ position: 'fixed', left: commentMenuPos.x, top: commentMenuPos.y, zIndex: 9999 }}
+                className="bg-background border border-border rounded-md shadow-lg p-1"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setCommentMenuPos(null);
+                    editor?.commands.focus();
+                  }
+                }}
+              >
+                <button
+                  ref={commentMenuFirstItemRef}
+                  role="menuitem"
+                  tabIndex={-1}
+                  className="block w-full px-3 py-1.5 text-left text-sm text-foreground hover:bg-border/50 rounded"
+                  onClick={() => {
+                    editor?.commands.addComment();
+                    setCommentMenuPos(null);
+                    editor?.commands.focus();
+                  }}
+                >
+                  Add Comment
+                </button>
+              </div>
+            )}
             {editor && !editor.isDestroyed && (
               <BubbleMenu
                 editor={editor}

@@ -36,7 +36,7 @@ const COLUMN_VISIBILITY_KEY = 'documents-column-visibility';
 type VisibilityFilter = 'all' | 'workspace' | 'private';
 
 export function DocumentsPage() {
-  const { documents, loading, createDocument, deleteDocument } = useDocuments();
+  const { documents, loading, isError, refreshDocuments, createDocument, deleteDocument } = useDocuments();
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
@@ -253,8 +253,40 @@ export function DocumentsPage() {
         />
       )}
 
+      {/* Stale-data banner when refetch fails but we still have cached docs */}
+      {isError && documents.length > 0 && (
+        <div
+          role="status"
+          className="border-b border-border bg-warning/10 px-6 py-2 text-sm text-foreground"
+        >
+          <span className="text-muted">Showing cached documents — couldn’t reach the server. </span>
+          <button
+            type="button"
+            onClick={() => { void refreshDocuments(); }}
+            className="text-accent-text hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Content */}
-      {filteredDocuments.length === 0 ? (
+      {isError && documents.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="max-w-sm text-center" role="alert">
+            <p className="text-foreground">Documents could not be loaded</p>
+            <p className="mt-1 text-sm text-muted">
+              The server returned an error. Check your connection and try again.
+            </p>
+            <button
+              onClick={() => { void refreshDocuments(); }}
+              className="mt-3 rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-border/30"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      ) : filteredDocuments.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             {documents.length === 0 ? (
@@ -262,7 +294,7 @@ export function DocumentsPage() {
                 <p className="text-muted">No documents yet</p>
                 <button
                   onClick={() => handleCreateDocument()}
-                  className="mt-2 text-sm text-accent hover:underline"
+                  className="mt-2 text-sm text-accent-text hover:underline"
                 >
                   Create your first document
                 </button>

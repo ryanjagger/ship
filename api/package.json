@@ -68,6 +68,7 @@
     "@types/supertest": "^6.0.3",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/ws": "^8.5.13",
+    "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^4.0.16",
     "openapi3-ts": "^4.5.0",
     "supertest": "^7.1.4",

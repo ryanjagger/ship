@@ -43,7 +43,8 @@ test.describe('Issues - Bulk Operations', () => {
 
   test('can archive an issue via context menu', async ({ page }) => {
     // Create a new issue to archive (ensures we have one)
-    await page.keyboard.press('c')
+    // WCAG 2.1.4: single-char shortcut requires modifier; Shift+C creates an issue
+    await page.keyboard.press('Shift+C')
     await expect(page).toHaveURL(/\/documents\/[a-f0-9-]+/, { timeout: 5000 })
 
     // Go back to issues list

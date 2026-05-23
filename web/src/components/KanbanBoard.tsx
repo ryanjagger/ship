@@ -98,6 +98,14 @@ export function KanbanBoard({
     setActiveId(event.active.id as string);
   };
 
+  // over.id is either a column id (dropped on the column body) or an issue id
+  // (dropped on another card). Resolve to the destination column either way.
+  const resolveColumnIdFromOver = (overId: string | number): string | null => {
+    if (COLUMNS.some((col) => col.id === overId)) return overId as string;
+    const overIssue = issues.find((i) => i.id === overId);
+    return overIssue ? overIssue.state : null;
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveId(null);
@@ -109,19 +117,7 @@ export function KanbanBoard({
     const activeIssue = issues.find((i) => i.id === active.id);
     if (!activeIssue) return;
 
-    // Determine target column
-    let targetColumn: string | null = null;
-
-    // Check if dropped on a column
-    if (COLUMNS.some((col) => col.id === over.id)) {
-      targetColumn = over.id as string;
-    } else {
-      // Dropped on another issue - find its column
-      const overIssue = issues.find((i) => i.id === over.id);
-      if (overIssue) {
-        targetColumn = overIssue.state;
-      }
-    }
+    const targetColumn = resolveColumnIdFromOver(over.id);
 
     if (targetColumn && targetColumn !== activeIssue.state) {
       onUpdateIssue(activeIssue.id, { state: targetColumn });
@@ -130,12 +126,60 @@ export function KanbanBoard({
 
   const activeIssue = activeId ? issues.find((i) => i.id === activeId) : null;
 
+  const getIssueLabel = (id: string | number) => {
+    const issue = issues.find((i) => i.id === id);
+    return issue ? `#${issue.ticket_number}: ${issue.title}` : String(id);
+  };
+
+  const getColumnLabel = (id: string | number) => {
+    const column = COLUMNS.find((c) => c.id === id);
+    return column ? column.title : String(id);
+  };
+
+  const describeOverColumn = (overId: string | number): string | null => {
+    const columnId = resolveColumnIdFromOver(overId);
+    return columnId ? getColumnLabel(columnId) : null;
+  };
+
+  const announcements = {
+    onDragStart({ active }: { active: { id: string | number } }) {
+      return `Picked up issue ${getIssueLabel(active.id)}.`;
+    },
+    onDragOver({ active, over }: { active: { id: string | number }; over: { id: string | number } | null }) {
+      if (over) {
+        const columnLabel = describeOverColumn(over.id);
+        if (columnLabel) {
+          return `Issue ${getIssueLabel(active.id)} is over ${columnLabel}.`;
+        }
+      }
+      return `Issue ${getIssueLabel(active.id)} is no longer over a column.`;
+    },
+    onDragEnd({ active, over }: { active: { id: string | number }; over: { id: string | number } | null }) {
+      if (over) {
+        const columnLabel = describeOverColumn(over.id);
+        if (columnLabel) {
+          return `Issue ${getIssueLabel(active.id)} was dropped in ${columnLabel}.`;
+        }
+      }
+      return `Issue ${getIssueLabel(active.id)} was dropped outside any column.`;
+    },
+    onDragCancel({ active }: { active: { id: string | number } }) {
+      return `Drag of issue ${getIssueLabel(active.id)} was cancelled.`;
+    },
+  };
+
+  const screenReaderInstructions = {
+    draggable:
+      'To pick up an issue, press Space or Enter. Use arrow keys to move it between columns. Press Space or Enter again to drop. Press Escape to cancel.',
+  };
+
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      accessibility={{ announcements, screenReaderInstructions }}
     >
       <div
         role="application"
@@ -280,7 +324,6 @@ function SortableIssueCard({
       data-issue
       data-dragging={isDragging ? 'true' : undefined}
       data-selected={isSelected ? 'true' : undefined}
-      aria-grabbed={isDragging ? 'true' : 'false'}
       aria-selected={isSelected}
       tabIndex={0}
       role="button"
@@ -350,7 +393,7 @@ function IssueCard({
               onCheckboxClick(e);
             }}
             aria-label={`Select issue #${issue.ticket_number}`}
-            className="h-4 w-4 rounded border-border text-accent focus:ring-accent cursor-pointer"
+            className="h-4 w-4 rounded border-border text-accent-text focus:ring-accent cursor-pointer"
           />
         )}
       </div>

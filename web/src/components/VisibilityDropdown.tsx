@@ -59,12 +59,12 @@ export function VisibilityDropdown({ value, onChange, disabled = false }: Visibi
                   className={cn(
                     'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm',
                     'hover:bg-border/50 transition-colors',
-                    isSelected && 'text-accent'
+                    isSelected && 'text-accent-text'
                   )}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   <span className="flex-1">{option.label}</span>
-                  {isSelected && <CheckIcon className="h-4 w-4 shrink-0 text-accent" />}
+                  {isSelected && <CheckIcon className="h-4 w-4 shrink-0 text-accent-text" />}
                 </button>
               );
             })}

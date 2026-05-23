@@ -3,14 +3,19 @@ import { readFileSync } from 'node:fs';
 
 const requireFromApi = createRequire(new URL('../../api/package.json', import.meta.url));
 const pg = requireFromApi('pg');
+const summaryOnly = process.argv.includes('--summary-only');
 
 function loadDatabaseUrl() {
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
+
   const env = readFileSync(new URL('../../api/.env.local', import.meta.url), 'utf8');
   const match = env.match(/^DATABASE_URL=(.+)$/m);
   if (!match) {
     throw new Error('DATABASE_URL was not found in api/.env.local');
   }
-  return match[1].trim();
+  return match[1].trim().replace(/^['"]|['"]$/g, '');
 }
 
 const pool = new pg.Pool({ connectionString: loadDatabaseUrl() });
@@ -273,9 +278,11 @@ async function summarize(workspaceId) {
 }
 
 const workspaceId = await getWorkspaceId();
-const users = await seedUsers(workspaceId);
-await seedWikiDocuments(workspaceId, users);
-await seedIssues(workspaceId, users);
-await seedLinks(workspaceId);
+if (!summaryOnly) {
+  const users = await seedUsers(workspaceId);
+  await seedWikiDocuments(workspaceId, users);
+  await seedIssues(workspaceId, users);
+  await seedLinks(workspaceId);
+}
 console.log(JSON.stringify(await summarize(workspaceId), null, 2));
 await pool.end();
