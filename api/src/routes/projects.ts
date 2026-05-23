@@ -393,8 +393,10 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
                END AS allocation_status
         FROM documents s
         JOIN workspaces w ON w.id = s.workspace_id
-        JOIN visible_projects vp ON vp.id = (s.properties->>'project_id')::uuid
+        JOIN visible_projects vp ON vp.workspace_id = s.workspace_id
+                                AND vp.id = (s.properties->>'project_id')::uuid
         WHERE s.document_type = 'sprint'
+          AND s.workspace_id = $1  -- match the previous correlated-subquery scope
           AND jsonb_array_length(COALESCE(s.properties->'assignee_ids', '[]'::jsonb)) > 0
         GROUP BY (s.properties->>'project_id')::uuid
       )
