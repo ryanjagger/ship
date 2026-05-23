@@ -26,6 +26,18 @@ export type ProbeCheck = {
   reproductionSteps: string[];
 };
 
+const SURFACE_ORDER: ProbeSurface[] = [
+  'preflight',
+  'auth',
+  'websocket',
+  'dependencies',
+  'inputs',
+  'headers',
+  'secrets',
+  'rate-limit',
+  'runner',
+];
+
 export type ProbeReport = {
   tool: 'probe';
   generatedAt: string;
@@ -38,6 +50,9 @@ export type ProbeReport = {
     allowMutation: boolean;
     keepData: boolean;
     databaseUrlAvailable: boolean;
+    onlyGroups: string[];
+    skipGroups: string[];
+    aggressiveRateLimit: boolean;
   };
   summary: {
     total: number;
@@ -105,6 +120,7 @@ export function notTested(
 }
 
 export function createReport(config: ProbeConfig, checks: ProbeCheck[]): ProbeReport {
+  const redactedChecks = checks.map(redactCheck);
   const bySeverity: Record<ProbeSeverity, number> = {
     info: 0,
     low: 0,
@@ -113,7 +129,7 @@ export function createReport(config: ProbeConfig, checks: ProbeCheck[]): ProbeRe
     critical: 0,
   };
 
-  for (const check of checks) {
+  for (const check of redactedChecks) {
     if (check.status === 'finding') {
       bySeverity[check.severity] += 1;
     }
@@ -131,15 +147,18 @@ export function createReport(config: ProbeConfig, checks: ProbeCheck[]): ProbeRe
       allowMutation: config.allowMutation,
       keepData: config.keepData,
       databaseUrlAvailable: Boolean(config.databaseUrl),
+      onlyGroups: config.onlyGroups,
+      skipGroups: config.skipGroups,
+      aggressiveRateLimit: config.aggressiveRateLimit,
     },
     summary: {
-      total: checks.length,
-      passed: checks.filter((check) => check.status === 'pass').length,
-      findings: checks.filter((check) => check.status === 'finding').length,
-      notTested: checks.filter((check) => check.status === 'not-tested').length,
+      total: redactedChecks.length,
+      passed: redactedChecks.filter((check) => check.status === 'pass').length,
+      findings: redactedChecks.filter((check) => check.status === 'finding').length,
+      notTested: redactedChecks.filter((check) => check.status === 'not-tested').length,
       bySeverity,
     },
-    checks,
+    checks: redactedChecks,
   };
 
   return report;
@@ -166,6 +185,9 @@ export function renderMarkdown(report: ProbeReport): string {
   lines.push(`- API target: \`${report.target.apiUrl}\``);
   if (report.target.webUrl) lines.push(`- Web target: \`${report.target.webUrl}\``);
   lines.push(`- Mutating probes: \`${report.config.allowMutation ? 'enabled' : 'disabled'}\``);
+  lines.push(`- Aggressive rate-limit mode: \`${report.config.aggressiveRateLimit ? 'enabled' : 'disabled'}\``);
+  if (report.config.onlyGroups.length > 0) lines.push(`- Only groups: \`${report.config.onlyGroups.join(', ')}\``);
+  if (report.config.skipGroups.length > 0) lines.push(`- Skipped groups: \`${report.config.skipGroups.join(', ')}\``);
   lines.push(`- DATABASE_URL available: \`${report.config.databaseUrlAvailable ? 'yes' : 'no'}\``);
   lines.push('');
 
@@ -181,6 +203,15 @@ export function renderMarkdown(report: ProbeReport): string {
   lines.push(`| High | ${report.summary.bySeverity.high} |`);
   lines.push(`| Medium | ${report.summary.bySeverity.medium} |`);
   lines.push(`| Low | ${report.summary.bySeverity.low} |`);
+  lines.push('');
+
+  lines.push('## Surface Summary');
+  lines.push('');
+  lines.push('| Surface | Findings | Not tested | Passed |');
+  lines.push('| --- | ---: | ---: | ---: |');
+  for (const summary of summarizeBySurface(report)) {
+    lines.push(`| ${summary.surface} | ${summary.findings} | ${summary.notTested} | ${summary.passed} |`);
+  }
   lines.push('');
 
   lines.push('## Audit Deliverable');
@@ -240,4 +271,84 @@ function summarizeFindingsByIdPrefix(report: ProbeReport, surface: ProbeSurface,
   });
   if (findings.length === 0) return 'None found';
   return findings.map((check) => `${check.severity}: ${check.title}`).join('<br>');
+}
+
+function summarizeBySurface(report: ProbeReport): Array<{ surface: ProbeSurface; findings: number; notTested: number; passed: number }> {
+  const summaries = new Map<ProbeSurface, { surface: ProbeSurface; findings: number; notTested: number; passed: number }>();
+
+  for (const check of report.checks) {
+    const current = summaries.get(check.surface) ?? { surface: check.surface, findings: 0, notTested: 0, passed: 0 };
+    if (check.status === 'finding') current.findings += 1;
+    if (check.status === 'not-tested') current.notTested += 1;
+    if (check.status === 'pass') current.passed += 1;
+    summaries.set(check.surface, current);
+  }
+
+  return [...summaries.values()].sort((a, b) => SURFACE_ORDER.indexOf(a.surface) - SURFACE_ORDER.indexOf(b.surface));
+}
+
+function redactCheck(check: ProbeCheck): ProbeCheck {
+  return {
+    ...check,
+    evidence: redactValue(check.evidence),
+  };
+}
+
+function redactValue(value: unknown, key = ''): unknown {
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === 'string') {
+    if (isSensitiveKey(key)) return '[redacted]';
+    return redactString(value);
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return isSensitiveKey(key) ? '[redacted]' : value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactValue(entry, key));
+  }
+
+  if (typeof value === 'object') {
+    const redacted: Record<string, unknown> = {};
+    for (const [entryKey, entryValue] of Object.entries(value)) {
+      redacted[entryKey] = redactValue(entryValue, entryKey);
+    }
+    return redacted;
+  }
+
+  return value;
+}
+
+function isSensitiveKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return [
+    'password',
+    'authorization',
+    'cookie',
+    'setcookie',
+    'sessionid',
+    'csrftoken',
+    'csrf',
+    'token',
+    'apitoken',
+    'accesstoken',
+    'refreshtoken',
+    'secret',
+    'apikey',
+    'accesskey',
+    'privatekey',
+    'databaseurl',
+  ].includes(normalized);
+}
+
+function redactString(value: string): string {
+  return value
+    .replace(/postgres(?:ql)?:\/\/[^"'\s<>)]+/gi, '[redacted:database-url]')
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[redacted:private-key]')
+    .replace(/AKIA[0-9A-Z]{16}/g, '[redacted:aws-access-key]')
+    .replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[redacted:jwt]')
+    .replace(/session_id=[^;\s"']+/gi, 'session_id=[redacted]')
+    .replace(/("(?:password|token|csrfToken|apiToken|secret|authorization)"\s*:\s*")[^"]+(")/gi, '$1[redacted]$2');
 }

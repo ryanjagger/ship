@@ -40,6 +40,7 @@ type RateLimitResult = {
 
 const SAFE_BURST_ATTEMPTS = 6;
 const LOGIN_SIGNAL_ATTEMPTS = 2;
+const AGGRESSIVE_LOGIN_ATTEMPTS = 8;
 const ATTEMPT_DELAY_MS = 125;
 const BODY_PREVIEW_LENGTH = 220;
 
@@ -130,18 +131,26 @@ export async function runRateLimitProbe(config: ProbeConfig): Promise<ProbeCheck
   }
 
   const loginClient = new ProbeHttpClient(config.apiUrl, config.timeoutMs, userAgent);
-  checks.push(await checkRateLimitCase(config, loginClient, {
-    id: 'rate_limit.auth_login.configured_credentials',
-    title: 'No rate-limit signal observed for login attempts',
-    method: 'POST',
-    path: '/api/auth/login',
-    attempts: LOGIN_SIGNAL_ATTEMPTS,
-    severity: 'high',
-    freshClientPerAttempt: true,
-    loginCredentials: {
+  const loginCredentials = config.aggressiveRateLimit
+    ? {
+      email: `probe-rate-limit-${safeRunId(config.runId)}@invalid.local`,
+      password: 'definitely-not-the-password',
+    }
+    : {
       email: config.email,
       password: config.password,
-    },
+    };
+  checks.push(await checkRateLimitCase(config, loginClient, {
+    id: config.aggressiveRateLimit ? 'rate_limit.auth_login.invalid_password_aggressive' : 'rate_limit.auth_login.configured_credentials',
+    title: config.aggressiveRateLimit
+      ? 'No rate-limit rejection observed for invalid login attempts'
+      : 'No rate-limit signal observed for login attempts',
+    method: 'POST',
+    path: '/api/auth/login',
+    attempts: config.aggressiveRateLimit ? AGGRESSIVE_LOGIN_ATTEMPTS : LOGIN_SIGNAL_ATTEMPTS,
+    severity: 'high',
+    freshClientPerAttempt: true,
+    loginCredentials,
   }));
 
   return checks;
@@ -264,6 +273,10 @@ function delay(ms: number): Promise<void> {
 
 function shouldCaptureBodyPreview(response: ProbeResponse): boolean {
   return !response.ok || response.status === 429 || RATE_LIMIT_BODY_PATTERN.test(response.bodyText);
+}
+
+function safeRunId(runId: string): string {
+  return runId.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 48);
 }
 
 function compactBody(response: ProbeResponse): unknown {

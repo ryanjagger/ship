@@ -2,6 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
+export const PROBE_GROUPS = [
+  'preflight',
+  'auth',
+  'websocket',
+  'dependencies',
+  'inputs',
+  'headers',
+  'rate-limit',
+] as const;
+
+export type ProbeGroup = typeof PROBE_GROUPS[number];
+
 export type ProbeConfig = {
   repoRoot: string;
   apiUrl: string;
@@ -14,6 +26,9 @@ export type ProbeConfig = {
   timeoutMs: number;
   runId: string;
   databaseUrl?: string;
+  onlyGroups: ProbeGroup[];
+  skipGroups: ProbeGroup[];
+  aggressiveRateLimit: boolean;
 };
 
 const DEFAULT_API_URL = 'http://localhost:3000';
@@ -26,6 +41,16 @@ function readValue(args: string[], name: string): string | undefined {
   if (index === -1) return undefined;
   const value = args[index + 1];
   return value && !value.startsWith('--') ? value : undefined;
+}
+
+function readValues(args: string[], name: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== name) continue;
+    const value = args[index + 1];
+    if (value && !value.startsWith('--')) values.push(value);
+  }
+  return values;
 }
 
 function normalizeBaseUrl(value: string): string {
@@ -43,6 +68,8 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
   const webUrlRaw = readValue(argv, '--web-url') ?? process.env.PROBE_WEB_URL;
   const outputDir = resolve(repoRoot, readValue(argv, '--output-dir') ?? process.env.PROBE_OUTPUT_DIR ?? 'probe/results');
   const timeoutValue = Number(readValue(argv, '--timeout-ms') ?? process.env.PROBE_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+  const onlyGroups = parseProbeGroups([...readValues(argv, '--only'), process.env.PROBE_ONLY ?? ''].filter(Boolean), '--only');
+  const skipGroups = parseProbeGroups([...readValues(argv, '--skip'), process.env.PROBE_SKIP ?? ''].filter(Boolean), '--skip');
 
   return {
     repoRoot,
@@ -56,6 +83,9 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
     timeoutMs: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : DEFAULT_TIMEOUT_MS,
     runId: readValue(argv, '--run-id') ?? `probe-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`,
     databaseUrl: process.env.DATABASE_URL,
+    onlyGroups,
+    skipGroups,
+    aggressiveRateLimit: argv.includes('--aggressive-rate-limit') || process.env.PROBE_AGGRESSIVE_RATE_LIMIT === '1',
   };
 }
 
@@ -69,6 +99,26 @@ function findRepoRoot(start: string): string {
   }
 }
 
+function parseProbeGroups(values: string[], flagName: string): ProbeGroup[] {
+  const groups = values
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const invalid = groups.filter((group) => !isProbeGroup(group));
+
+  if (invalid.length > 0) {
+    console.error(`Invalid ${flagName} probe group: ${invalid.join(', ')}`);
+    console.error(`Valid groups: ${PROBE_GROUPS.join(', ')}`);
+    process.exit(0);
+  }
+
+  return [...new Set(groups)] as ProbeGroup[];
+}
+
+function isProbeGroup(value: string): value is ProbeGroup {
+  return (PROBE_GROUPS as readonly string[]).includes(value);
+}
+
 function printHelp(): void {
   console.log(`Usage:
   pnpm probe -- --api-url http://localhost:3000 --web-url http://localhost:5173 --allow-mutation
@@ -79,6 +129,10 @@ Options:
   --email <email>       Login email. Default: ${DEFAULT_EMAIL}
   --password <password> Login password. Default: ${DEFAULT_PASSWORD}
   --allow-mutation      Required for probes that create tokens, invites, users, or DB session changes.
+  --aggressive-rate-limit
+                        Force a 429 proof against login rate limiting. May affect reruns until the limiter resets.
+  --only <groups>       Comma-separated probe groups to run. Valid: ${PROBE_GROUPS.join(', ')}
+  --skip <groups>       Comma-separated probe groups to skip. Valid: ${PROBE_GROUPS.join(', ')}
   --keep-data           Keep audit-created data where cleanup is supported.
   --output-dir <dir>    Report output directory. Default: probe/results
   --timeout-ms <ms>     Per-request timeout. Default: ${DEFAULT_TIMEOUT_MS}

@@ -11,8 +11,10 @@ This document tracks the probe surfaces as they are added.
 - Input sanitization probe: creates dedicated wiki/issue/comment fixtures with XSS canaries, checks stored API round trips, optionally verifies browser execution with Playwright, sends reflected-XSS and SQL-injection query payloads to representative endpoints, validates long-input rejection, and reports cleanup.
 - Headers/secrets probe: checks hostile-origin CORS behavior, baseline security headers on API/web targets, verbose error leakage from malformed authenticated requests, and common live HTTP secret paths.
 - Rate-limit probe: sends production-safe low-volume bursts to CSRF, login, authenticated search/read, and invalid authenticated write endpoints, then reports whether rate-limit headers or retry signals were observed without exhausting the login limiter by default.
+- Probe selection: supports `--only` and `--skip` for focused reruns by probe group.
+- Report safety and usability: redacts token, cookie, password, secret, database URL, private-key, JWT, and AWS-key shaped values before writing reports; CLI and markdown output include per-surface summaries.
+- Aggressive rate-limit proof mode: `--aggressive-rate-limit` explicitly forces invalid-login attempts until a 429 is observed, and is disabled by default to keep normal reruns repeatable.
 
 ## Planned
 
-- Report redaction pass: centralize masking for tokens, cookies, passwords, secret-looking snippets, and high-risk response bodies before writing JSON/markdown reports.
-- Aggressive rate-limit proof mode: optional higher-volume checks behind an explicit flag.
+- Probe group timing: include per-group elapsed time in the CLI summary and report metadata.
