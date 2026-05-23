@@ -40,7 +40,7 @@ Each row is one shipped commit. Detailed before/after analysis for each item liv
 
 ## Post-Phase-4 audit re-run vs README baseline
 
-Ran `pnpm audit:db-query-efficiency` against the same seeded dataset the README baseline used (`pnpm db:seed && node audit/api-reponse-time/seed-volume.mjs && pnpm db:migrate`). Both runs were full-cold-start (fresh `pnpm dev`, no in-process pre-warming).
+Ran `pnpm audit:db-query-efficiency` against the same seeded dataset the README baseline used (`pnpm db:seed && node audit/api-response-time/seed-volume.mjs && pnpm db:migrate`). Both runs were full-cold-start (fresh `pnpm dev`, no in-process pre-warming).
 
 | User Flow | Total Queries (README → now) | N+1 Detected? (README → now) |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ Notes on the shape:
 - The `WHERE deleted_at IS NULL` partial predicate matches the always-applied filter in every search route, so soft-deleted titles are not indexed and don't bloat the GIN structure.
 - `gin_trgm_ops` is the operator class that lets the planner serve `ILIKE '%term%'` and `~~* '...'` patterns from a GIN index. Btree on `title` cannot do this.
 - The migration is idempotent (`IF NOT EXISTS` on both statements). Re-running is a no-op.
-- No `ANALYZE documents` in the migration itself — `pnpm db:migrate` is the canonical apply path, and `ANALYZE` will be added when Phase 1 lands the broader index set. For this item the audit re-run was preceded by a re-seed (`pnpm db:seed && node audit/api-reponse-time/seed-volume.mjs`), which implicitly produces fresh stats.
+- No `ANALYZE documents` in the migration itself — `pnpm db:migrate` is the canonical apply path, and `ANALYZE` will be added when Phase 1 lands the broader index set. For this item the audit re-run was preceded by a re-seed (`pnpm db:seed && node audit/api-response-time/seed-volume.mjs`), which implicitly produces fresh stats.
 
 **After (verified 2026-05-22 against seeded local DB, 717 documents).**
 
@@ -113,7 +113,7 @@ Notes on the shape:
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 pnpm audit:db-query-efficiency
 ```
@@ -212,7 +212,7 @@ End-to-end audit re-run (`pnpm audit:db-query-efficiency`) confirms the change i
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 pnpm audit:db-query-efficiency
 ```
@@ -275,7 +275,7 @@ The plan switched from `Aggregate → Index Scan (200 rows)` to `Index Only Scan
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
   SELECT COALESCE(MAX(ticket_number), 0) + 1 FROM documents
@@ -339,7 +339,7 @@ Both indexes are created and registered. EXPLAIN ANALYZE:
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 # Verify EXPLAIN ANALYZE matches the table above for the weekly_plan
 # uniqueness query — see migration header for the exact SQL.
@@ -389,7 +389,7 @@ Execution dropped **0.499ms → 0.117ms (~4.3× at 347 rows)**. More importantly
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
   SELECT id, position, created_at FROM documents
@@ -443,7 +443,7 @@ Net effect: -1 unused-visibility-column index slot, +1 targeted lookup index, sl
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 psql "$DATABASE_URL" -c "EXPLAIN ANALYZE
   SELECT id FROM documents
@@ -578,7 +578,7 @@ The planner constant-folded `OR TRUE` to TRUE and dropped the OR entirely. Plan 
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 pnpm audit:db-query-efficiency --json | sed -n '/^{/,$p' > /tmp/audit.json
 # Then inspect explains[].sql for "OR TRUE" and explains[].planText for
@@ -766,7 +766,7 @@ Individual query plan-executions are sub-millisecond (the audit indexes from Pha
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 pnpm audit:db-query-efficiency
 # Verify /api/dashboard/my-week appears in the EXPLAIN ANALYZE Summary
@@ -963,7 +963,7 @@ Type-check + tests still green (api 451/451 including the `accountability.test.t
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 pnpm audit:db-query-efficiency
 # Expect the Audit Deliverable table's "Total Queries" column to read
@@ -974,7 +974,7 @@ pnpm audit:db-query-efficiency
 
 ```bash
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm db:migrate
 pnpm audit:db-query-efficiency
 # Expect: /api/projects no longer in "EXPLAIN ANALYZE Summary" slow list.

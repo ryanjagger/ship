@@ -22,8 +22,8 @@
 -- UNIQUE(user_id, workspace_id, name) already prevents name collisions
 -- but doesn't help with hash lookup.
 --
--- See audit/api-reponse-time/peer-review.md §6 and
--- audit/api-reponse-time/implementation.md §1.4.
+-- See audit/api-response-time/peer-review.md §6 and
+-- audit/api-response-time/implementation.md §1.4.
 
 CREATE INDEX IF NOT EXISTS idx_api_tokens_hash
   ON api_tokens (token_hash)

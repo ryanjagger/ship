@@ -6,7 +6,7 @@ Measured database query count and slow query shape for the unified document mode
 
 ## Seeded Data
 
-The local audit database used the standard seed plus the audit volume seed from `audit/api-reponse-time/seed-volume.mjs`.
+The local audit database used the standard seed plus the audit volume seed from `audit/api-response-time/seed-volume.mjs`.
 
 | Data type | Count |
 | --- | ---: |
@@ -48,7 +48,7 @@ The reproducible audit script uses the API package's local PostgreSQL connection
 ```bash
 pnpm db:migrate
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 pnpm audit:db-query-efficiency
 ```
 

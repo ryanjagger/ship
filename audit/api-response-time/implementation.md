@@ -482,13 +482,13 @@ After each phase, re-run the audit's primary benchmark and append a "Post-Phase 
 - Delta vs. README baseline.
 - Any new gap or surprise that surfaced.
 
-The full reproduction is in `README.md` §1-6 (`pnpm db:seed`, `node audit/api-reponse-time/seed-volume.mjs`, `pnpm build:api`, start API on :3001, `node audit/api-reponse-time/benchmark-ab.mjs | tee results/benchmark.json`, `node audit/api-reponse-time/format-results.mjs results/benchmark.json`).
+The full reproduction is in `README.md` §1-6 (`pnpm db:seed`, `node audit/api-response-time/seed-volume.mjs`, `pnpm build:api`, start API on :3001, `node audit/api-response-time/benchmark-ab.mjs | tee results/benchmark.json`, `node audit/api-response-time/format-results.mjs results/benchmark.json`).
 
 **Migrate caveat for any re-run.** `pnpm db:migrate` short-circuits past pending migrations when `schema.sql` throws "already exists" — see the §1.4 apply caveat. For the disposable benchmark DB the workaround is to run each pending migration file with `psql -v ON_ERROR_STOP=1 -f migrations/NNN_*.sql` and skip the ones whose post-state is already in `schema.sql` (treating "already exists" / "not an existing enum label" / etc. as "applied via schema.sql"). The re-run scripted below uses that pattern.
 
 ## Post-Phase-1 audit re-run
 
-Ran `audit/api-reponse-time/benchmark-ab.mjs` against the disposable `ship_api_response_time_audit` DB after applying all 49 migrations (including 044) and the same `pnpm db:seed` + `seed-volume.mjs` pipeline the README baseline used. The build was `pnpm build:api` (production-style artifact, `node api/dist/index.js`) on this branch's HEAD (`baa7155`).
+Ran `audit/api-response-time/benchmark-ab.mjs` against the disposable `ship_api_response_time_audit` DB after applying all 49 migrations (including 044) and the same `pnpm db:seed` + `seed-volume.mjs` pipeline the README baseline used. The build was `pnpm build:api` (production-style artifact, `node api/dist/index.js`) on this branch's HEAD (`baa7155`).
 
 Volume matches baseline within noise: **35 users / 717 documents** (README expected 36/718 — within tolerance), 347 wiki / 200 issues / 35 weeks / 15 projects / 5 programs.
 
@@ -553,4 +553,4 @@ Two operational issues discovered during the re-run, both pre-existing rather th
 
 ### Result files
 
-- `audit/api-reponse-time/results/benchmark.json` — raw `ab` output (re-rendered via `format-results.mjs`).
+- `audit/api-response-time/results/benchmark.json` — raw `ab` output (re-rendered via `format-results.mjs`).
