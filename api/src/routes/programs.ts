@@ -826,16 +826,18 @@ router.post('/:id/merge', authMiddleware, async (req: Request, res: Response) =>
       [targetId, sourceId]
     );
 
-    // 4. Log history for each moved entity (using client, not pool, to stay in transaction)
-    for (const child of childrenResult.rows) {
+    // 4. Log history for each moved entity in a single round-trip via unnest().
+    if (childrenResult.rows.length > 0) {
+      const oldValueJson = JSON.stringify([{ id: sourceId, type: 'program' }]);
+      const newValueJson = JSON.stringify([{ id: targetId, type: 'program' }]);
       await client.query(
         `INSERT INTO document_history (document_id, field, old_value, new_value, changed_by)
-         VALUES ($1, $2, $3, $4, $5)`,
+         SELECT unnest($1::uuid[]), $2, $3, $4, $5`,
         [
-          child.document_id,
+          childrenResult.rows.map(c => c.document_id),
           'belongs_to',
-          JSON.stringify([{ id: sourceId, type: 'program' }]),
-          JSON.stringify([{ id: targetId, type: 'program' }]),
+          oldValueJson,
+          newValueJson,
           userId,
         ]
       );

@@ -11,7 +11,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
 | **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **Done** (3 / 3 items landed) |
 | **3. Targeted code fixes** | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | **Done** (3 / 3 items landed) |
-| **4. Query rewrites** | `/api/projects` + `/api/programs` CTE, accountability grouped queries, batched association INSERTs | **In progress** (2 / 3 items landed) |
+| **4. Query rewrites** | `/api/projects` + `/api/programs` CTE, accountability grouped queries, batched association INSERTs | **Done** (3 / 3 items landed) |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
 
 ## Summary
@@ -935,6 +935,67 @@ pnpm audit:db-query-efficiency
 # Expect: /api/projects no longer in "EXPLAIN ANALYZE Summary" slow list.
 # Expect: N+1 Signals lists only /api/programs (not /api/projects).
 ```
+
+### 4.3 Batch per-item association INSERTs (and one per-item UPDATE) — Status: **Done**
+
+**Before.** Per audit peer-review §6: several handlers ran one INSERT per `belongs_to` entry inside a transaction, each requiring its own client round-trip. At typical request size (1-5 associations) the absolute cost is small, but during bulk operations (Claude auto-creating issues, the sprint board's "assign 20 people" flow, program merges with many children) the loops add measurable latency. The canonical batched pattern was already in `api/src/routes/backlinks.ts:127-138`, just not adopted elsewhere.
+
+Call sites flagged by peer-review and addressed in this commit:
+
+| File:line (pre) | Loop shape | Batched via |
+| --- | --- | --- |
+| `documents.ts:544` POST /api/documents belongs_to | N inserts | `unnest()` |
+| `documents.ts:870` PATCH /api/documents/:id additions | N inserts | `unnest()` (filtered to net-new) |
+| `issues.ts:629` POST /api/issues belongs_to | N inserts | `unnest()` |
+| `issues.ts:947` PATCH /api/issues/:id replacement | N inserts after DELETE | `unnest()` |
+| `programs.ts:830` POST /api/programs/:id/merge history | N inserts of `document_history` | `unnest()` for document_id, shared scalar values |
+| `team.ts:570` POST /api/team/assign conflict cleanup | N `UPDATE`s computing per-row assignee filter | single UPDATE with SQL-side jsonb_agg + `WHERE id = ANY(...)` |
+
+**Change.** All six sites use the same `unnest()` shape:
+
+```sql
+INSERT INTO document_associations (document_id, related_id, relationship_type)
+SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
+ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING
+```
+
+with `$2 = items.map(a => a.id)` and `$3 = items.map(a => a.type)`. The `relationship_type` cast is needed because the column is the `relationship_type` ENUM (`CREATE TYPE relationship_type AS ENUM ('parent', 'project', 'sprint', 'program')` — `schema.sql:203`).
+
+The `team.ts:570` case is structurally different (per-row UPDATE, not per-row INSERT). Instead of unnest, it uses one UPDATE with SQL-side filtering:
+
+```sql
+UPDATE documents
+SET properties = jsonb_set(
+  properties, '{assignee_ids}',
+  COALESCE(
+    (SELECT jsonb_agg(elem)
+     FROM jsonb_array_elements_text(properties->'assignee_ids') AS elem
+     WHERE elem <> $1),
+    '[]'::jsonb
+  )
+),
+    updated_at = now()
+WHERE id = ANY($2::uuid[])
+```
+
+`$1` is the person doc id being removed; `$2` is the array of conflicting sprint ids. The `COALESCE(..., '[]'::jsonb)` preserves the empty-array shape the rest of the app expects when `jsonb_agg` returns NULL.
+
+**After.** Type-check + tests still green (api 451/451 including all routes-level tests for documents, issues, programs, team; web 151/151). At single-association request size the round-trip count drops from 1 (no change). At N=5 associations it drops from 5 round-trips to 1. At N=20 (the sprint board bulk-assign flow) it drops from 20 to 1.
+
+Behavioral parity:
+
+- All INSERT sites kept `ON CONFLICT DO NOTHING`. The original loops did the same; behavior under conflict is identical.
+- All sites guard with `if (items.length > 0)` so empty arrays no longer dispatch a query at all (the pre-change loops just iterated zero times). Minor improvement.
+- The team.ts UPDATE batched form filters per-row using `jsonb_array_elements_text` + `WHERE elem <> $1`, matching the previous JS `.filter(id => id !== personDocId)` semantics. The conflict-detection WHERE clause earlier in the handler guarantees `assignee_ids` is a non-null array that contains the person doc id, so the no-rows-match edge case the COALESCE handles only fires for sprints where the person was the sole assignee — in which case the result is `[]`, same as before.
+
+**Reproducibility.**
+
+```bash
+grep -rn "for (const .* of .*BelongsTo\|for (const conflicting" api/src/routes/
+# Expect: zero matches in documents.ts/issues.ts/programs.ts/team.ts.
+```
+
+The canonical pattern (`unnest`) is now the codebase default for INSERT loops over `document_associations` and similar shape-aligned tables.
 
 ## Phase 5 — Frontend / architectural
 

@@ -626,13 +626,13 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
     const newIssueId = result.rows[0].id;
 
-    // Create associations from belongs_to array
-    for (const assoc of belongs_to) {
+    // Create associations from belongs_to in a single round-trip via unnest().
+    if (belongs_to.length > 0) {
       await client.query(
         `INSERT INTO document_associations (document_id, related_id, relationship_type)
-         VALUES ($1, $2, $3)
+         SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
          ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
-        [newIssueId, assoc.id, assoc.type]
+        [newIssueId, belongs_to.map(a => a.id), belongs_to.map(a => a.type)]
       );
     }
 
@@ -944,13 +944,13 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
         [id]
       );
 
-      // Insert new associations
-      for (const assoc of newBelongsTo) {
+      // Insert new associations in a single round-trip via unnest().
+      if (newBelongsTo.length > 0) {
         await client.query(
           `INSERT INTO document_associations (document_id, related_id, relationship_type)
-           VALUES ($1, $2, $3)
+           SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
            ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
-          [id, assoc.id, assoc.type]
+          [id, newBelongsTo.map(a => a.id), newBelongsTo.map(a => a.type)]
         );
       }
     }
