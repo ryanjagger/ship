@@ -733,7 +733,7 @@ Read the handler at `api/src/routes/dashboard.ts:498-729` and confirm the two `a
 
 ## Phase 4 — Query rewrites
 
-### 4.1 Rewrite `GET /api/projects` (and `/api/programs`) with CTEs — Status: **In progress** (projects done, programs pending)
+### 4.1 Rewrite `GET /api/projects` (and `/api/programs`) with CTEs — Status: **Done**
 
 **Before.** `api/src/routes/projects.ts:385-402` ran three correlated subqueries per project row in the list response:
 
@@ -819,7 +819,23 @@ End-to-end audit re-run signals:
 
 Type-check + tests still green (api 451/451, web 151/151). No API contract change — `extractProjectFromRow` returns the same shape.
 
-**Follow-up still in this item.** `/api/programs` (`api/src/routes/programs.ts:71-92`) has the identical correlated-subquery shape for `issue_count` and `sprint_count` and is still flagged by the audit's N+1 signals. Same CTE rewrite applies; queued as the next commit under §4.1.
+**`/api/programs` rewrite (paired with `/api/projects` under §4.1).** `api/src/routes/programs.ts:60-95` had the same correlated-subquery shape for `issue_count` and `sprint_count` — at 5 programs the audit reported `loops=250` for the correlated subplan. Applied the same CTE pattern (`visible_programs` + `association_counts`), simpler than projects because there's no sprint-status equivalent. Same column-name preservation so `extractProgramFromRow` works unchanged.
+
+**End-to-end audit impact of both rewrites together.**
+
+```
+| User Flow         | Total Queries | Slowest Query (ms) | N+1 Detected? |
+| ----------------- | ------------- | ------------------ | ------------- |
+| Load main page    | 55            | 30.64ms            | No            |
+| View a document   | 57            | 22.22ms            | No            |
+| List issues       | 46            | 16.61ms            | No            |
+| Load sprint board | 63            | 17.56ms            | No            |
+| Search content    | 5             | 1.88ms             | No            |
+```
+
+The README baseline reported `N+1 Detected? = Yes` for every flow except Search content; after this commit, every flow reports `No`. The audit's `N+1 Signals` section is omitted from the run output entirely because there are zero signals to print. (Total query counts are unchanged at 55/57/46/63/5 — the wins are query-shape, not query-count; query-count reduction is Phase 5's frontend route-gating work.)
+
+The remaining "Slowest Query" wall times are dominated by `GET /api/issues` cold-cache first-request execution; subsequent same-endpoint calls within the same audit run measure ~2.6ms. That's the next-pass target — the issue list still does seq-scans because no index quite fits the priority + updated_at sort.
 
 **Reproducibility.**
 
