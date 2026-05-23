@@ -9,7 +9,7 @@ Work is ordered easiest-lift first. Each phase below is sized so that Phase 1 + 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | **1. Schema-only wins** | New migration adding pg_trgm + targeted indexes; `ANALYZE documents` | **Done** (7 / 7 items landed) |
-| **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **In progress** (2 / 3 items landed) |
+| **2. Tiny code edits** | Pool config, admin visibility short-circuit, dead-code removal | **Done** (3 / 3 items landed) |
 | 3. Targeted code fixes | Transaction-leak fix, drop `content` from list payloads, `Promise.all` on `/my-week` | Pending |
 | 4. Query rewrites | `/api/projects` CTE, accountability grouped queries, batched association INSERTs | Pending |
 | 5. Frontend / arch | Route-gate global providers, carry workspace role from auth | Pending |
@@ -541,6 +541,36 @@ pnpm audit:db-query-efficiency --json | sed -n '/^{/,$p' > /tmp/audit.json
 ```
 
 
+
+### 2.3 Delete dead accountability functions — Status: **Done**
+
+**Before.** `api/src/services/accountability.ts` defined two private functions that were never called anywhere in the repo:
+
+- `checkMissingSprintReviews` (`accountability.ts:445-507` pre-change) — finds past sprints owned by the user without a `weekly_review` document.
+- `checkProjectRetros` (`accountability.ts:517-565` pre-change) — finds completed projects owned by the user without a retro.
+
+Peer-review §15 (last bullet of the recommendations) flagged both as orphaned. Both reference `MissingAccountabilityItem` types still used by other (live) functions in the same file, so the type system never caught the dead code; only manual cross-reference grepping does.
+
+`checkMissingSprintReviews` was the sole consumer of the `addBusinessDays` import. `isBusinessDay` is still used by `checkWeeklyPersonAccountability`.
+
+**Change.** `api/src/services/accountability.ts`:
+
+- Removed both function bodies (the leading JSDoc, the function definition, the SQL block, and the items-mapping loop for each).
+- Removed `addBusinessDays` from the `business-days.js` import — it had no other consumer in the file. `isBusinessDay` remains.
+- Preserved the tombstone comment block at line 509-511 (the `checkProjectPlan REMOVED` note) because it documents a separate earlier removal and provides useful context for why no project-plan-checker exists.
+
+No call sites or tests reference the removed functions; no migration is needed.
+
+**After.** `grep -rn 'checkMissingSprintReviews\|checkProjectRetros' api/src` returns no matches. type-check + tests still green (api 451/451, web 151/151). Net delta: -125 lines of unreachable code.
+
+**Reproducibility.**
+
+```bash
+grep -rn 'checkMissingSprintReviews\|checkProjectRetros' api/src
+# Expected: no matches.
+pnpm type-check && pnpm --filter @ship/api test
+# Both should pass cleanly.
+```
 
 ## Phase 3 — Targeted code fixes
 
