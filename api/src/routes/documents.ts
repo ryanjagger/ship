@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { z } from 'zod';
+import type { SqlParam } from '@ship/shared';
 import { authMiddleware } from '../middleware/auth.js';
 import { isWorkspaceAdmin } from '../middleware/visibility.js';
 import { handleVisibilityChange, handleDocumentConversion, invalidateDocumentCache, broadcastToUser } from '../collaboration/index.js';
@@ -110,7 +111,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
         AND deleted_at IS NULL
         AND (visibility = 'workspace' OR created_by = $2 OR $3 = TRUE)
     `;
-    const params: (string | boolean | null)[] = [workspaceId, userId, isAdmin];
+    const params: SqlParam[] = [workspaceId, userId, isAdmin];
 
     if (type) {
       query += ` AND document_type = $${params.length + 1}`;
@@ -644,7 +645,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     await client.query('BEGIN');
 
     const updates: string[] = [];
-    const values: any[] = [];
+    const values: SqlParam[] = [];
     let paramIndex = 1;
 
     // Track extracted values from content (content is source of truth)
@@ -1513,17 +1514,3 @@ router.post('/:id/undo-conversion', authMiddleware, async (req: Request, res: Re
 });
 
 export default router;
-
-// Type augmentation for Express Request
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email: string;
-        name: string;
-        workspaceId: string;
-      };
-    }
-  }
-}

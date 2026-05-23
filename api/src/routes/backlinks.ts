@@ -152,17 +152,3 @@ router.post('/:id/links', authMiddleware, async (req: Request, res: Response) =>
 });
 
 export default router;
-
-// Type augmentation for Express Request
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email: string;
-        name: string;
-        workspaceId: string;
-      };
-    }
-  }
-}

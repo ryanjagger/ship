@@ -282,8 +282,19 @@ router.get('/:id/members', authMiddleware, workspaceAdminMiddleware, async (req:
       archivedRows = archivedResult.rows;
     }
 
-    const members = [
-      ...activeResult.rows.map(row => ({
+    type WorkspaceMemberResponse = {
+      id: string;
+      userId: string;
+      email: string;
+      name: string;
+      role: 'admin' | 'member' | null;
+      personDocumentId: string | null;
+      joinedAt: string | null;
+      isArchived: boolean;
+    };
+
+    const members: WorkspaceMemberResponse[] = [
+      ...activeResult.rows.map((row): WorkspaceMemberResponse => ({
         id: row.id,
         userId: row.user_id,
         email: row.email,
@@ -293,14 +304,14 @@ router.get('/:id/members', authMiddleware, workspaceAdminMiddleware, async (req:
         joinedAt: row.created_at,
         isArchived: false,
       })),
-      ...archivedRows.map(row => ({
-        id: row.person_document_id, // Use person doc ID for archived
+      ...archivedRows.map((row): WorkspaceMemberResponse => ({
+        id: row.person_document_id,
         userId: row.user_id,
         email: row.email,
         name: row.name,
-        role: null as unknown as string, // Archived users have no role
+        role: null,
         personDocumentId: row.person_document_id,
-        joinedAt: null as unknown as string, // No membership join date
+        joinedAt: null,
         isArchived: true,
       })),
     ];
