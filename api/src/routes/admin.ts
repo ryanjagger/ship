@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import type { Router as RouterType } from 'express';
 import { pool } from '../db/client.js';
-import { authMiddleware, superAdminMiddleware } from '../middleware/auth.js';
+import { authMiddleware, superAdminMiddleware, assertUserAuthed } from '../middleware/auth.js';
 import { ERROR_CODES, HTTP_STATUS } from '@ship/shared';
 import { logAuditEvent } from '../services/audit.js';
 
@@ -129,7 +129,7 @@ router.post('/workspaces', async (req: Request, res: Response): Promise<void> =>
 
     await logAuditEvent({
       workspaceId: workspace.id,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'workspace.create',
       resourceType: 'workspace',
       resourceId: workspace.id,
@@ -246,7 +246,7 @@ router.patch('/workspaces/:id', async (req: Request, res: Response): Promise<voi
 
     await logAuditEvent({
       workspaceId,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'workspace.update',
       resourceType: 'workspace',
       resourceId: workspaceId,
@@ -308,7 +308,7 @@ router.post('/workspaces/:id/archive', async (req: Request, res: Response): Prom
 
     await logAuditEvent({
       workspaceId: id,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'workspace.archive',
       resourceType: 'workspace',
       resourceId: id,
@@ -491,7 +491,7 @@ router.patch('/users/:id/super-admin', async (req: Request, res: Response): Prom
     }
 
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'user.super_admin_toggle',
       resourceType: 'user',
       resourceId: id,
@@ -689,7 +689,7 @@ router.post('/impersonate/:userId', async (req: Request, res: Response): Promise
     // Store impersonation in session (we'll update session table to track this)
     // For now, return impersonation data that frontend can track
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'impersonation.start',
       resourceType: 'user',
       resourceId: userId,
@@ -723,7 +723,7 @@ router.post('/impersonate/:userId', async (req: Request, res: Response): Promise
 router.delete('/impersonate', async (req: Request, res: Response): Promise<void> => {
   try {
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'impersonation.end',
       req,
     });
@@ -1019,7 +1019,7 @@ router.post('/workspaces/:id/invites', async (req: Request, res: Response): Prom
 
     await logAuditEvent({
       workspaceId: id,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'workspace.invite_create',
       resourceType: 'workspace_invite',
       resourceId: invite.id,
@@ -1101,7 +1101,7 @@ router.delete('/workspaces/:workspaceId/invites/:inviteId', async (req: Request,
 
     await logAuditEvent({
       workspaceId,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'workspace.invite_revoke',
       resourceType: 'workspace_invite',
       resourceId: inviteId,
@@ -1212,7 +1212,7 @@ router.post('/workspaces/:id/members', async (req: Request, res: Response): Prom
     // Audit log
     await logAuditEvent({
       workspaceId: id,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'workspace.member_add',
       resourceType: 'workspace_membership',
       resourceId: membershipResult.rows[0].id,
@@ -1327,7 +1327,7 @@ router.patch('/workspaces/:workspaceId/members/:userId', async (req: Request, re
 
     await logAuditEvent({
       workspaceId,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'workspace.member_role_update',
       resourceType: 'workspace_membership',
       resourceId: userId,
@@ -1429,7 +1429,7 @@ router.delete('/workspaces/:workspaceId/members/:userId', async (req: Request, r
 
     await logAuditEvent({
       workspaceId,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'workspace.member_remove',
       resourceType: 'workspace_membership',
       resourceId: userId,
@@ -1697,7 +1697,7 @@ router.post('/debug/orphans/fix', async (req: Request, res: Response): Promise<v
 
       // Log the fix action
       await logAuditEvent({
-        actorUserId: req.userId!,
+        actorUserId: req.userId,
         action: 'admin.fix_orphans',
         details: {
           danglingDeleted: deleteDanglingResult.rowCount,
@@ -1775,7 +1775,7 @@ router.delete('/debug/users/:id', async (req: Request, res: Response): Promise<v
     await pool.query('DELETE FROM users WHERE id = $1', [id]);
 
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'user.delete',
       resourceType: 'user',
       resourceId: id,

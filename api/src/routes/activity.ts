@@ -55,7 +55,7 @@ const entityTypeSchema = z.enum(['program', 'project', 'sprint']);
 router.get('/:entityType/:entityId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { entityType, entityId } = req.params;
-    const workspaceId = req.workspaceId!;
+    const workspaceId = req.workspaceId;
 
     // Validate entity type
     const typeResult = entityTypeSchema.safeParse(entityType);

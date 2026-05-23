@@ -540,7 +540,7 @@ router.post('/save', authMiddleware, superAdminMiddleware, async (req: Request, 
 
     // Audit log the change
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'admin.update_caia_credentials',
       details: {
         changedFields,
@@ -566,7 +566,7 @@ router.post('/save', authMiddleware, superAdminMiddleware, async (req: Request, 
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
 
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'admin.update_caia_credentials_failed',
       details: {
         error: errorMessage,
@@ -609,7 +609,7 @@ router.post('/test-api', authMiddleware, superAdminMiddleware, async (req: Reque
     );
 
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'admin.test_caia_connection',
       details: { success: true, issuer },
       req,
@@ -623,7 +623,7 @@ router.post('/test-api', authMiddleware, superAdminMiddleware, async (req: Reque
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
 
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'admin.test_caia_connection',
       details: { success: false, error: errorMessage },
       req,
@@ -659,7 +659,7 @@ router.post('/test', authMiddleware, superAdminMiddleware, async (req: Request, 
     );
 
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'admin.test_caia_connection',
       details: { success: true, issuer },
       req,
@@ -670,7 +670,7 @@ router.post('/test', authMiddleware, superAdminMiddleware, async (req: Request, 
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
 
     await logAuditEvent({
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'admin.test_caia_connection',
       details: { success: false, error: errorMessage },
       req,
