@@ -41,13 +41,13 @@ Every terminal that runs database or API commands needs this `DATABASE_URL` valu
 ```bash
 pnpm db:migrate
 pnpm db:seed
-node audit/api-reponse-time/seed-volume.mjs
+node audit/api-response-time/seed-volume.mjs
 ```
 
 Verify the final volume without mutating data:
 
 ```bash
-node audit/api-reponse-time/seed-volume.mjs --summary-only
+node audit/api-response-time/seed-volume.mjs --summary-only
 ```
 
 Expected counts for a comparable run:
@@ -88,8 +88,8 @@ Then run the trace in a third terminal:
 
 ```bash
 WEB_BASE_URL=http://localhost:5173 \
-  node audit/api-reponse-time/trace-frontend.mjs \
-  | tee audit/api-reponse-time/results/trace-frontend.json
+  node audit/api-response-time/trace-frontend.mjs \
+  | tee audit/api-response-time/results/trace-frontend.json
 ```
 
 The trace logs in, visits these flows, and emits raw request records plus an endpoint summary:
@@ -145,7 +145,7 @@ BENCHMARK_ENDPOINT_SET=documents-appendix \
 BENCHMARK_REQUESTS=3000 \
 BENCHMARK_CONNECTIONS=50 \
 BENCHMARK_ENDPOINT_DELAY_MS=65000 \
-node audit/api-reponse-time/benchmark-ab.mjs
+node audit/api-response-time/benchmark-ab.mjs
 ```
 
 ### 6. Run the benchmark
@@ -156,15 +156,15 @@ In another terminal:
 API_BASE_URL=http://localhost:3001 \
 BENCHMARK_REQUESTS=300 \
 BENCHMARK_CONNECTIONS=10,25,50 \
-node audit/api-reponse-time/benchmark-ab.mjs \
-  | tee audit/api-reponse-time/results/benchmark.json
+node audit/api-response-time/benchmark-ab.mjs \
+  | tee audit/api-response-time/results/benchmark.json
 ```
 
 Render the Markdown tables from the raw JSON:
 
 ```bash
-node audit/api-reponse-time/format-results.mjs \
-  audit/api-reponse-time/results/benchmark.json
+node audit/api-response-time/format-results.mjs \
+  audit/api-response-time/results/benchmark.json
 ```
 
 The benchmark runner logs in as `dev@ship.local`, sends a real authenticated cookie to ApacheBench, warms each endpoint once, then runs each endpoint/concurrency pair.
@@ -181,15 +181,15 @@ BENCHMARK_ENDPOINT_SET=documents-appendix \
 BENCHMARK_REQUESTS=3000 \
 BENCHMARK_CONNECTIONS=50 \
 BENCHMARK_ENDPOINT_DELAY_MS=65000 \
-node audit/api-reponse-time/benchmark-ab.mjs \
-  | tee audit/api-reponse-time/results/documents-appendix.json
+node audit/api-response-time/benchmark-ab.mjs \
+  | tee audit/api-response-time/results/documents-appendix.json
 ```
 
 Render the appendix table:
 
 ```bash
-node audit/api-reponse-time/format-results.mjs \
-  audit/api-reponse-time/results/documents-appendix.json
+node audit/api-response-time/format-results.mjs \
+  audit/api-response-time/results/documents-appendix.json
 ```
 
 The appendix includes `GET /api/documents`, plus `GET /api/documents?type=<document_type>` for every document type. These are generic document-list route measurements; they do not replace dedicated route benchmarks like `GET /api/issues` or `GET /api/projects`, which add their own enrichment and response shape.
@@ -203,10 +203,10 @@ dropdb --if-exists ship_api_response_time_audit
 unset DATABASE_URL
 ```
 
-Generated trace and benchmark JSON files are local artifacts under `audit/api-reponse-time/results/` and are ignored by git. Remove them when you want a clean local output directory:
+Generated trace and benchmark JSON files are local artifacts under `audit/api-response-time/results/` and are ignored by git. Remove them when you want a clean local output directory:
 
 ```bash
-rm -f audit/api-reponse-time/results/*.json
+rm -f audit/api-response-time/results/*.json
 ```
 
 Configurable script environment:
