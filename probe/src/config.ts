@@ -109,10 +109,20 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
 // and leading-hyphen flag-shaped values that could collide with parent-dir
 // references or future CLI parsers.
 const RUN_ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
-// Filenames the viewer + writeReports reserve for alias and index outputs.
-// A runId equal to one of these would silently overwrite those files or race
-// with their atomic-write sequence.
-const RESERVED_RUN_IDS = new Set(['index', 'security-report']);
+
+// Reserved basenames the runId is checked against (case-insensitively).
+// Two groups, conflated since the failure mode is the same (writeReports
+// can't produce a usable file on at least one supported platform):
+//   - probe's own alias + index filenames
+//   - Windows reserved device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9),
+//     which the Windows API refuses to open even with an extension
+const RESERVED_RUN_IDS = new Set<string>([
+  'index',
+  'security-report',
+  'con', 'prn', 'aux', 'nul',
+  'com0', 'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt0', 'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+]);
 
 export class InvalidRunIdError extends Error {
   constructor(message: string) {
@@ -132,12 +142,12 @@ export function validateRunId(value: string): string {
       `Invalid --run-id ${JSON.stringify(value)}: must contain only letters, digits, dots, underscores, and hyphens.`
     );
   }
-  // macOS APFS and Windows NTFS are case-insensitive by default, so a runId
-  // like `Index` or `Security-Report` would still collide with the lowercase
-  // alias and index files. Normalize before the reserved-name check.
+  // Reserved-name check is case-insensitive: macOS APFS / Windows NTFS treat
+  // filenames as case-insensitive, and Windows device names (CON, NUL, COM1,
+  // ...) are refused even with an extension. Normalize before lookup.
   if (RESERVED_RUN_IDS.has(value.toLowerCase())) {
     throw new InvalidRunIdError(
-      `Invalid --run-id ${JSON.stringify(value)}: '${value}' is reserved for the report alias and index files (case-insensitive on macOS/Windows). Pick a different id.`
+      `Invalid --run-id ${JSON.stringify(value)}: '${value}' is a reserved name (collides with probe's alias/index outputs or a Windows device name). Pick a different id.`
     );
   }
   return value;
@@ -230,8 +240,10 @@ Options:
   --output-dir <dir>    Report output directory. Default: probe/results
   --timeout-ms <ms>     Per-request timeout. Default: ${DEFAULT_TIMEOUT_MS}
   --run-id <id>         Stable run id for namespacing audit-created data.
-                        Used as a filename stem under probe/results/, so it
-                        must match [A-Za-z0-9._-]+ and cannot be 'index' or
-                        'security-report' (reserved).
+                        Used as a filename stem under probe/results/. Must
+                        match ^[A-Za-z0-9_][A-Za-z0-9._-]*$ and not be a
+                        reserved name (case-insensitive: 'index',
+                        'security-report', plus Windows device names CON,
+                        PRN, AUX, NUL, COM0-9, LPT0-9).
 `);
 }
