@@ -90,6 +90,12 @@ The dual write (binary state + JSON content) is the **fallback layer**: if `yjs_
 - **Updates not persisting** → check `pendingSaves`. If the only client disconnects within the 2s debounce window, the on-close handler at `api/src/collaboration/index.ts:822-827` forces a final persist; if not, the timeout fires normally.
 - **Sync never completes** → SyncStep1 went out (server) but no SyncStep2 came back. Likely the doc wasn't loaded (`getOrCreateDoc` swallowed an error at line 257). Tail the API logs for `[Collaboration] Failed to load document`.
 
+### How I'd apply this in a future project
+
+1. **Reach for CRDTs only when concurrent editing is the actual requirement.** Yjs eliminates "last write wins" conflict logic, but it costs you a binary state column, a debounced persistence layer, and a dual-write JSON fallback. For single-writer or low-contention features I'd stick with plain REST + optimistic updates and skip the whole stack.
+2. **Use WebSocket close codes (4000–4999) as a cheap control channel.** Before inventing a custom in-band message format for "go reconnect to a new doc id" or "drop your cache", I'd check whether a close code + 123-byte JSON reason gets the signal across, since it rides the existing close handshake with zero protocol changes.
+3. **Always carry a non-CRDT fallback representation.** The dual write (binary `yjs_state` + plain `content` JSON) is what lets REST reads skip the CRDT decoder and what recovers a doc when binary state is corrupt. I'd treat the human-readable copy as the source of truth for reads and the CRDT state as an optimization, not the other way around.
+
 ## EXPLAIN / EXPLAIN ANALYZE
 
 ### The two commands
@@ -248,6 +254,12 @@ Differences:
 4. If estimates are off → `ANALYZE <table>;` to refresh stats.
 5. For complex plans, paste the JSON form into explain.depesz.com to highlight hot spots.
 
+### How I'd apply this in a future project
+
+1. **Make `EXPLAIN (ANALYZE, BUFFERS)` the default reflex for any list/aggregate endpoint, not a last resort.** I'd run it against representative (not toy) seed data the moment a query touches more than one table, watching specifically for `loops > 1` on inner nodes and large `Rows Removed by Filter` — both surface scaling problems long before they page someone in prod.
+2. **Trust the cost estimate over wall-clock time when judging scalability.** On small/dev datasets two plans often run in the same sub-millisecond range; the `cost` divergence (e.g. 40 vs 114 here) is the planner telling you which one degrades as rows grow, so I'd compare costs, not stopwatch numbers, when choosing a rewrite.
+3. **Wrap write-path checks in `BEGIN; … ROLLBACK;`.** To profile a `DELETE`/`UPDATE` safely I'd analyze it inside a transaction and roll back, which lets me measure real plans against real data without mutating it.
+
 ## PostgreSQL Subplans
 
 Subplans are execution-plan nodes the planner emits for subqueries that aren't flattened into joins. Two flavors:
@@ -314,3 +326,9 @@ Each `IN (SELECT … WHERE related_id IN (SELECT …))` is uncorrelated → Init
 `EXPLAIN (ANALYZE, VERBOSE)` against a seeded DB; look for `InitPlan N`, `SubPlan N`, or `Hashed SubPlan` nodes with `(actual rows=… loops=N)`. `loops > 1` confirms per-row execution.
 
 Hottest one to inspect: **`projects.ts:1447-1515`** — three correlated counts per sprint row, hit on the project detail page.
+
+### How I'd apply this in a future project
+
+1. **Treat a correlated subquery in a SELECT list as a per-row loop, not one query.** When I see `(SELECT COUNT(*) … WHERE x = outer.id)` projected over a result set — especially several of them — I'd assume N (or 3N) executions and reach for `LEFT JOIN … GROUP BY` with `COUNT(*) FILTER (WHERE …)`, which collapses the repeated subplans into a single pass.
+2. **Distinguish InitPlan from SubPlan before optimizing.** An uncorrelated `IN (SELECT …)` runs once (InitPlan) and is usually fine to leave alone, whereas a correlated one runs per row; knowing which I'm looking at stops me from "fixing" a query that the planner already hoisted.
+3. **Be suspicious of `OR` between multiple `IN (SELECT …)` branches.** That pattern frequently defeats index use and degrades to a Seq Scan, so in a future project I'd default to rewriting it as `UNION ALL` of the branches and confirm the index-scan plan with `EXPLAIN`.
