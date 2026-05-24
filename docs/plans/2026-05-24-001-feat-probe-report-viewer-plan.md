@@ -2,7 +2,7 @@
 date: 2026-05-24
 topic: probe-report-viewer
 type: feat
-status: active
+status: completed
 origin: docs/brainstorms/2026-05-23-probe-report-viewer-requirements.md
 ---
 
