@@ -1,5 +1,22 @@
 # Manual Security Review
 
+## Remediation Log
+
+### `auth.roles.member.invite_session_cookie` — Invite-accepted member session cookie is hardened (High)
+
+The probe `auth` group flagged that the session cookie issued by the invite-accept endpoint (`POST /api/invites/:token/accept`) diverged from every other auth flow: it minted a 36-char UUID instead of a 64-char hex token and set `SameSite=Lax` instead of `Strict`. Fixed in `api/src/routes/invites.ts` by switching to the shared `generateSecureSessionId()` (256-bit hex, used by login and CAIA callback) and aligning the cookie options. Verified: `pnpm type-check` clean, `pnpm run test` green (453 api / 151 web / 83 probe).
+
+| Attribute | Before (probe finding) | After (fix) |
+| --- | --- | --- |
+| Token generator | `uuidv4()` | `generateSecureSessionId()` (`crypto.randomBytes(32).toString('hex')`) |
+| `valueLength` | 36 | 64 |
+| `valueShape` | `uuid` | 64-char hex |
+| `samesite` | `Lax` | `Strict` |
+| `path` | _(absent)_ | `/` |
+| `httponly` | `true` | `true` _(unchanged)_ |
+| `secure` | `NODE_ENV === 'production'` | `NODE_ENV === 'production'` _(unchanged)_ |
+| `max-age` | `900` | `900` _(unchanged)_ |
+| Probe `failures` | `session_id is not a 64-character hex token`, `SameSite is not Strict` | _(none)_ |
 
 ## Scope
 
