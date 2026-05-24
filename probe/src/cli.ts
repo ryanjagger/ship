@@ -101,6 +101,7 @@ async function main(): Promise<void> {
   }
   console.log(`Run JSON: ${paths.runJsonPath}`);
   console.log(`Run Markdown: ${paths.runMarkdownPath}`);
+  console.log(`HTML: ${paths.runHtmlPath}`);
   console.log(`JSON: ${paths.jsonPath}`);
   console.log(`Markdown: ${paths.markdownPath}`);
 }

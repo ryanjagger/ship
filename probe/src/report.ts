@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ProbeConfig } from './config.js';
+import { renderHtml } from './viewer/html.js';
 
 export type ProbeSurface =
   | 'preflight'
@@ -167,8 +168,10 @@ export function createReport(config: ProbeConfig, checks: ProbeCheck[]): ProbeRe
 export type WriteReportsResult = {
   jsonPath: string;
   markdownPath: string;
+  htmlPath: string;
   runJsonPath: string;
   runMarkdownPath: string;
+  runHtmlPath: string;
 };
 
 export async function writeReports(config: ProbeConfig, report: ProbeReport): Promise<WriteReportsResult> {
@@ -176,20 +179,25 @@ export async function writeReports(config: ProbeConfig, report: ProbeReport): Pr
 
   const jsonContent = `${JSON.stringify(report, null, 2)}\n`;
   const markdownContent = renderMarkdown(report);
+  const htmlContent = await renderHtml(report);
 
   const jsonPath = join(config.outputDir, 'security-report.json');
   const markdownPath = join(config.outputDir, 'security-report.md');
+  const htmlPath = join(config.outputDir, 'security-report.html');
   const runJsonPath = join(config.outputDir, `${report.runId}.json`);
   const runMarkdownPath = join(config.outputDir, `${report.runId}.md`);
+  const runHtmlPath = join(config.outputDir, `${report.runId}.html`);
 
   await Promise.all([
     writeFile(runJsonPath, jsonContent, 'utf8'),
     writeFile(runMarkdownPath, markdownContent, 'utf8'),
+    writeFile(runHtmlPath, htmlContent, 'utf8'),
     writeFile(jsonPath, jsonContent, 'utf8'),
     writeFile(markdownPath, markdownContent, 'utf8'),
+    writeFile(htmlPath, htmlContent, 'utf8'),
   ]);
 
-  return { jsonPath, markdownPath, runJsonPath, runMarkdownPath };
+  return { jsonPath, markdownPath, htmlPath, runJsonPath, runMarkdownPath, runHtmlPath };
 }
 
 export function renderMarkdown(report: ProbeReport): string {
