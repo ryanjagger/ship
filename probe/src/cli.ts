@@ -99,6 +99,8 @@ async function main(): Promise<void> {
   for (const summary of summarizeBySurface(checks)) {
     console.log(`  ${summary.surface}: ${summary.findings} finding(s), ${summary.notTested} not tested, ${summary.passed} passed`);
   }
+  console.log(`Run JSON: ${paths.runJsonPath}`);
+  console.log(`Run Markdown: ${paths.runMarkdownPath}`);
   console.log(`JSON: ${paths.jsonPath}`);
   console.log(`Markdown: ${paths.markdownPath}`);
 }

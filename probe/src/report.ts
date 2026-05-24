@@ -164,16 +164,32 @@ export function createReport(config: ProbeConfig, checks: ProbeCheck[]): ProbeRe
   return report;
 }
 
-export async function writeReports(config: ProbeConfig, report: ProbeReport): Promise<{ jsonPath: string; markdownPath: string }> {
+export type WriteReportsResult = {
+  jsonPath: string;
+  markdownPath: string;
+  runJsonPath: string;
+  runMarkdownPath: string;
+};
+
+export async function writeReports(config: ProbeConfig, report: ProbeReport): Promise<WriteReportsResult> {
   await mkdir(config.outputDir, { recursive: true });
+
+  const jsonContent = `${JSON.stringify(report, null, 2)}\n`;
+  const markdownContent = renderMarkdown(report);
 
   const jsonPath = join(config.outputDir, 'security-report.json');
   const markdownPath = join(config.outputDir, 'security-report.md');
+  const runJsonPath = join(config.outputDir, `${report.runId}.json`);
+  const runMarkdownPath = join(config.outputDir, `${report.runId}.md`);
 
-  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  await writeFile(markdownPath, renderMarkdown(report), 'utf8');
+  await Promise.all([
+    writeFile(runJsonPath, jsonContent, 'utf8'),
+    writeFile(runMarkdownPath, markdownContent, 'utf8'),
+    writeFile(jsonPath, jsonContent, 'utf8'),
+    writeFile(markdownPath, markdownContent, 'utf8'),
+  ]);
 
-  return { jsonPath, markdownPath };
+  return { jsonPath, markdownPath, runJsonPath, runMarkdownPath };
 }
 
 export function renderMarkdown(report: ProbeReport): string {
