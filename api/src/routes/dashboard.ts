@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { getVisibilityContext, VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 import { computeICEScore } from '@ship/shared';
 import { extractText } from '../utils/document-content.js';
 
@@ -41,8 +41,9 @@ interface WorkItem {
  */
 router.get('/my-work', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    if (!assertAuthed(req, res)) return;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -317,8 +318,9 @@ function extractPlanItems(content: unknown): PlanItem[] {
  */
 router.get('/my-focus', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    if (!assertAuthed(req, res)) return;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // 1. Look up the user's person document
     const personResult = await pool.query(
@@ -497,8 +499,9 @@ router.get('/my-focus', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/my-week', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    if (!assertAuthed(req, res)) return;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Wave 1: person and workspace lookups are independent — run in parallel.
     // Both must resolve before we can derive personId, week dates, and the

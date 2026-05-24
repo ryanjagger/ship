@@ -79,7 +79,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response): Promise<vo
 
     await logAuditEvent({
       workspaceId: req.workspaceId,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'api_token.created',
       resourceType: 'api_token',
       resourceId: result.rows[0].id,
@@ -179,7 +179,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response): Promi
 
     await logAuditEvent({
       workspaceId: req.workspaceId,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'api_token.revoked',
       resourceType: 'api_token',
       resourceId: id,

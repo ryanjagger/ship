@@ -99,6 +99,8 @@ Root `tsconfig.json` is inherited by `api/` and `shared/`:
 
 ## How violations were counted
 
+> **Deprecated:** `count.sh` is regex-based and undercounts non-null assertions by ~2.5× (it misses `userId!;`, `userId!)`, and end-of-line forms — the dominant pattern). Use the type-aware ESLint baseline at `audit/type-safety/baseline/summary.md` (produced by `audit/type-safety/lint-report.mjs`) for all remediation tracking. The original script is kept below as historical context.
+
 A helper script `audit/type-safety/count.sh` reproduces the counts, per-package breakdown, top violation-dense files, and strict-mode summary from this audit. It requires `ripgrep` (`rg`) and uses the same grep-based patterns shown below.
 
 Run it from the repo root:
