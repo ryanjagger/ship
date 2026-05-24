@@ -1,6 +1,5 @@
 # AI Cost Analysis
 
-
 ## Summary
 
 AI assistance during this 7-day window ran on two flat-rate monthly
@@ -54,13 +53,13 @@ general product comparison.
 
 **Worked well:**
 
-- **End-to-end feature delivery using Compound Engineering workflow** The bulk of the probe HTML-viewer +
-  interactive-CLI feature was carried from idea to merged-ready PR through a
-  single connected workflow (brainstorm → plan → implement → review → ship),
-  with the agent navigating the monorepo, writing and running the test suite,
-  and committing incrementally. Codebase comprehension was strong for "where
-  does this live / what pattern does this follow" questions across the
-  `probe/`, `api/`, and shared workspaces.
+- **End-to-end feature delivery using the Compound Engineering workflow.** The
+  bulk of the probe HTML-viewer + interactive-CLI feature was carried from idea
+  to merged-ready PR through a single connected workflow (brainstorm → plan →
+  implement → review → ship), with the agent navigating the monorepo, writing
+  and running the test suite, and committing incrementally. Codebase
+  comprehension was strong for "where does this live / what pattern does this
+  follow" questions across the `probe/`, `api/`, and shared workspaces.
 
 **Fell short:**
 
@@ -79,10 +78,11 @@ general product comparison.
 
 **Worked well:**
 
-- **Security-focused PR review.** Used as a PR reviewer after Claude Code commits and as an automated GitHub PR reviewer,
-  it surfaced a series of real, distinct regressions on the
-  `runId`-as-filename change that the Claude-side review had not: path
-  traversal (`--run-id ../../outside`), reserved-name collisions (`index`,
+- **Security-focused PR review.** Used as a reviewer after Claude Code commits
+  and as an automated GitHub PR reviewer, it surfaced a series of real,
+  distinct regressions on the `runId`-as-filename change that the Claude-side
+  review had not: path traversal (`--run-id ../../outside`), reserved-name
+  collisions (`index`,
   `security-report`), case-insensitive collisions on macOS/Windows, Windows
   reserved device names (`CON`, `NUL`, `COM1`, including the `con.json` /
   trailing-dot leading-segment subtlety), and a stored-XSS vector in
