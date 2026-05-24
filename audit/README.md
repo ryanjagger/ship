@@ -3,6 +3,7 @@
 - [Orientation Checklist & Notes](../notes.md)
 - [Documentation Audit](documentation/DOCS_AUDIT_REPORT.md)
 - [Discoveries](discoveries.md)
+- [Probe — active security probe tool](../probe/README.md)
 
 ---
 
