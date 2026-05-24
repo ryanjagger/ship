@@ -428,8 +428,12 @@ async function checkReflectedXss(config: ProbeConfig, client: ProbeHttpClient, f
   const reflected = results.filter((result) => result.reflectedPayload);
   const unsafeResponses = results.filter((result) => result.status >= 500 || result.status === 0 || result.verboseError);
 
-  if (reflected.length > 0) {
-    return finding('inputs.reflected_xss.query_params', 'Reflected XSS payload was reflected by a representative endpoint', 'inputs', 'high', {
+  if (reflected.length > 0 || unsafeResponses.length > 0) {
+    const message = reflected.length > 0
+      ? 'Reflected XSS payload was reflected by a representative endpoint'
+      : 'Reflected XSS payload triggered a server error or verbose error response';
+    const severity = reflected.length > 0 ? 'high' : 'medium';
+    return finding('inputs.reflected_xss.query_params', message, 'inputs', severity, {
       payload,
       reflected,
       unsafeResponses,

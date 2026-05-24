@@ -458,7 +458,7 @@ async function createInvitedRoleUser(
         status: acceptResponse.status,
         body: acceptResponse.body,
         email,
-      }, [`POST ${config.apiUrl}/api/invites/${token}/accept with generated ${role} credentials`]),
+      }, [`POST ${config.apiUrl}/api/invites/<redacted-token>/accept with generated ${role} credentials`]),
     };
   }
 
@@ -476,7 +476,7 @@ async function createInvitedRoleUser(
       workspaceId,
     }, [
       `POST ${config.apiUrl}/api/workspaces/${workspaceId}/invites with role=${role}`,
-      `POST ${config.apiUrl}/api/invites/${token}/accept with generated credentials`,
+      `POST ${config.apiUrl}/api/invites/<redacted-token>/accept with generated credentials`,
     ]),
   };
 }
