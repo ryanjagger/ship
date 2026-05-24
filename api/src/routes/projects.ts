@@ -305,7 +305,7 @@ async function generatePrefilledRetroContent(
   // Categorize issues by state
   const completedIssues = issues.filter(i => i.state === 'done');
   const cancelledIssues = issues.filter(i => i.state === 'cancelled');
-  const activeIssues = issues.filter(i => i.state !== null && !['done', 'cancelled'].includes(i.state));
+  const activeIssues = issues.filter(i => !['done', 'cancelled'].includes(i.state ?? ''));
 
   // Build TipTap content
   const content: TipTapDoc = {
@@ -1162,7 +1162,7 @@ router.get('/:id/retro', authMiddleware, async (req: Request, res: Response) => 
           total: issuesResult.rows.length,
           completed: issuesResult.rows.filter(i => i.state === 'done').length,
           cancelled: issuesResult.rows.filter(i => i.state === 'cancelled').length,
-          active: issuesResult.rows.filter(i => i.state !== null && !['done', 'cancelled'].includes(i.state)).length,
+          active: issuesResult.rows.filter(i => !['done', 'cancelled'].includes(i.state ?? '')).length,
         },
       });
     } else {
@@ -1186,7 +1186,7 @@ router.get('/:id/retro', authMiddleware, async (req: Request, res: Response) => 
           total: issuesResult.rows.length,
           completed: issuesResult.rows.filter(i => i.state === 'done').length,
           cancelled: issuesResult.rows.filter(i => i.state === 'cancelled').length,
-          active: issuesResult.rows.filter(i => i.state !== null && !['done', 'cancelled'].includes(i.state)).length,
+          active: issuesResult.rows.filter(i => !['done', 'cancelled'].includes(i.state ?? '')).length,
         },
       });
     }
