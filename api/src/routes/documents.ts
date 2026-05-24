@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { z } from 'zod';
-import { authMiddleware } from '../middleware/auth.js';
+import type { SqlParam } from '@ship/shared';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 import { isWorkspaceAdmin } from '../middleware/visibility.js';
 import { handleVisibilityChange, handleDocumentConversion, invalidateDocumentCache, broadcastToUser } from '../collaboration/index.js';
 import { extractHypothesisFromContent, extractSuccessCriteriaFromContent, extractVisionFromContent, extractGoalsFromContent, checkDocumentCompleteness } from '../utils/extractHypothesis.js';
@@ -93,9 +94,10 @@ const updateDocumentSchema = z.object({
 // List documents
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { type, parent_id } = req.query;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Check if user is admin (admins can see all documents)
     const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
@@ -110,7 +112,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
         AND deleted_at IS NULL
         AND (visibility = 'workspace' OR created_by = $2 OR $3 = TRUE)
     `;
-    const params: (string | boolean | null)[] = [workspaceId, userId, isAdmin];
+    const params: SqlParam[] = [workspaceId, userId, isAdmin];
 
     if (type) {
       query += ` AND document_type = $${params.length + 1}`;
@@ -156,6 +158,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // List converted documents (archived originals that were converted to another type)
 router.get('/converted/list', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
     const { original_type, converted_type } = req.query;
@@ -220,6 +223,7 @@ router.get('/converted/list', authMiddleware, async (req: Request, res: Response
 // Get single document
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -372,6 +376,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Useful for API-based document editing without using the collaborative editor
 router.get('/:id/content', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -427,6 +432,7 @@ router.get('/:id/content', authMiddleware, async (req: Request, res: Response) =
 // Useful for API-based document editing without using the collaborative editor
 router.patch('/:id/content', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -505,6 +511,7 @@ router.patch('/:id/content', authMiddleware, async (req: Request, res: Response)
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
+    if (!assertAuthed(req, res)) return;
     const parsed = createDocumentSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -539,16 +546,15 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
     const newDoc = result.rows[0];
 
-    // Handle belongs_to associations (creates document_associations records)
+    // Handle belongs_to associations (creates document_associations records).
+    // Batched via unnest() so N associations cost one round-trip instead of N.
     if (belongs_to && belongs_to.length > 0) {
-      for (const assoc of belongs_to) {
-        await client.query(
-          `INSERT INTO document_associations (document_id, related_id, relationship_type)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
-          [newDoc.id, assoc.id, assoc.type]
-        );
-      }
+      await client.query(
+        `INSERT INTO document_associations (document_id, related_id, relationship_type)
+         SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
+         ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
+        [newDoc.id, belongs_to.map(a => a.id), belongs_to.map(a => a.type)]
+      );
     }
 
     // Handle sprint_id via document_associations (backward compatibility)
@@ -577,7 +583,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     // Sprint plans clear the "write sprint plan" action item
     // Documents with outcome property linked to sprints clear the "write retro" action item
     if (document_type === 'weekly_plan' || (properties && 'outcome' in properties)) {
-      broadcastToUser(req.userId!, 'accountability:updated', { documentId: newDoc.id, documentType: document_type });
+      broadcastToUser(req.userId, 'accountability:updated', { documentId: newDoc.id, documentType: document_type });
     }
 
     res.status(201).json(newDoc);
@@ -594,6 +600,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -645,7 +652,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     await client.query('BEGIN');
 
     const updates: string[] = [];
-    const values: any[] = [];
+    const values: SqlParam[] = [];
     let paramIndex = 1;
 
     // Track extracted values from content (content is source of truth)
@@ -727,6 +734,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     if (existing.document_type === 'person' && data.properties?.reports_to !== undefined) {
       const isAdmin = await isWorkspaceAdmin(userId, workspaceId);
       if (!isAdmin) {
+        await client.query('ROLLBACK').catch(() => {});
         res.status(403).json({ error: 'Only workspace admins can set the reports_to field' });
         return;
       }
@@ -791,6 +799,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     if (data.document_type !== undefined && data.document_type !== existing.document_type) {
       // Only the document creator can change its type
       if (existing.created_by !== userId) {
+        await client.query('ROLLBACK').catch(() => {});
         res.status(403).json({ error: 'Only the document creator can change its type' });
         return;
       }
@@ -798,6 +807,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
       // Restrict certain type changes (can't change to/from program or person)
       const restrictedTypes = ['program', 'person'];
       if (restrictedTypes.includes(existing.document_type) || restrictedTypes.includes(data.document_type)) {
+        await client.query('ROLLBACK').catch(() => {});
         res.status(400).json({ error: 'Cannot change to or from program or person document types' });
         return;
       }
@@ -835,6 +845,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     const hasSprintIdUpdate = data.sprint_id !== undefined;
 
     if (updates.length === 0 && !hasBelongsToUpdate && !hasProgramIdUpdate && !hasSprintIdUpdate) {
+      await client.query('ROLLBACK').catch(() => {});
       res.status(400).json({ error: 'No fields to update' });
       return;
     }
@@ -862,15 +873,15 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
         }
       }
 
-      // Add new associations
-      for (const bt of newBelongsTo) {
-        const key = `${bt.type}:${bt.id}`;
-        if (!currentSet.has(key)) {
-          await client.query(
-            'INSERT INTO document_associations (document_id, related_id, relationship_type) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-            [id, bt.id, bt.type]
-          );
-        }
+      // Add new associations in a single round-trip via unnest().
+      const additions = newBelongsTo.filter(bt => !currentSet.has(`${bt.type}:${bt.id}`));
+      if (additions.length > 0) {
+        await client.query(
+          `INSERT INTO document_associations (document_id, related_id, relationship_type)
+           SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
+           ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
+          [id, additions.map(a => a.id), additions.map(a => a.type)]
+        );
       }
     }
 
@@ -1101,6 +1112,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Delete document
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -1144,6 +1156,7 @@ const convertDocumentSchema = z.object({
 router.post('/:id/convert', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
+    if (!assertAuthed(req, res)) return;
     const id = String(req.params.id);
     const userId = String(req.userId);
     const workspaceId = String(req.workspaceId);
@@ -1372,6 +1385,7 @@ router.post('/:id/undo-conversion', authMiddleware, async (req: Request, res: Re
   const client = await pool.connect();
 
   try {
+    if (!assertAuthed(req, res)) return;
     await client.query('BEGIN');
 
     // Get the most recent snapshot for this document
@@ -1510,17 +1524,3 @@ router.post('/:id/undo-conversion', authMiddleware, async (req: Request, res: Re
 });
 
 export default router;
-
-// Type augmentation for Express Request
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email: string;
-        name: string;
-        workspaceId: string;
-      };
-    }
-  }
-}

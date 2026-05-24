@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { z } from 'zod';
 import { getVisibilityContext, VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 
 type RouterType = ReturnType<typeof Router>;
 const router: RouterType = Router();
@@ -15,9 +15,10 @@ const updateLinksSchema = z.object({
 // GET /api/documents/:id/backlinks - Get documents that link to this one
 router.get('/:id/backlinks', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -69,9 +70,10 @@ router.get('/:id/backlinks', authMiddleware, async (req: Request, res: Response)
 // POST /api/documents/:id/links - Update links for a document
 router.post('/:id/links', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = updateLinksSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -152,17 +154,3 @@ router.post('/:id/links', authMiddleware, async (req: Request, res: Response) =>
 });
 
 export default router;
-
-// Type augmentation for Express Request
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        email: string;
-        name: string;
-        workspaceId: string;
-      };
-    }
-  }
-}

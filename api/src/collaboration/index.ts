@@ -1,4 +1,4 @@
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { Server, IncomingMessage } from 'http';
 import * as Y from 'yjs';
 import * as syncProtocol from 'y-protocols/sync';
@@ -303,44 +303,87 @@ function getAwareness(docName: string, doc: Y.Doc): awarenessProtocol.Awareness 
   return aw;
 }
 
-function handleMessage(ws: WebSocket, message: Uint8Array, docName: string, doc: Y.Doc, aw: awarenessProtocol.Awareness) {
-  const decoder = decoding.createDecoder(message);
-  const messageType = decoding.readVarUint(decoder);
-
-  switch (messageType) {
-    case messageSync: {
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, messageSync);
-      // Pass ws as origin so broadcast excludes the sender
-      syncProtocol.readSyncMessage(decoder, encoder, doc, ws);
-
-      if (encoding.length(encoder) > 1) {
-        ws.send(encoding.toUint8Array(encoder));
-      }
-      break;
-    }
-    case messageAwareness: {
-      const awarenessData = decoding.readVarUint8Array(decoder);
-
-      // Extract the actual client's awarenessClientId from the update
-      // This is critical for proper cleanup on disconnect - the server was
-      // previously storing doc.clientID (server's ID) instead of the client's
-      // actual awareness clientID, causing stale states on page refresh.
-      // Format: [numStates, ...for each: clientId, clock, stateJson]
-      const conn = conns.get(ws);
-      if (conn) {
-        const updateDecoder = decoding.createDecoder(awarenessData);
-        const numStates = decoding.readVarUint(updateDecoder);
-        if (numStates > 0) {
-          const clientId = decoding.readVarUint(updateDecoder);
-          conn.awarenessClientId = clientId;
-        }
-      }
-
-      awarenessProtocol.applyAwarenessUpdate(aw, awarenessData, ws);
-      break;
-    }
+function closeInvalidCollaborationMessage(ws: WebSocket, reason: string): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.close(1003, reason);
   }
+}
+
+export function handleCollaborationMessage(ws: WebSocket, message: Uint8Array, docName: string, doc: Y.Doc, aw: awarenessProtocol.Awareness): boolean {
+  try {
+    if (message.byteLength === 0) {
+      closeInvalidCollaborationMessage(ws, 'Invalid collaboration message');
+      return false;
+    }
+
+    const decoder = decoding.createDecoder(message);
+    const messageType = decoding.readVarUint(decoder);
+
+    switch (messageType) {
+      case messageSync: {
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, messageSync);
+        // Pass ws as origin so broadcast excludes the sender
+        syncProtocol.readSyncMessage(decoder, encoder, doc, ws);
+
+        if (encoding.length(encoder) > 1) {
+          ws.send(encoding.toUint8Array(encoder));
+        }
+        return true;
+      }
+      case messageAwareness: {
+        const awarenessData = decoding.readVarUint8Array(decoder);
+
+        // Extract the actual client's awarenessClientId from the update
+        // This is critical for proper cleanup on disconnect - the server was
+        // previously storing doc.clientID (server's ID) instead of the client's
+        // actual awareness clientID, causing stale states on page refresh.
+        // Format: [numStates, ...for each: clientId, clock, stateJson]
+        const conn = conns.get(ws);
+        if (conn) {
+          const updateDecoder = decoding.createDecoder(awarenessData);
+          const numStates = decoding.readVarUint(updateDecoder);
+          if (numStates > 0) {
+            const clientId = decoding.readVarUint(updateDecoder);
+            conn.awarenessClientId = clientId;
+          }
+        }
+
+        awarenessProtocol.applyAwarenessUpdate(aw, awarenessData, ws);
+        return true;
+      }
+      default:
+        closeInvalidCollaborationMessage(ws, 'Unsupported collaboration message type');
+        return false;
+    }
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : 'Unknown decode error';
+    console.warn(`[Collaboration] Rejected malformed message for ${docName}: ${messageText}`);
+    closeInvalidCollaborationMessage(ws, 'Invalid collaboration message');
+    return false;
+  }
+}
+
+function rawDataByteLength(data: RawData): number {
+  if (Buffer.isBuffer(data)) return data.length;
+  if (data instanceof ArrayBuffer) return data.byteLength;
+  return data.reduce((total, chunk) => total + chunk.length, 0);
+}
+
+function rawDataToUint8Array(data: RawData): Uint8Array {
+  if (Buffer.isBuffer(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+  const buffer = Buffer.concat(data);
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
+function logWebSocketError(scope: string, error: Error & { code?: string }): void {
+  const code = error.code ? ` (${error.code})` : '';
+  console.warn(`[Collaboration] ${scope} WebSocket error${code}: ${error.message}`);
 }
 
 // Validate session from cookie header - returns userId/workspaceId or null
@@ -685,6 +728,10 @@ export function setupCollaboration(server: Server) {
   });
 
   wss.on('connection', async (ws: WebSocket, _request: IncomingMessage, docName: string, sessionData: { userId: string; workspaceId: string }) => {
+    ws.on('error', (error: Error & { code?: string }) => {
+      logWebSocketError(`Document ${docName}`, error);
+    });
+
     const doc = await getOrCreateDoc(docName);
     const aw = getAwareness(docName, doc);
 
@@ -719,10 +766,15 @@ export function setupCollaboration(server: Server) {
       ws.send(encoding.toUint8Array(awarenessEncoder));
     }
 
-    ws.on('message', (data: Buffer) => {
+    ws.on('message', (data: RawData, isBinary: boolean) => {
       // DDoS protection: Defense-in-depth size check (WS server also enforces maxPayload)
-      if (data.length > MAX_WS_MESSAGE_SIZE) {
+      if (rawDataByteLength(data) > MAX_WS_MESSAGE_SIZE) {
         ws.close(1009, 'Message too large');
+        return;
+      }
+
+      if (!isBinary) {
+        ws.close(1003, 'Binary collaboration messages required');
         return;
       }
 
@@ -746,7 +798,7 @@ export function setupCollaboration(server: Server) {
       rateLimitViolations.delete(ws);
       recordMessage(ws);
 
-      handleMessage(ws, new Uint8Array(data), docName, doc, aw);
+      handleCollaborationMessage(ws, rawDataToUint8Array(data), docName, doc, aw);
     });
 
     ws.on('close', () => {
@@ -791,6 +843,10 @@ export function setupCollaboration(server: Server) {
 
   // Handle events WebSocket connections (for real-time notifications)
   eventsWss.on('connection', (ws: WebSocket, sessionData: { userId: string; workspaceId: string }) => {
+    ws.on('error', (error: Error & { code?: string }) => {
+      logWebSocketError(`Events user ${sessionData.userId}`, error);
+    });
+
     eventConns.set(ws, { userId: sessionData.userId, workspaceId: sessionData.workspaceId });
     console.log(`[Events] User ${sessionData.userId} connected (${eventConns.size} total connections)`);
 

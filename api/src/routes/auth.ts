@@ -229,7 +229,7 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response): Prom
   try {
     await logAuditEvent({
       workspaceId: req.workspaceId,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'auth.logout',
       req,
     });
@@ -355,7 +355,7 @@ router.post('/extend-session', authMiddleware, async (req: Request, res: Respons
 
     await logAuditEvent({
       workspaceId: req.workspaceId,
-      actorUserId: req.userId!,
+      actorUserId: req.userId,
       action: 'auth.extend_session',
       req,
     });

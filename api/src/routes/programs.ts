@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { z } from 'zod';
 import { getVisibilityContext, VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 import { logAuditEvent } from '../services/audit.js';
 
 type RouterType = ReturnType<typeof Router>;
@@ -60,36 +60,53 @@ const updateProgramSchema = z.object({
 // List programs (documents with document_type = 'program')
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const includeArchived = req.query.archived === 'true';
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
 
-    // owner_id in properties takes precedence over created_by
-    let query = `
+    // CTE-based rewrite mirrors the projects list (§4.1 in audit
+    // implementation notes). The pre-rewrite shape ran two correlated
+    // subqueries per program (issue_count, sprint_count) — at 5 programs
+    // that's 250+ loops triggered on every protected-route load through
+    // the global programs provider. The grouped CTE answers both counts
+    // in a single scan of document_associations.
+    const archivedFilter = includeArchived ? '' : ' AND d.archived_at IS NULL';
+    const query = `
+      WITH visible_programs AS (
+        SELECT d.id, d.title, d.properties, d.workspace_id, d.created_by,
+               d.archived_at, d.created_at, d.updated_at,
+               COALESCE((d.properties->>'owner_id')::uuid, d.created_by) AS owner_id
+        FROM documents d
+        WHERE d.workspace_id = $1 AND d.document_type = 'program'
+          AND ${VISIBILITY_FILTER_SQL('d', '$2', isAdmin)}
+          ${archivedFilter}
+      ),
+      association_counts AS (
+        SELECT da.related_id AS program_id,
+               COUNT(*) FILTER (WHERE x.document_type = 'issue')  AS issue_count,
+               COUNT(*) FILTER (WHERE x.document_type = 'sprint') AS sprint_count
+        FROM document_associations da
+        JOIN documents x ON x.id = da.document_id
+                        AND x.document_type IN ('issue', 'sprint')
+        JOIN visible_programs vp ON vp.id = da.related_id
+        WHERE da.relationship_type = 'program'
+        GROUP BY da.related_id
+      )
       SELECT d.id, d.title, d.properties, d.archived_at, d.created_at, d.updated_at,
-             COALESCE((d.properties->>'owner_id')::uuid, d.created_by) as owner_id,
-             u.name as owner_name, u.email as owner_email,
-             (SELECT COUNT(*) FROM documents i
-              JOIN document_associations da ON da.document_id = i.id AND da.related_id = d.id AND da.relationship_type = 'program'
-              WHERE i.document_type = 'issue') as issue_count,
-             (SELECT COUNT(*) FROM documents s
-              JOIN document_associations da ON da.document_id = s.id AND da.related_id = d.id AND da.relationship_type = 'program'
-              WHERE s.document_type = 'sprint') as sprint_count
-      FROM documents d
-      LEFT JOIN users u ON u.id = COALESCE((d.properties->>'owner_id')::uuid, d.created_by)
-      WHERE d.workspace_id = $1 AND d.document_type = 'program'
-        AND ${VISIBILITY_FILTER_SQL('d', '$2', '$3')}
+             d.owner_id,
+             u.name AS owner_name, u.email AS owner_email,
+             COALESCE(ac.issue_count, 0) AS issue_count,
+             COALESCE(ac.sprint_count, 0) AS sprint_count
+      FROM visible_programs d
+      LEFT JOIN users u ON u.id = d.owner_id
+      LEFT JOIN association_counts ac ON ac.program_id = d.id
+      ORDER BY d.created_at DESC
     `;
-    const params: (string | boolean)[] = [workspaceId, userId, isAdmin];
-
-    if (!includeArchived) {
-      query += ` AND d.archived_at IS NULL`;
-    }
-
-    query += ` ORDER BY d.created_at DESC`;
+    const params: (string | boolean)[] = [workspaceId, userId];
 
     const result = await pool.query(query, params);
     res.json(result.rows.map(extractProgramFromRow));
@@ -102,9 +119,10 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 // Get single program
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -142,6 +160,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Create program (creates a document with document_type = 'program')
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const parsed = createProgramSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
@@ -195,9 +214,10 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 // Update program
 router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = updateProgramSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -313,9 +333,10 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Delete program
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -355,9 +376,10 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 // Get program issues
 router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -434,9 +456,10 @@ router.get('/:id/issues', authMiddleware, async (req: Request, res: Response) =>
 // Get program projects (documents with document_type = 'project' that belong to this program)
 router.get('/:id/projects', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -517,9 +540,10 @@ router.get('/:id/projects', authMiddleware, async (req: Request, res: Response) 
 // Returns sprints with sprint_number and owner_id - dates/status computed on frontend
 router.get('/:id/sprints', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id } = req.params;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
@@ -612,10 +636,11 @@ router.get('/:id/sprints', authMiddleware, async (req: Request, res: Response) =
 // Merge preview - returns counts of entities that will be moved
 router.get('/:id/merge-preview', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const sourceId = req.params.id;
     const targetId = req.query.target_id as string;
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     if (!targetId) {
       res.status(400).json({ error: 'target_id query parameter is required' });
@@ -718,9 +743,10 @@ const mergeProgramSchema = z.object({
 router.post('/:id/merge', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
+    if (!assertAuthed(req, res)) return;
     const sourceId = String(req.params.id);
-    const userId = req.userId!;
-    const workspaceId = req.workspaceId!;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
 
     const parsed = mergeProgramSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -810,16 +836,18 @@ router.post('/:id/merge', authMiddleware, async (req: Request, res: Response) =>
       [targetId, sourceId]
     );
 
-    // 4. Log history for each moved entity (using client, not pool, to stay in transaction)
-    for (const child of childrenResult.rows) {
+    // 4. Log history for each moved entity in a single round-trip via unnest().
+    if (childrenResult.rows.length > 0) {
+      const oldValueJson = JSON.stringify([{ id: sourceId, type: 'program' }]);
+      const newValueJson = JSON.stringify([{ id: targetId, type: 'program' }]);
       await client.query(
         `INSERT INTO document_history (document_id, field, old_value, new_value, changed_by)
-         VALUES ($1, $2, $3, $4, $5)`,
+         SELECT unnest($1::uuid[]), $2, $3, $4, $5`,
         [
-          child.document_id,
+          childrenResult.rows.map(c => c.document_id),
           'belongs_to',
-          JSON.stringify([{ id: sourceId, type: 'program' }]),
-          JSON.stringify([{ id: targetId, type: 'program' }]),
+          oldValueJson,
+          newValueJson,
           userId,
         ]
       );

@@ -109,6 +109,18 @@ export const IssueResponseSchema = z.object({
 
 registry.register('Issue', IssueResponseSchema);
 
+// Slim variant used by list endpoints (GET /issues and /issues/{id}/children).
+// The list views never render TipTap content or creator name, so the routes
+// skip selecting d.content + creator join; the schema mirrors that. Detail
+// endpoints continue to return the full IssueResponseSchema. See audit
+// implementation §3.2 for the payload-size rationale.
+export const IssueListItemSchema = IssueResponseSchema.omit({
+  content: true,
+  created_by_name: true,
+}).openapi('IssueListItem');
+
+registry.register('IssueListItem', IssueListItemSchema);
+
 // ============== Create Issue ==============
 
 export const CreateIssueSchema = z.object({
@@ -259,7 +271,7 @@ registry.registerPath({
       description: 'List of issues',
       content: {
         'application/json': {
-          schema: z.array(IssueResponseSchema),
+          schema: z.array(IssueListItemSchema),
         },
       },
     },
@@ -347,7 +359,7 @@ registry.registerPath({
       description: 'List of sub-issues',
       content: {
         'application/json': {
-          schema: z.array(IssueResponseSchema),
+          schema: z.array(IssueListItemSchema),
         },
       },
     },

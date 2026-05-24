@@ -116,3 +116,6 @@ vendor/
 
 # Vite PWA dev artifacts
 web/dev-dist/
+
+# Type-safety lint baseline (raw output, regenerable via `pnpm lint:report`)
+audit/type-safety/baseline/raw.json

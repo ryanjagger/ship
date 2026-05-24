@@ -2,3 +2,4 @@ packages:
   - 'api'
   - 'web'
   - 'shared'
+  - 'probe'

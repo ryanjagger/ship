@@ -535,6 +535,165 @@ components:
         - created_at
         - updated_at
         - belongs_to
+    IssueListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: UUID identifier
+          example: 550e8400-e29b-41d4-a716-446655440000
+        title:
+          type: string
+        display_id:
+          type: string
+          description: "Human-readable ticket ID (e.g., \"#42\")"
+          example: "#42"
+        ticket_number:
+          type: integer
+          description: Numeric ticket number
+          example: 42
+        state:
+          type: string
+          enum:
+            - triage
+            - backlog
+            - todo
+            - in_progress
+            - in_review
+            - done
+            - cancelled
+          description: Issue workflow state
+        priority:
+          type: string
+          enum:
+            - urgent
+            - high
+            - medium
+            - low
+            - none
+          description: Issue priority level
+        assignee_id:
+          type: string
+          nullable: true
+          format: uuid
+          description: UUID identifier
+          example: 550e8400-e29b-41d4-a716-446655440000
+        assignee_name:
+          type: string
+          nullable: true
+          description: Name of assigned user
+        assignee_archived:
+          type: boolean
+          description: Whether the assigned user has been archived
+        estimate:
+          type: number
+          nullable: true
+          minimum: 0
+          exclusiveMinimum: true
+          description: Time estimate in hours
+        source:
+          type: string
+          enum:
+            - internal
+            - external
+            - action_items
+          description: Issue source/provenance (never changes after creation)
+        due_date:
+          type: string
+          nullable: true
+          pattern: ^\d{4}-\d{2}-\d{2}$
+          description: ISO 8601 date string (YYYY-MM-DD)
+          example: 2025-01-30
+        is_system_generated:
+          type: boolean
+          description: Whether this issue was auto-generated for accountability
+        accountability_target_id:
+          type: string
+          nullable: true
+          format: uuid
+          description: UUID identifier
+          example: 550e8400-e29b-41d4-a716-446655440000
+        accountability_type:
+          type: string
+          nullable: true
+          enum:
+            - standup
+            - weekly_plan
+            - weekly_review
+            - week_start
+            - week_issues
+            - project_plan
+            - project_retro
+          description: Type of accountability task for auto-generated issues
+        rejection_reason:
+          type: string
+          nullable: true
+          description: Reason if issue was rejected from triage
+        created_at:
+          type: string
+          format: date-time
+          description: ISO 8601 datetime string
+          example: "2025-01-30T14:30:00.000Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: ISO 8601 datetime string
+          example: "2025-01-30T14:30:00.000Z"
+        created_by:
+          type: string
+          format: uuid
+          description: UUID identifier
+          example: 550e8400-e29b-41d4-a716-446655440000
+        started_at:
+          type: string
+          nullable: true
+          format: date-time
+          description: ISO 8601 datetime string
+          example: "2025-01-30T14:30:00.000Z"
+        completed_at:
+          type: string
+          nullable: true
+          format: date-time
+          description: ISO 8601 datetime string
+          example: "2025-01-30T14:30:00.000Z"
+        cancelled_at:
+          type: string
+          nullable: true
+          format: date-time
+          description: ISO 8601 datetime string
+          example: "2025-01-30T14:30:00.000Z"
+        reopened_at:
+          type: string
+          nullable: true
+          format: date-time
+          description: ISO 8601 datetime string
+          example: "2025-01-30T14:30:00.000Z"
+        converted_from_id:
+          type: string
+          nullable: true
+          format: uuid
+          description: ID of document this issue was converted from
+          example: 550e8400-e29b-41d4-a716-446655440000
+        belongs_to:
+          type: array
+          items:
+            $ref: "#/components/schemas/BelongsToResponse"
+          description: Associated documents (programs, projects, sprints, parent issues)
+      required:
+        - id
+        - title
+        - display_id
+        - ticket_number
+        - state
+        - priority
+        - assignee_id
+        - assignee_name
+        - estimate
+        - source
+        - created_at
+        - updated_at
+        - belongs_to
     CreateIssue:
       type: object
       properties:
@@ -4396,7 +4555,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Issue"
+                  $ref: "#/components/schemas/IssueListItem"
     post:
       tags:
         - Issues
@@ -4561,7 +4720,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Issue"
+                  $ref: "#/components/schemas/IssueListItem"
         404:
           description: Parent issue not found
   /issues/bulk:

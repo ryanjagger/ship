@@ -13,16 +13,17 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { pool } from '../db/client.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 
-interface ClaudeContextRequest {
-  context_type: 'standup' | 'review' | 'retro';
-  sprint_id?: string;
-  project_id?: string;
-}
+const ClaudeContextQuerySchema = z.object({
+  context_type: z.enum(['standup', 'review', 'retro']),
+  sprint_id: z.string().optional(),
+  project_id: z.string().optional(),
+});
 
 interface StandupIssueStats {
   total: number;
@@ -59,16 +60,16 @@ interface RetroIssueStats {
  */
 router.get('/context', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { context_type, sprint_id, project_id } = req.query as unknown as ClaudeContextRequest;
+    const parsed = ClaudeContextQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid query parameters', details: parsed.error.flatten() });
+      return;
+    }
+    const { context_type, sprint_id, project_id } = parsed.data;
     const workspaceId = req.workspaceId;
 
     if (!workspaceId) {
       res.status(401).json({ error: 'No workspace selected' });
-      return;
-    }
-
-    if (!context_type) {
-      res.status(400).json({ error: 'context_type is required' });
       return;
     }
 
