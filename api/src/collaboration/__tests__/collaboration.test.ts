@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import * as Y from 'yjs'
+import * as awarenessProtocol from 'y-protocols/awareness'
+import { WebSocket } from 'ws'
 import { pool } from '../../db/client.js'
+import { handleCollaborationMessage } from '../index.js'
 import crypto from 'crypto'
 
 /**
@@ -771,6 +774,34 @@ describe('Collaboration Server', () => {
   })
 
   describe('Sync Protocol', () => {
+    it('should reject empty collaboration messages without throwing', () => {
+      const doc = new Y.Doc()
+      const aw = new awarenessProtocol.Awareness(doc)
+      const ws = {
+        readyState: WebSocket.OPEN,
+        close: vi.fn(),
+      } as unknown as WebSocket
+
+      let handled = true
+      expect(() => {
+        handled = handleCollaborationMessage(ws, new Uint8Array(), 'wiki:test-doc', doc, aw)
+      }).not.toThrow()
+      expect(handled).toBe(false)
+      expect(ws.close).toHaveBeenCalledWith(1003, 'Invalid collaboration message')
+    })
+
+    it('should reject truncated sync messages without throwing', () => {
+      const doc = new Y.Doc()
+      const aw = new awarenessProtocol.Awareness(doc)
+      const ws = {
+        readyState: WebSocket.OPEN,
+        close: vi.fn(),
+      } as unknown as WebSocket
+
+      expect(handleCollaborationMessage(ws, new Uint8Array([0]), 'wiki:test-doc', doc, aw)).toBe(false)
+      expect(ws.close).toHaveBeenCalledWith(1003, 'Invalid collaboration message')
+    })
+
     it('should generate sync messages', () => {
       const doc = new Y.Doc()
 
