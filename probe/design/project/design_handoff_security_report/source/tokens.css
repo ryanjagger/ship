@@ -1,0 +1,89 @@
+/* tokens.css — design tokens for security report components */
+
+:root {
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-base: 12px;
+  --font-size-sm: 11px;
+  --font-size-xs: 10px;
+  --font-size-md: 13px;
+  --font-size-lg: 16px;
+  --font-size-xl: 28px;
+  --font-size-2xl: 40px;
+  --leading-tight: 1.15;
+  --leading-normal: 1.45;
+
+  /* Severity (theme-agnostic) */
+  --sev-critical: #ff4757;
+  --sev-high: #ff8a3d;
+  --sev-medium: #ffd23d;
+  --sev-low: #7cc4ff;
+  --sev-info: #8b8f87;
+
+  /* Status */
+  --status-open: #ff4757;
+  --status-fixed: #00e36b;
+  --status-triage: #ffd23d;
+  --status-suppressed: #6a7268;
+}
+
+.theme-dark {
+  --bg: #0a0d0a;
+  --bg-elev: #0e1110;
+  --surface: #11140f;
+  --surface-hover: #161a14;
+  --border: #1c211c;
+  --border-strong: #2a2f29;
+  --text: #cdd6cd;
+  --text-strong: #ecf2ea;
+  --muted: #5d6a5d;
+  --muted-2: #3e463d;
+  --accent: #00e36b;
+  --accent-dim: rgba(0, 227, 107, 0.18);
+  --link: #00e36b;
+  --shadow: 0 1px 0 rgba(255,255,255,0.02), 0 12px 32px rgba(0,0,0,0.5);
+  --row-zebra: rgba(255,255,255,0.012);
+  color-scheme: dark;
+}
+
+.theme-light {
+  --bg: #f6f7f3;
+  --bg-elev: #fbfcf8;
+  --surface: #ffffff;
+  --surface-hover: #f0f2ec;
+  --border: #e3e6dd;
+  --border-strong: #c9cec1;
+  --text: #1a1f1a;
+  --text-strong: #050905;
+  --muted: #6a7268;
+  --muted-2: #9aa297;
+  --accent: #067a3a;
+  --accent-dim: rgba(6, 122, 58, 0.12);
+  --link: #067a3a;
+  --shadow: 0 1px 0 rgba(0,0,0,0.02), 0 4px 14px rgba(20,30,20,0.06);
+  --row-zebra: rgba(0,0,0,0.012);
+  color-scheme: light;
+}
+
+.sr {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-normal);
+  color: var(--text);
+  background: var(--bg);
+  font-feature-settings: 'liga' 0, 'calt' 0, 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+.sr * { box-sizing: border-box; }
+.sr a { color: var(--link); text-decoration: none; }
+.sr a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.sr button { font: inherit; color: inherit; }
+
+/* selection in dark mode */
+.theme-dark ::selection { background: rgba(0, 227, 107, 0.3); color: #ecf2ea; }
+.theme-light ::selection { background: rgba(6, 122, 58, 0.18); }
+
+/* scrollbar (subtle) */
+.sr ::-webkit-scrollbar { width: 8px; height: 8px; }
+.sr ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+.sr ::-webkit-scrollbar-track { background: transparent; }
