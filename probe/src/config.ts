@@ -110,15 +110,17 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
 // references or future CLI parsers.
 const RUN_ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 
-// Reserved basenames the runId is checked against (case-insensitively).
-// Two groups, conflated since the failure mode is the same (writeReports
-// can't produce a usable file on at least one supported platform):
-//   - probe's own alias + index filenames
-//   - Windows reserved device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9),
-//     which the Windows API refuses to open even with an extension
-const RESERVED_RUN_IDS = new Set<string>([
-  'index',
-  'security-report',
+// probe's own output filenames. These collide only when the runId equals the
+// whole stem (e.g. runId `index` -> index.html clashes with the run-history
+// index; `index.foo` -> index.foo.html does not). Matched against the full
+// lowercased runId.
+const RESERVED_STEMS = new Set<string>(['index', 'security-report']);
+
+// Windows reserved device names. The Win32 API refuses to open these even with
+// an extension, and treats the segment BEFORE the first dot as the device — so
+// `con`, `con.json`, and (after Windows trims trailing dots/spaces) `con.` all
+// resolve to the CON device. Matched against the leading dot-segment.
+const WINDOWS_DEVICE_NAMES = new Set<string>([
   'con', 'prn', 'aux', 'nul',
   'com0', 'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
   'lpt0', 'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
@@ -142,12 +144,23 @@ export function validateRunId(value: string): string {
       `Invalid --run-id ${JSON.stringify(value)}: must contain only letters, digits, dots, underscores, and hyphens.`
     );
   }
-  // Reserved-name check is case-insensitive: macOS APFS / Windows NTFS treat
-  // filenames as case-insensitive, and Windows device names (CON, NUL, COM1,
-  // ...) are refused even with an extension. Normalize before lookup.
-  if (RESERVED_RUN_IDS.has(value.toLowerCase())) {
+  // Case-insensitive throughout: macOS APFS / Windows NTFS treat filenames as
+  // case-insensitive.
+  const lower = value.toLowerCase();
+
+  // probe alias/index collision — whole-stem match.
+  if (RESERVED_STEMS.has(lower)) {
     throw new InvalidRunIdError(
-      `Invalid --run-id ${JSON.stringify(value)}: '${value}' is a reserved name (collides with probe's alias/index outputs or a Windows device name). Pick a different id.`
+      `Invalid --run-id ${JSON.stringify(value)}: '${value}' collides with probe's alias/index output filenames. Pick a different id.`
+    );
+  }
+
+  // Windows device-name collision — match the leading dot-segment after
+  // trimming trailing dots/spaces, mirroring how Win32 resolves the basename.
+  const leadingSegment = lower.replace(/[. ]+$/, '').split('.')[0] ?? '';
+  if (WINDOWS_DEVICE_NAMES.has(leadingSegment)) {
+    throw new InvalidRunIdError(
+      `Invalid --run-id ${JSON.stringify(value)}: '${value}' resolves to the reserved Windows device name '${leadingSegment}' (reserved even with an extension). Pick a different id.`
     );
   }
   return value;
