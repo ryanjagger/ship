@@ -105,7 +105,10 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
   };
 }
 
-const RUN_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+// Leading char must be alphanumeric or underscore — blocks `..foo`, `.hidden`,
+// and leading-hyphen flag-shaped values that could collide with parent-dir
+// references or future CLI parsers.
+const RUN_ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 // Filenames the viewer + writeReports reserve for alias and index outputs.
 // A runId equal to one of these would silently overwrite those files or race
 // with their atomic-write sequence.

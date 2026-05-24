@@ -1,5 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { validateRunId } from '../config.js';
 import type { ProbeReport, ProbeSeverity } from '../report.js';
 import { loadViewerAssets } from './assets.js';
 import { PROBE_BASE_CSS } from './css.js';
@@ -27,25 +28,50 @@ export async function scanRuns(outputDir: string): Promise<RunSummary[]> {
 
   // Index every JSON file in outputDir that isn't the alias — covers runs made
   // with custom --run-id values (which don't start with `probe-`) without
-  // double-counting the security-report.json alias.
+  // double-counting the security-report.json alias. Defend against a tampered
+  // or stray JSON file by deriving the runId from the on-disk filename (not
+  // from the JSON's self-reported field) and coercing summary counts to
+  // numbers — otherwise unchecked fields would interpolate raw into href /
+  // style / title attributes in the rendered index.
   const runFiles = entries.filter((name) => name.endsWith('.json') && name !== 'security-report.json');
   const summaries: RunSummary[] = [];
 
   for (const file of runFiles) {
     const path = join(outputDir, file);
+    const runIdFromFilename = file.slice(0, -'.json'.length);
+    try {
+      validateRunId(runIdFromFilename);
+    } catch {
+      // A file whose name fails validateRunId can't safely be linked from
+      // the index. Skip it silently so a dropped file with a hostile name
+      // can't appear at all.
+      continue;
+    }
+
     try {
       const raw = await readFile(path, 'utf8');
-      const parsed = JSON.parse(raw) as ProbeReport;
-      if (!parsed.runId || !parsed.generatedAt || !parsed.summary) continue;
+      const parsed = JSON.parse(raw) as Partial<ProbeReport>;
+      if (typeof parsed.generatedAt !== 'string' || !parsed.summary || typeof parsed.summary !== 'object') continue;
+
+      const apiUrl = typeof parsed.target?.apiUrl === 'string' ? parsed.target.apiUrl : '';
+      const webUrl = typeof parsed.target?.webUrl === 'string' ? parsed.target.webUrl : undefined;
+      const sev = (parsed.summary.bySeverity ?? {}) as Partial<Record<ProbeSeverity, unknown>>;
+
       summaries.push({
-        runId: parsed.runId,
+        runId: runIdFromFilename,
         generatedAt: parsed.generatedAt,
-        target: parsed.target,
+        target: webUrl ? { apiUrl, webUrl } : { apiUrl },
         summary: {
-          findings: parsed.summary.findings,
-          notTested: parsed.summary.notTested,
-          passed: parsed.summary.passed,
-          bySeverity: parsed.summary.bySeverity,
+          findings: toCount(parsed.summary.findings),
+          notTested: toCount(parsed.summary.notTested),
+          passed: toCount(parsed.summary.passed),
+          bySeverity: {
+            critical: toCount(sev.critical),
+            high: toCount(sev.high),
+            medium: toCount(sev.medium),
+            low: toCount(sev.low),
+            info: toCount(sev.info),
+          },
         },
       });
     } catch (error) {
@@ -55,6 +81,11 @@ export async function scanRuns(outputDir: string): Promise<RunSummary[]> {
 
   summaries.sort((a, b) => (a.generatedAt < b.generatedAt ? 1 : a.generatedAt > b.generatedAt ? -1 : 0));
   return summaries;
+}
+
+function toCount(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
 }
 
 export async function renderIndexHtml(runs: RunSummary[]): Promise<string> {
@@ -149,7 +180,10 @@ function safeHostname(url: string): string {
   try {
     return new URL(url).hostname;
   } catch {
-    return url;
+    // An unparseable apiUrl is more likely a tampered/garbage payload than a
+    // legit display value. Drop it rather than reflecting raw text into a
+    // cell (already escaped, but still confusing to read in the index).
+    return '';
   }
 }
 
