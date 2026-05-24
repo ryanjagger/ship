@@ -2,6 +2,9 @@
 
 - [Orientation Checklist & Notes](../notes.md)
 - [Documentation Audit](documentation/DOCS_AUDIT_REPORT.md)
+- [Discoveries](discoveries.md)
+
+---
 
 | Audit | Report | Peer review | Implementation |
 | --- | --- | --- | --- |
@@ -12,3 +15,4 @@
 | Test Coverage and Quality | [README](test-coverage/README.md) | [peer review](test-coverage/peer-review.md) | [implementation](test-coverage/implementation.md) |
 | Runtime Error and Edge Case Handling | [README](error-handling/README.md) | [peer review](error-handling/peer-review.md) | [implementation](error-handling/implementation.md) |
 | Accessibility Compliance | [README](accessibility/README.md) | [peer review](accessibility/peer-review.md) | [implementation](accessibility/implementation.md) |
+| Security Review | [Manual Security Review](security-audit/manual-security-review.md) | — | — |
