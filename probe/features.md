@@ -14,6 +14,11 @@ This document tracks the probe surfaces as they are added.
 - Probe selection: supports `--only` and `--skip` for focused reruns by probe group.
 - Report safety and usability: redacts token, cookie, password, secret, database URL, private-key, JWT, and AWS-key shaped values before writing reports; CLI and markdown output include per-surface summaries.
 - Aggressive rate-limit proof mode: `--aggressive-rate-limit` explicitly forces invalid-login attempts until a 429 is observed, and is disabled by default to keep normal reruns repeatable.
+- Per-run report files with history: each run writes `<run-id>.{json,md,html}` alongside the existing `security-report.{json,md,html}` alias, so past runs accumulate in `probe/results/` instead of being overwritten.
+- Self-contained HTML viewer: each run also writes a single HTML file (CSS, JS, and the run's JSON all inlined) with a sortable findings table, status filter tabs, search, severity-mix KPI band, and a dark/light theme toggle that persists in `localStorage`. Opens on `file://` with no fetches, so a single report can be emailed or Slacked.
+- Run history index: `probe/results/index.html` is regenerated after every run, listing past runs newest-first with timestamp, target hostname, finding count, and severity mix, with links into each per-run report.
+- Interactive CLI prompts: invoking `pnpm probe` with no flags from a terminal prompts for target URL, credentials, probe groups, and mutation/rate-limit confirms (each non-obvious option shows inline hint text). Any flag OR a non-TTY stdin short-circuits prompts entirely, so CI and scripted runs are unchanged.
+- Browser auto-open: after an interactive run completes, the per-run HTML opens in the default browser. Non-interactive runs (any flag, non-TTY) skip auto-open; browser-launch failures (headless SSH, missing default browser) log a soft warning and never fail the run.
 
 ## Planned
 
