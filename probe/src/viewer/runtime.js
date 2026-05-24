@@ -28,6 +28,7 @@
     search: '',
     sortKey: 'sev',
     sortDir: 'asc',
+    expandedId: null,
   };
 
   hydrateHeader();
@@ -230,6 +231,8 @@
       tbody.appendChild(empty);
       return;
     }
+    // Reset expansion when the visible row set changes (filter/search/sort).
+    state.expandedId = null;
     rows.forEach(function (check, i) {
       tbody.appendChild(renderRow(check, i));
     });
@@ -238,6 +241,10 @@
   function renderRow(check, i) {
     var row = document.createElement('div');
     row.className = 'probe-row' + (i % 2 ? ' probe-row-zebra' : '');
+    row.setAttribute('role', 'button');
+    row.setAttribute('tabindex', '0');
+    row.setAttribute('aria-expanded', 'false');
+    row.dataset.checkId = check.id;
 
     row.appendChild(cellBadge(check.severity, 'sev'));
     row.appendChild(cellText(check.id, 'probe-cell-id'));
@@ -247,7 +254,90 @@
     row.appendChild(cellBadge(check.status, 'status'));
     row.appendChild(cellText(formatAge(report.generatedAt), 'probe-cell-age'));
 
+    function toggle() {
+      var isOpen = row.classList.contains('is-expanded');
+      collapseAll();
+      if (!isOpen) expandRow(row, check);
+    }
+    row.addEventListener('click', toggle);
+    row.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+
     return row;
+  }
+
+  function collapseAll() {
+    var open = document.querySelectorAll('.probe-row.is-expanded');
+    Array.prototype.forEach.call(open, function (row) {
+      row.classList.remove('is-expanded');
+      row.setAttribute('aria-expanded', 'false');
+      var next = row.nextElementSibling;
+      if (next && next.classList.contains('probe-row-detail')) next.parentNode.removeChild(next);
+    });
+    state.expandedId = null;
+  }
+
+  function expandRow(row, check) {
+    row.classList.add('is-expanded');
+    row.setAttribute('aria-expanded', 'true');
+    state.expandedId = check.id;
+    var detail = renderDetail(check);
+    row.parentNode.insertBefore(detail, row.nextSibling);
+  }
+
+  function renderDetail(check) {
+    var wrap = document.createElement('div');
+    wrap.className = 'probe-row-detail probe-row-detail-sev-' + check.severity;
+
+    var heading = document.createElement('div');
+    heading.className = 'probe-detail-heading';
+    heading.textContent = check.title;
+    wrap.appendChild(heading);
+
+    var meta = document.createElement('div');
+    meta.className = 'probe-detail-meta';
+    meta.textContent = check.id + ' · ' + check.surface + ' · ' + check.severity + ' · ' + check.status;
+    wrap.appendChild(meta);
+
+    var steps = (check.reproductionSteps && check.reproductionSteps.length) ? check.reproductionSteps : [];
+    if (steps.length > 0) {
+      var stepsSection = document.createElement('div');
+      stepsSection.className = 'probe-detail-section';
+      var stepsLabel = document.createElement('div');
+      stepsLabel.className = 'probe-detail-label';
+      stepsLabel.textContent = 'reproduction steps';
+      stepsSection.appendChild(stepsLabel);
+      var ol = document.createElement('ol');
+      ol.className = 'probe-detail-steps';
+      steps.forEach(function (step) {
+        var li = document.createElement('li');
+        li.textContent = String(step);
+        ol.appendChild(li);
+      });
+      stepsSection.appendChild(ol);
+      wrap.appendChild(stepsSection);
+    }
+
+    if (check.evidence !== undefined && check.evidence !== null) {
+      var evSection = document.createElement('div');
+      evSection.className = 'probe-detail-section';
+      var evLabel = document.createElement('div');
+      evLabel.className = 'probe-detail-label';
+      evLabel.textContent = 'evidence';
+      evSection.appendChild(evLabel);
+      var pre = document.createElement('pre');
+      pre.className = 'probe-detail-evidence';
+      try {
+        pre.textContent = JSON.stringify(check.evidence, null, 2);
+      } catch (e) {
+        pre.textContent = String(check.evidence);
+      }
+      evSection.appendChild(pre);
+      wrap.appendChild(evSection);
+    }
+
+    return wrap;
   }
 
   function cellBadge(value, kind) {

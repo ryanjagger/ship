@@ -131,10 +131,26 @@ const PROBE_REPORT_CSS = `
 .probe-th { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: none; padding: 0; color: inherit; font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; text-align: left; }
 .probe-sort-arrow { font-size: 9px; }
 .probe-table-body { display: flex; flex-direction: column; }
-.probe-row { display: grid; grid-template-columns: 110px 160px 1fr 110px 60px 130px 70px; padding: 0 14px; height: 30px; align-items: center; border-bottom: 1px solid var(--border); }
+.probe-row { display: grid; grid-template-columns: 110px 160px 1fr 110px 60px 130px 70px; padding: 0 14px; height: 30px; align-items: center; border-bottom: 1px solid var(--border); cursor: pointer; }
 .probe-row:last-child { border-bottom: none; }
 .probe-row-zebra { background: var(--row-zebra); }
 .probe-row:hover { background: var(--surface-hover); }
+.probe-row.is-expanded { background: var(--surface-hover); border-bottom-color: var(--border-strong); }
+.probe-row.is-expanded > .probe-cell-id::before { content: '▾ '; color: var(--accent); }
+
+.probe-row-detail { padding: 14px 18px 18px; background: var(--bg); border-bottom: 1px solid var(--border); border-left: 2px solid var(--border-strong); }
+.probe-row-detail-sev-critical { border-left-color: var(--sev-critical); }
+.probe-row-detail-sev-high { border-left-color: var(--sev-high); }
+.probe-row-detail-sev-medium { border-left-color: var(--sev-medium); }
+.probe-row-detail-sev-low { border-left-color: var(--sev-low); }
+.probe-row-detail-sev-info { border-left-color: var(--sev-info); }
+.probe-detail-heading { color: var(--text-strong); font-size: 12px; margin-bottom: 4px; white-space: normal; }
+.probe-detail-meta { color: var(--muted); font-size: 10px; letter-spacing: 0.04em; margin-bottom: 14px; }
+.probe-detail-section { margin-top: 12px; }
+.probe-detail-label { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+.probe-detail-steps { margin: 0; padding-left: 20px; color: var(--text); font-size: 11px; line-height: 1.6; }
+.probe-detail-steps li { white-space: normal; word-break: break-word; }
+.probe-detail-evidence { margin: 0; padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--border); color: var(--text); font-family: var(--font-mono); font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
 .probe-cell-title { color: var(--text-strong); padding-right: 12px; }
 .probe-cell-surface { color: var(--muted); }
 .probe-cell-age { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }

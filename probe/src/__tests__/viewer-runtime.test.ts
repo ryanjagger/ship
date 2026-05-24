@@ -255,6 +255,118 @@ describe('viewer runtime (jsdom)', () => {
     });
   });
 
+  describe('click-to-expand row detail', () => {
+    it('clicking a row opens a detail panel with reproduction steps and evidence JSON', async () => {
+      const report = createReport(makeConfig(), [
+        finding(
+          'auth.login.default_credentials',
+          'Default or configured credentials could not log in',
+          'auth',
+          'critical',
+          { status: 429, body: { error: 'Too many login attempts. Try again in 15 minutes.' }, email: 'dev@ship.local' },
+          ['GET http://localhost:3000/api/csrf-token', 'POST http://localhost:3000/api/auth/login with the configured email and password']
+        ),
+      ]);
+
+      await bootViewer(report);
+
+      const row = document.querySelector<HTMLDivElement>('.probe-row');
+      expect(row).not.toBeNull();
+      expect(row?.getAttribute('aria-expanded')).toBe('false');
+      expect(document.querySelector('.probe-row-detail')).toBeNull();
+
+      row?.click();
+
+      expect(row?.classList.contains('is-expanded')).toBe(true);
+      expect(row?.getAttribute('aria-expanded')).toBe('true');
+
+      const detail = document.querySelector('.probe-row-detail');
+      expect(detail).not.toBeNull();
+      expect(detail?.textContent).toContain('reproduction steps');
+      expect(detail?.textContent).toContain('GET http://localhost:3000/api/csrf-token');
+      expect(detail?.textContent).toContain('evidence');
+      expect(detail?.textContent).toContain('"Too many login attempts');
+      expect(detail?.textContent).toContain('"email": "dev@ship.local"');
+    });
+
+    it('clicking an expanded row collapses it', async () => {
+      const report = createReport(makeConfig(), [
+        finding('a.x', 'A', 'auth', 'critical', { k: 1 }, ['step']),
+      ]);
+      await bootViewer(report);
+
+      const row = document.querySelector<HTMLDivElement>('.probe-row');
+      row?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(1);
+
+      row?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(0);
+      expect(row?.getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('expanding a second row collapses the first (single-row-open)', async () => {
+      const report = createReport(makeConfig(), [
+        finding('a.x', 'A', 'auth', 'critical', { k: 1 }, ['step-a']),
+        finding('b.x', 'B', 'auth', 'high', { k: 2 }, ['step-b']),
+      ]);
+      await bootViewer(report);
+
+      const rows = Array.from(document.querySelectorAll<HTMLDivElement>('.probe-row'));
+      expect(rows).toHaveLength(2);
+
+      rows[0]?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(1);
+      expect(rows[0]?.classList.contains('is-expanded')).toBe(true);
+
+      rows[1]?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(1);
+      expect(rows[0]?.classList.contains('is-expanded')).toBe(false);
+      expect(rows[1]?.classList.contains('is-expanded')).toBe(true);
+    });
+
+    it('omits empty sections when a check has no reproduction steps or evidence', async () => {
+      const report = createReport(makeConfig(), [pass('clean', 'OK', 'runner', undefined)]);
+      await bootViewer(report);
+      document.querySelector<HTMLButtonElement>('[data-tab="passed"]')?.click();
+
+      document.querySelector<HTMLDivElement>('.probe-row')?.click();
+      const detail = document.querySelector('.probe-row-detail');
+      expect(detail).not.toBeNull();
+      expect(detail?.textContent).not.toContain('reproduction steps');
+      expect(detail?.textContent).not.toContain('evidence');
+      expect(detail?.textContent).toContain('OK');
+    });
+
+    it('Enter on a focused row toggles expansion (keyboard accessibility)', async () => {
+      const report = createReport(makeConfig(), [
+        finding('a.x', 'A', 'auth', 'critical', { k: 1 }, ['step']),
+      ]);
+      await bootViewer(report);
+
+      const row = document.querySelector<HTMLDivElement>('.probe-row');
+      const event = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      row?.dispatchEvent(event);
+
+      expect(row?.classList.contains('is-expanded')).toBe(true);
+      expect(document.querySelector('.probe-row-detail')).not.toBeNull();
+    });
+
+    it('switching tabs collapses any expanded row', async () => {
+      const report = createReport(makeConfig(), [
+        finding('a.x', 'A', 'auth', 'critical', { k: 1 }, ['step']),
+        pass('p.x', 'P', 'auth', {}),
+      ]);
+      await bootViewer(report);
+
+      document.querySelector<HTMLDivElement>('.probe-row')?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(1);
+
+      document.querySelector<HTMLButtonElement>('[data-tab="passed"]')?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(0);
+      expect(document.querySelectorAll('.probe-row.is-expanded').length).toBe(0);
+    });
+  });
+
   describe('refs column', () => {
     it('renders refs as reproductionSteps + evidence-key count', async () => {
       const report = createReport(makeConfig(), [
