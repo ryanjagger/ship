@@ -1,0 +1,2139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Probe · security report components</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap" />
+  <style>/* tokens.css — design tokens for security report components */
+
+:root {
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-base: 12px;
+  --font-size-sm: 11px;
+  --font-size-xs: 10px;
+  --font-size-md: 13px;
+  --font-size-lg: 16px;
+  --font-size-xl: 28px;
+  --font-size-2xl: 40px;
+  --leading-tight: 1.15;
+  --leading-normal: 1.45;
+
+  /* Severity (theme-agnostic) */
+  --sev-critical: #ff4757;
+  --sev-high: #ff8a3d;
+  --sev-medium: #ffd23d;
+  --sev-low: #7cc4ff;
+  --sev-info: #8b8f87;
+
+  /* Status */
+  --status-open: #ff4757;
+  --status-fixed: #00e36b;
+  --status-triage: #ffd23d;
+  --status-suppressed: #6a7268;
+}
+
+.theme-dark {
+  --bg: #0a0d0a;
+  --bg-elev: #0e1110;
+  --surface: #11140f;
+  --surface-hover: #161a14;
+  --border: #1c211c;
+  --border-strong: #2a2f29;
+  --text: #cdd6cd;
+  --text-strong: #ecf2ea;
+  --muted: #5d6a5d;
+  --muted-2: #3e463d;
+  --accent: #00e36b;
+  --accent-dim: rgba(0, 227, 107, 0.18);
+  --link: #00e36b;
+  --shadow: 0 1px 0 rgba(255,255,255,0.02), 0 12px 32px rgba(0,0,0,0.5);
+  --row-zebra: rgba(255,255,255,0.012);
+  color-scheme: dark;
+}
+
+.theme-light {
+  --bg: #f6f7f3;
+  --bg-elev: #fbfcf8;
+  --surface: #ffffff;
+  --surface-hover: #f0f2ec;
+  --border: #e3e6dd;
+  --border-strong: #c9cec1;
+  --text: #1a1f1a;
+  --text-strong: #050905;
+  --muted: #6a7268;
+  --muted-2: #9aa297;
+  --accent: #067a3a;
+  --accent-dim: rgba(6, 122, 58, 0.12);
+  --link: #067a3a;
+  --shadow: 0 1px 0 rgba(0,0,0,0.02), 0 4px 14px rgba(20,30,20,0.06);
+  --row-zebra: rgba(0,0,0,0.012);
+  color-scheme: light;
+}
+
+.sr {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-normal);
+  color: var(--text);
+  background: var(--bg);
+  font-feature-settings: 'liga' 0, 'calt' 0, 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+.sr * { box-sizing: border-box; }
+.sr a { color: var(--link); text-decoration: none; }
+.sr a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.sr button { font: inherit; color: inherit; }
+
+/* selection in dark mode */
+.theme-dark ::selection { background: rgba(0, 227, 107, 0.3); color: #ecf2ea; }
+.theme-light ::selection { background: rgba(6, 122, 58, 0.18); }
+
+/* scrollbar (subtle) */
+.sr ::-webkit-scrollbar { width: 8px; height: 8px; }
+.sr ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+.sr ::-webkit-scrollbar-track { background: transparent; }
+</style>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body { font-family: 'JetBrains Mono', ui-monospace, monospace; background: #f0eee9; }
+
+    /* Section title overrides — design canvas titles get our mono treatment */
+    [data-dc-section] .dc-section-title,
+    [data-dc-section] .dc-section-subtitle {
+      font-family: 'JetBrains Mono', monospace !important;
+    }
+
+    /* The artboard panel wrapper — fills artboard, sets theme. */
+    .ab {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .ab.theme-dark, .ab.theme-light { /* tokens.css does color-scheme + vars */ }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel (pinned) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  
+    <script type="text/babel" data-presets="env,react">
+// ━━━━━ design-canvas.jsx ━━━━━
+
+// DesignCanvas.jsx — Figma-ish design canvas wrapper
+// Warm gray grid bg + Sections + Artboards + PostIt notes.
+// Artboards are reorderable (grip-drag), deletable, labels/titles are
+// inline-editable, and any artboard can be opened in a fullscreen focus
+// overlay (←/→/Esc). State persists to a .design-canvas.state.json sidecar
+// via the host bridge. No assets, no deps.
+//
+// Usage:
+//   <DesignCanvas>
+//     <DCSection id="onboarding" title="Onboarding" subtitle="First-run variants">
+//       <DCArtboard id="a" label="A · Dusk" width={260} height={480}>…</DCArtboard>
+//       <DCArtboard id="b" label="B · Minimal" width={260} height={480}>…</DCArtboard>
+//     </DCSection>
+//   </DesignCanvas>
+
+const DC = {
+  bg: '#f0eee9',
+  grid: 'rgba(0,0,0,0.06)',
+  label: 'rgba(60,50,40,0.7)',
+  title: 'rgba(40,30,20,0.85)',
+  subtitle: 'rgba(60,50,40,0.6)',
+  postitBg: '#fef4a8',
+  postitText: '#5a4a2a',
+  font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+};
+
+// One-time CSS injection (classes are dc-prefixed so they don't collide with
+// the hosted design's own styles).
+if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
+  const s = document.createElement('style');
+  s.id = 'dc-styles';
+  s.textContent = [
+    '.dc-editable{cursor:text;outline:none;white-space:nowrap;border-radius:3px;padding:0 2px;margin:0 -2px}',
+    '.dc-editable:focus{background:#fff;box-shadow:0 0 0 1.5px #c96442}',
+    '[data-dc-slot]{transition:transform .18s cubic-bezier(.2,.7,.3,1)}',
+    '[data-dc-slot].dc-dragging{transition:none;z-index:10;pointer-events:none}',
+    '[data-dc-slot].dc-dragging .dc-card{box-shadow:0 12px 40px rgba(0,0,0,.25),0 0 0 2px #c96442;transform:scale(1.02)}',
+    // isolation:isolate contains artboard content's z-indexes so a
+    // z-indexed child (sticky navbar etc.) can't paint over .dc-header or
+    // the .dc-menu popover that drops into the top of the card.
+    '.dc-card{isolation:isolate;transition:box-shadow .15s,transform .15s}',
+    '.dc-card *{scrollbar-width:none}',
+    '.dc-card *::-webkit-scrollbar{display:none}',
+    // Per-artboard header: grip + label on the left, delete/expand on the
+    // right. Single flex row; when the artboard's on-screen width is too
+    // narrow for both the label yields (ellipsis, then hidden entirely below
+    // ~4ch via the container query) and the buttons stay on the row.
+    '.dc-header{position:absolute;bottom:100%;left:-4px;margin-bottom:calc(4px * var(--dc-inv-zoom,1));z-index:2;',
+    '  display:flex;align-items:center;container-type:inline-size}',
+    '.dc-labelrow{display:flex;align-items:center;gap:4px;height:24px;flex:1 1 auto;min-width:0}',
+    '.dc-grip{flex:0 0 auto;cursor:grab;display:flex;align-items:center;padding:5px 4px;border-radius:4px;transition:background .12s,opacity .12s}',
+    '.dc-grip:hover{background:rgba(0,0,0,.08)}',
+    '.dc-grip:active{cursor:grabbing}',
+    '.dc-labeltext{flex:1 1 auto;min-width:0;cursor:pointer;border-radius:4px;padding:3px 6px;',
+    '  display:flex;align-items:center;transition:background .12s;overflow:hidden}',
+    // Below ~4ch of label room: hide the label entirely, and drop the grip to
+    // hover-only (same reveal rule as .dc-btns) so a narrow header is clean
+    // until the card is moused.
+    '@container (max-width: 110px){',
+    '  .dc-labeltext{display:none}',
+    '  .dc-grip{opacity:0}',
+    '  [data-dc-slot]:hover .dc-grip{opacity:1}',
+    '}',
+    '.dc-labeltext:hover{background:rgba(0,0,0,.05)}',
+    '.dc-labeltext .dc-editable{overflow:hidden;text-overflow:ellipsis;max-width:100%}',
+    '.dc-labeltext .dc-editable:focus{overflow:visible;text-overflow:clip}',
+    '.dc-btns{flex:0 0 auto;margin-left:auto;display:flex;gap:2px;opacity:0;transition:opacity .12s}',
+    '[data-dc-slot]:hover .dc-btns,.dc-btns:has(.dc-menu){opacity:1}',
+    '.dc-expand,.dc-kebab{width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;padding:0;',
+    '  background:transparent;color:rgba(60,50,40,.7);display:flex;align-items:center;justify-content:center;',
+    '  font:inherit;transition:background .12s,color .12s}',
+    '.dc-expand:hover,.dc-kebab:hover{background:rgba(0,0,0,.06);color:#2a251f}',
+    // Slot hosting an open menu floats above later siblings (which otherwise
+    // paint on top — same z-index:auto, later DOM order) so the popup isn't
+    // clipped by the next card.
+    '[data-dc-slot]:has(.dc-menu){z-index:10}',
+    '.dc-menu{position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border-radius:8px;',
+    '  box-shadow:0 8px 28px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05);padding:4px;min-width:160px;z-index:10}',
+    '.dc-menu button{display:block;width:100%;padding:7px 10px;border:0;background:transparent;',
+    '  border-radius:5px;font-family:inherit;font-size:13px;font-weight:500;line-height:1.2;',
+    '  color:#29261b;cursor:pointer;text-align:left;transition:background .12s;white-space:nowrap}',
+    '.dc-menu button:hover{background:rgba(0,0,0,.05)}',
+    '.dc-menu hr{border:0;border-top:1px solid rgba(0,0,0,.08);margin:4px 2px}',
+    '.dc-menu .dc-danger{color:#c96442}',
+    '.dc-menu .dc-danger:hover{background:rgba(201,100,66,.1)}',
+    // Chrome (titles / labels / buttons) counter-scales against the viewport
+    // zoom so it stays a constant on-screen size. --dc-inv-zoom is set by
+    // DCViewport on every transform update and inherits to all descendants —
+    // any overlay inside the world (e.g. a TweaksPanel on an artboard) can use
+    // it the same way.
+    //
+    // The header uses transform:scale (out-of-flow, so layout impact doesn't
+    // matter) with its world-space width set to card-width / inv-zoom so that
+    // after counter-scaling its on-screen width exactly matches the card's —
+    // that's what lets the container query + text-overflow behave against the
+    // card's visible edge at every zoom level.
+    //
+    // The section head uses CSS zoom instead of transform so its layout box
+    // grows with the counter-scale, pushing the card row down — otherwise the
+    // constant-screen-size title would overflow into the (shrinking) world-
+    // space gap and overlap the artboard headers at low zoom.
+    '.dc-header{width:calc((100% + 4px) / var(--dc-inv-zoom,1));',
+    '  transform:scale(var(--dc-inv-zoom,1));transform-origin:bottom left}',
+    '.dc-sectionhead{zoom:var(--dc-inv-zoom,1)}',
+  ].join('\n');
+  document.head.appendChild(s);
+}
+
+const DCCtx = React.createContext(null);
+
+// Recursively unwrap React.Fragment so <>…</> grouping doesn't hide
+// DCSection/DCArtboard children from the type-based walks below.
+function dcFlatten(children) {
+  const out = [];
+  React.Children.forEach(children, (c) => {
+    if (c && c.type === React.Fragment) out.push(...dcFlatten(c.props.children));
+    else out.push(c);
+  });
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DesignCanvas — stateful wrapper around the pan/zoom viewport.
+// Owns runtime state (per-section order, renamed titles/labels, hidden
+// artboards, focused artboard). Order/titles/labels/hidden persist to a
+// .design-canvas.state.json
+// sidecar next to the HTML. Reads go via plain fetch() so the saved
+// arrangement is visible anywhere the HTML + sidecar are served together
+// (omelette preview, direct link, downloaded zip). Writes go through the
+// host's window.omelette bridge — editing requires the omelette runtime.
+// Focus is ephemeral.
+// ─────────────────────────────────────────────────────────────
+const DC_STATE_FILE = '.design-canvas.state.json';
+
+function DesignCanvas({ children, minScale, maxScale, style }) {
+  const [state, setState] = React.useState({ sections: {}, focus: null });
+  // Hold rendering until the sidecar read settles so the saved order/titles
+  // appear on first paint (no source-order flash). didRead gates writes until
+  // the read settles so the empty initial state can't clobber a slow read;
+  // skipNextWrite suppresses the one echo-write that would otherwise follow
+  // hydration.
+  const [ready, setReady] = React.useState(false);
+  const didRead = React.useRef(false);
+  const skipNextWrite = React.useRef(false);
+
+  React.useEffect(() => {
+    let off = false;
+    fetch('./' + DC_STATE_FILE)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((saved) => {
+        if (off || !saved || !saved.sections) return;
+        skipNextWrite.current = true;
+        setState((s) => ({ ...s, sections: saved.sections }));
+      })
+      .catch(() => {})
+      .finally(() => { didRead.current = true; if (!off) setReady(true); });
+    const t = setTimeout(() => { if (!off) setReady(true); }, 150);
+    return () => { off = true; clearTimeout(t); };
+  }, []);
+
+  React.useEffect(() => {
+    if (!didRead.current) return;
+    if (skipNextWrite.current) { skipNextWrite.current = false; return; }
+    const t = setTimeout(() => {
+      window.omelette?.writeFile(DC_STATE_FILE, JSON.stringify({ sections: state.sections })).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [state.sections]);
+
+  // Build registries synchronously from children so FocusOverlay can read
+  // them in the same render. Fragments are flattened; wrapping in other
+  // elements still opts out of focus/reorder.
+  const registry = {};     // slotId -> { sectionId, artboard }
+  const sectionMeta = {};  // sectionId -> { title, subtitle, slotIds[] }
+  const sectionOrder = [];
+  dcFlatten(children).forEach((sec) => {
+    if (!sec || sec.type !== DCSection) return;
+    const sid = sec.props.id ?? sec.props.title;
+    if (!sid) return;
+    sectionOrder.push(sid);
+    const persisted = state.sections[sid] || {};
+    const abs = [];
+    dcFlatten(sec.props.children).forEach((ab) => {
+      if (!ab || ab.type !== DCArtboard) return;
+      const aid = ab.props.id ?? ab.props.label;
+      if (aid) abs.push([aid, ab]);
+    });
+    // hidden is scoped to one source revision — when the agent regenerates
+    // (artboard-ID set changes), prior deletes don't apply to new content.
+    const srcKey = abs.map(([k]) => k).join('\x1f');
+    const hidden = persisted.srcKey === srcKey ? (persisted.hidden || []) : [];
+    const srcIds = [];
+    abs.forEach(([aid, ab]) => {
+      if (hidden.includes(aid)) return;
+      registry[`${sid}/${aid}`] = { sectionId: sid, artboard: ab };
+      srcIds.push(aid);
+    });
+    const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
+    sectionMeta[sid] = {
+      title: persisted.title ?? sec.props.title,
+      subtitle: sec.props.subtitle,
+      slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))],
+    };
+  });
+
+  const api = React.useMemo(() => ({
+    state,
+    section: (id) => state.sections[id] || {},
+    patchSection: (id, p) => setState((s) => ({
+      ...s,
+      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+    })),
+    setFocus: (slotId) => setState((s) => ({ ...s, focus: slotId })),
+  }), [state]);
+
+  // Esc exits focus; any outside pointerdown commits an in-progress rename.
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') api.setFocus(null); };
+    const onPd = (e) => {
+      const ae = document.activeElement;
+      if (ae && ae.isContentEditable && !ae.contains(e.target)) ae.blur();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPd, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPd, true);
+    };
+  }, [api]);
+
+  return (
+    <DCCtx.Provider value={api}>
+      <DCViewport minScale={minScale} maxScale={maxScale} style={style}>{ready && children}</DCViewport>
+      {state.focus && registry[state.focus] && (
+        <DCFocusOverlay entry={registry[state.focus]} sectionMeta={sectionMeta} sectionOrder={sectionOrder} />
+      )}
+    </DCCtx.Provider>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// DCViewport — transform-based pan/zoom (internal)
+//
+// Input mapping (Figma-style):
+//   • trackpad pinch  → zoom   (ctrlKey wheel; Safari gesture* events)
+//   • trackpad scroll → pan    (two-finger)
+//   • mouse wheel     → zoom   (notched; distinguished from trackpad scroll)
+//   • middle-drag / primary-drag-on-bg → pan
+//
+// Transform state lives in a ref and is written straight to the DOM
+// (translate3d + will-change) so wheel ticks don't go through React —
+// keeps pans at 60fps on dense canvases.
+// ─────────────────────────────────────────────────────────────
+function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
+  const vpRef = React.useRef(null);
+  const worldRef = React.useRef(null);
+  const tf = React.useRef({ x: 0, y: 0, scale: 1 });
+  // Persist viewport across reloads so the user lands back where they were
+  // after an agent edit or browser refresh. The sandbox origin is already
+  // per-project; pathname keeps multiple canvas files in one project apart.
+  const tfKey = 'dc-viewport:' + location.pathname;
+  const saveT = React.useRef(0);
+
+  const lastPostedScale = React.useRef();
+  const apply = React.useCallback(() => {
+    const { x, y, scale } = tf.current;
+    const el = worldRef.current;
+    if (!el) return;
+    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+    // Exposed for zoom-invariant chrome (labels, buttons, TweaksPanel).
+    el.style.setProperty('--dc-inv-zoom', String(1 / scale));
+    // Keep the host toolbar's % readout in sync with the canvas scale. Pan
+    // ticks leave scale unchanged — skip the cross-frame post for those.
+    if (lastPostedScale.current !== scale) {
+      lastPostedScale.current = scale;
+      window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
+    }
+    clearTimeout(saveT.current);
+    saveT.current = setTimeout(() => {
+      try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {}
+    }, 200);
+  }, [tfKey]);
+
+  React.useLayoutEffect(() => {
+    const flush = () => {
+      clearTimeout(saveT.current);
+      try { localStorage.setItem(tfKey, JSON.stringify(tf.current)); } catch {}
+    };
+    try {
+      const s = JSON.parse(localStorage.getItem(tfKey) || 'null');
+      if (s && Number.isFinite(s.x) && Number.isFinite(s.y) && Number.isFinite(s.scale)) {
+        tf.current = { x: s.x, y: s.y, scale: Math.min(maxScale, Math.max(minScale, s.scale)) };
+        apply();
+      }
+    } catch {}
+    // Flush on pagehide and unmount so a reload within the 200ms debounce
+    // window doesn't drop the last pan/zoom.
+    window.addEventListener('pagehide', flush);
+    return () => { window.removeEventListener('pagehide', flush); flush(); };
+  }, []);
+
+  React.useEffect(() => {
+    const vp = vpRef.current;
+    if (!vp) return;
+
+    const zoomAt = (cx, cy, factor) => {
+      const r = vp.getBoundingClientRect();
+      const px = cx - r.left, py = cy - r.top;
+      const t = tf.current;
+      const next = Math.min(maxScale, Math.max(minScale, t.scale * factor));
+      const k = next / t.scale;
+      // --dc-inv-zoom consumers (.dc-sectionhead's CSS zoom, each section's
+      // marginBottom) reflow on every scale change, vertically shifting the
+      // world layout — so a world point mathematically pinned under the cursor
+      // drifts as you zoom (content creeps up on zoom-in, down on zoom-out).
+      // Anchor the DOM element under the cursor instead: record its screen Y,
+      // apply the transform + --dc-inv-zoom, then cancel whatever vertical
+      // drift the reflow introduced so it stays put on screen.
+      let marker = null, markerY0 = 0;
+      if (k !== 1) {
+        const hit = document.elementFromPoint(cx, cy);
+        marker = hit && hit.closest ? hit.closest('[data-dc-slot],[data-dc-section]') : null;
+        if (marker) markerY0 = marker.getBoundingClientRect().top;
+      }
+      // keep the world point under the cursor fixed
+      t.x = px - (px - t.x) * k;
+      t.y = py - (py - t.y) * k;
+      t.scale = next;
+      apply();
+      if (marker) {
+        // A pure zoom around (cx, cy) maps screen Y → cy + (Y - cy) * k. Any
+        // departure after the --dc-inv-zoom reflow is the layout drift.
+        const drift = marker.getBoundingClientRect().top - (cy + (markerY0 - cy) * k);
+        if (Math.abs(drift) > 0.1) { t.y -= drift; apply(); }
+      }
+    };
+
+    // Mouse-wheel vs trackpad-scroll heuristic. A physical wheel sends
+    // line-mode deltas (Firefox) or large integer pixel deltas with no X
+    // component (Chrome/Safari, typically multiples of 100/120). Trackpad
+    // two-finger scroll sends small/fractional pixel deltas, often with
+    // non-zero deltaX. ctrlKey is set by the browser for trackpad pinch.
+    const isMouseWheel = (e) =>
+      e.deltaMode !== 0 ||
+      (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40);
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      if (isGesturing) return; // Safari: gesture* owns the pinch — discard concurrent wheels
+      if ((e.ctrlKey || e.metaKey) && !isMouseWheel(e)) {
+        // trackpad pinch, or ctrl/cmd + smooth-scroll mouse. Notched
+        // wheels fall through to the fixed-step branch below.
+        zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
+      } else if (isMouseWheel(e)) {
+        // notched mouse wheel — fixed-ratio step per click
+        zoomAt(e.clientX, e.clientY, Math.exp(-Math.sign(e.deltaY) * 0.18));
+      } else {
+        // trackpad two-finger scroll — pan
+        tf.current.x -= e.deltaX;
+        tf.current.y -= e.deltaY;
+        apply();
+      }
+    };
+
+    // Safari sends native gesture* events for trackpad pinch with a smooth
+    // e.scale; preferring these over the ctrl+wheel fallback gives a much
+    // better feel there. No-ops on other browsers. Safari also fires
+    // ctrlKey wheel events during the same pinch — isGesturing makes
+    // onWheel drop those entirely so they neither zoom nor pan.
+    let gsBase = 1;
+    let isGesturing = false;
+    const onGestureStart = (e) => { e.preventDefault(); isGesturing = true; gsBase = tf.current.scale; };
+    const onGestureChange = (e) => {
+      e.preventDefault();
+      zoomAt(e.clientX, e.clientY, (gsBase * e.scale) / tf.current.scale);
+    };
+    const onGestureEnd = (e) => { e.preventDefault(); isGesturing = false; };
+
+    // Drag-pan: middle button anywhere, or primary button on canvas
+    // background (anything that isn't an artboard or an inline editor).
+    let drag = null;
+    const onPointerDown = (e) => {
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable');
+      if (!(e.button === 1 || (e.button === 0 && onBg))) return;
+      e.preventDefault();
+      vp.setPointerCapture(e.pointerId);
+      drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
+      vp.style.cursor = 'grabbing';
+    };
+    const onPointerMove = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      tf.current.x += e.clientX - drag.lx;
+      tf.current.y += e.clientY - drag.ly;
+      drag.lx = e.clientX; drag.ly = e.clientY;
+      apply();
+    };
+    const onPointerUp = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      vp.releasePointerCapture(e.pointerId);
+      drag = null;
+      vp.style.cursor = '';
+    };
+
+    // Host-driven zoom (toolbar % menu). Zooms around viewport centre so the
+    // visible midpoint stays fixed — matching the host's iframe-zoom feel.
+    const onHostMsg = (e) => {
+      const d = e.data;
+      if (d && d.type === '__dc_set_zoom' && typeof d.scale === 'number') {
+        const r = vp.getBoundingClientRect();
+        zoomAt(r.left + r.width / 2, r.top + r.height / 2, d.scale / tf.current.scale);
+      } else if (d && d.type === '__dc_probe') {
+        // Host's [readyGen] reset asks whether a canvas is present; it
+        // fires on the iframe's native 'load', which for canvases with
+        // images/fonts is after our mount-time announce, so re-announce.
+        // Clear the pan-tick guard so apply() re-posts the current scale
+        // even if it's unchanged — the host just reset dcScale to 1.
+        window.parent.postMessage({ type: '__dc_present' }, '*');
+        lastPostedScale.current = undefined;
+        apply();
+      }
+    };
+    window.addEventListener('message', onHostMsg);
+    // Announce canvas mode so the host toolbar proxies its % control here
+    // instead of scaling the iframe element (which would just shrink the
+    // viewport window of an infinite canvas). The apply() that follows emits
+    // the initial __dc_zoom so the toolbar % is correct before first pinch.
+    // lastPostedScale reset mirrors the __dc_probe handler: the layout
+    // effect's restore-path apply() may already have posted the restored
+    // scale (before __dc_present), so clear the guard to re-post it in order.
+    window.parent.postMessage({ type: '__dc_present' }, '*');
+    lastPostedScale.current = undefined;
+    apply();
+
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    vp.addEventListener('gesturestart', onGestureStart, { passive: false });
+    vp.addEventListener('gesturechange', onGestureChange, { passive: false });
+    vp.addEventListener('gestureend', onGestureEnd, { passive: false });
+    vp.addEventListener('pointerdown', onPointerDown);
+    vp.addEventListener('pointermove', onPointerMove);
+    vp.addEventListener('pointerup', onPointerUp);
+    vp.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      window.removeEventListener('message', onHostMsg);
+      vp.removeEventListener('wheel', onWheel);
+      vp.removeEventListener('gesturestart', onGestureStart);
+      vp.removeEventListener('gesturechange', onGestureChange);
+      vp.removeEventListener('gestureend', onGestureEnd);
+      vp.removeEventListener('pointerdown', onPointerDown);
+      vp.removeEventListener('pointermove', onPointerMove);
+      vp.removeEventListener('pointerup', onPointerUp);
+      vp.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [apply, minScale, maxScale]);
+
+  const gridSvg = `url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M120 0H0v120' fill='none' stroke='${encodeURIComponent(DC.grid)}' stroke-width='1'/%3E%3C/svg%3E")`;
+  return (
+    <div
+      ref={vpRef}
+      className="design-canvas"
+      style={{
+        height: '100vh', width: '100vw',
+        background: DC.bg,
+        overflow: 'hidden',
+        overscrollBehavior: 'none',
+        touchAction: 'none',
+        position: 'relative',
+        fontFamily: DC.font,
+        boxSizing: 'border-box',
+        ...style,
+      }}
+    >
+      <div
+        ref={worldRef}
+        style={{
+          position: 'absolute', top: 0, left: 0,
+          transformOrigin: '0 0',
+          willChange: 'transform',
+          width: 'max-content', minWidth: '100%',
+          minHeight: '100%',
+          padding: '60px 0 80px',
+        }}
+      >
+        <div style={{ position: 'absolute', inset: -6000, backgroundImage: gridSvg, backgroundSize: '120px 120px', pointerEvents: 'none', zIndex: -1 }} />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// DCSection — editable title + h-row of artboards in persisted order
+// ─────────────────────────────────────────────────────────────
+function DCSection({ id, title, subtitle, children, gap = 48 }) {
+  const ctx = React.useContext(DCCtx);
+  const sid = id ?? title;
+  const all = React.Children.toArray(dcFlatten(children));
+  const artboards = all.filter((c) => c && c.type === DCArtboard);
+  const rest = all.filter((c) => !(c && c.type === DCArtboard));
+  const sec = (ctx && sid && ctx.section(sid)) || {};
+  // Must match DesignCanvas's srcKey computation exactly (it filters falsy
+  // IDs), or onDelete persists a srcKey that DesignCanvas never recognizes.
+  const allIds = artboards.map((a) => a.props.id ?? a.props.label).filter(Boolean);
+  const srcKey = allIds.join('\x1f');
+  const hidden = sec.srcKey === srcKey ? (sec.hidden || []) : [];
+  const srcOrder = allIds.filter((k) => !hidden.includes(k));
+
+  const order = React.useMemo(() => {
+    const kept = (sec.order || []).filter((k) => srcOrder.includes(k));
+    return [...kept, ...srcOrder.filter((k) => !kept.includes(k))];
+  }, [sec.order, srcOrder.join('|')]);
+
+  const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
+
+  // marginBottom counter-scales so the on-screen gap between sections stays
+  // constant — otherwise at low zoom the (world-space) gap collapses while
+  // the screen-constant sectionhead below it doesn't, and the title reads as
+  // belonging to the section above. paddingBottom below is just enough for
+  // the 24px artboard-header (abs-positioned above each card) plus ~8px, so
+  // the title sits tight against its own row at every zoom.
+  return (
+    <div data-dc-section={sid}
+      style={{ marginBottom: 'calc(80px * var(--dc-inv-zoom, 1))', position: 'relative' }}>
+      <div style={{ padding: '0 60px' }}>
+        <div className="dc-sectionhead" style={{ paddingBottom: 36 }}>
+          <DCEditable tag="div" value={sec.title ?? title}
+            onChange={(v) => ctx && sid && ctx.patchSection(sid, { title: v })}
+            style={{ fontSize: 28, fontWeight: 600, color: DC.title, letterSpacing: -0.4, marginBottom: 6, display: 'inline-block' }} />
+          {subtitle && <div style={{ fontSize: 16, color: DC.subtitle }}>{subtitle}</div>}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap, padding: '0 60px', alignItems: 'flex-start', width: 'max-content' }}>
+        {order.map((k) => (
+          <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
+            label={(sec.labels || {})[k] ?? byId[k].props.label}
+            onRename={(v) => ctx && ctx.patchSection(sid, (x) => ({ labels: { ...x.labels, [k]: v } }))}
+            onReorder={(next) => ctx && ctx.patchSection(sid, { order: next })}
+            onDelete={() => ctx && ctx.patchSection(sid, (x) => ({
+              hidden: [...(x.srcKey === srcKey ? (x.hidden || []) : []), k],
+              srcKey,
+            }))}
+            onFocus={() => ctx && ctx.setFocus(`${sid}/${k}`)} />
+        ))}
+      </div>
+      {rest}
+    </div>
+  );
+}
+
+// DCArtboard — marker; rendered by DCArtboardFrame via DCSection.
+function DCArtboard() { return null; }
+
+// Per-artboard export (kind: 'png' | 'html'). Both paths share the same
+// self-contained clone: computed styles baked in, @font-face / <img> /
+// inline-style background-image urls inlined as data URIs. PNG wraps the
+// clone in foreignObject→canvas at 3× the artboard's natural width×height
+// (same pipeline the host uses for page captures); HTML wraps it in a
+// minimal standalone document. Both are independent of viewport zoom.
+async function dcExport(node, w, h, name, kind) {
+  try { await document.fonts.ready; } catch {}
+  const toDataURL = (url) => fetch(url).then((r) => r.blob()).then((b) => new Promise((res) => {
+    const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => res(url); fr.readAsDataURL(b);
+  })).catch(() => url);
+
+  // Collect @font-face rules. ss.cssRules throws SecurityError on
+  // cross-origin sheets (e.g. fonts.googleapis.com) — in that case fetch
+  // the CSS text directly (those endpoints send ACAO:*) and regex-extract
+  // the blocks. @import and @media/@supports are walked so nested
+  // @font-face rules aren't missed.
+  const fontRules = [], pending = [], seen = new Set();
+  const scrapeCss = (href) => {
+    if (seen.has(href)) return; seen.add(href);
+    pending.push(fetch(href).then((r) => r.text()).then((css) => {
+      for (const m of css.match(/@font-face\s*{[^}]*}/g) || []) fontRules.push({ css: m, base: href });
+      for (const m of css.matchAll(/@import\s+(?:url\()?['"]?([^'")\s;]+)/g))
+        scrapeCss(new URL(m[1], href).href);
+    }).catch(() => {}));
+  };
+  const walk = (rules, base) => {
+    for (const r of rules) {
+      if (r.type === CSSRule.FONT_FACE_RULE) fontRules.push({ css: r.cssText, base });
+      else if (r.type === CSSRule.IMPORT_RULE && r.styleSheet) {
+        const ibase = r.styleSheet.href || base;
+        try { walk(r.styleSheet.cssRules, ibase); } catch { scrapeCss(ibase); }
+      } else if (r.cssRules) walk(r.cssRules, base);
+    }
+  };
+  for (const ss of document.styleSheets) {
+    const base = ss.href || location.href;
+    try { walk(ss.cssRules, base); } catch { if (ss.href) scrapeCss(ss.href); }
+  }
+  while (pending.length) await pending.shift();
+  const fontCss = (await Promise.all(fontRules.map(async (rule) => {
+    let out = rule.css, m; const re = /url\((['"]?)([^'")]+)\1\)/g;
+    while ((m = re.exec(rule.css))) {
+      if (m[2].indexOf('data:') === 0) continue;
+      let abs; try { abs = new URL(m[2], rule.base).href; } catch { continue; }
+      out = out.split(m[0]).join('url("' + await toDataURL(abs) + '")');
+    }
+    return out;
+  }))).join('\n');
+
+  const cloneStyled = (src) => {
+    if (src.nodeType === 8 || (src.nodeType === 1 && src.tagName === 'SCRIPT')) return document.createTextNode('');
+    const dst = src.cloneNode(false);
+    if (src.nodeType === 1) {
+      const cs = getComputedStyle(src); let txt = '';
+      for (let i = 0; i < cs.length; i++) txt += cs[i] + ':' + cs.getPropertyValue(cs[i]) + ';';
+      dst.setAttribute('style', txt + 'animation:none;transition:none;');
+      if (src.tagName === 'CANVAS') try { const im = document.createElement('img'); im.src = src.toDataURL(); im.setAttribute('style', txt); return im; } catch {}
+    }
+    for (let c = src.firstChild; c; c = c.nextSibling) dst.appendChild(cloneStyled(c));
+    return dst;
+  };
+  const clone = cloneStyled(node);
+  clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+  // Drop the card's own shadow/radius so the export is a flush w×h rect;
+  // the artboard's own background (if any) is already in the computed style.
+  clone.style.boxShadow = 'none'; clone.style.borderRadius = '0';
+
+  const jobs = [];
+  clone.querySelectorAll('img').forEach((el) => {
+    const s = el.getAttribute('src');
+    if (s && s.indexOf('data:') !== 0) jobs.push(toDataURL(el.src).then((d) => el.setAttribute('src', d)));
+  });
+  [clone, ...clone.querySelectorAll('*')].forEach((el) => {
+    const bg = el.style.backgroundImage; if (!bg) return;
+    let m; const re = /url\(["']?([^"')]+)["']?\)/g;
+    while ((m = re.exec(bg))) {
+      const tok = m[0], url = m[1];
+      if (url.indexOf('data:') === 0) continue;
+      jobs.push(toDataURL(url).then((d) => { el.style.backgroundImage = el.style.backgroundImage.split(tok).join('url("' + d + '")'); }));
+    }
+  });
+  await Promise.all(jobs);
+
+  const xml = new XMLSerializer().serializeToString(clone);
+  const save = (blob, ext) => {
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name + '.' + ext; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  if (kind === 'html') {
+    const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + name + '</title>' +
+      (fontCss ? '<style>' + fontCss + '</style>' : '') +
+      '</head><body style="margin:0">' + xml + '</body></html>';
+    return save(new Blob([html], { type: 'text/html' }), 'html');
+  }
+
+  // PNG: the SVG's own width/height must be the output resolution — an
+  // <img>-loaded SVG rasterizes at its intrinsic size, so sizing it at 1×
+  // and ctx.scale()-ing up would just upscale a 1× bitmap. viewBox maps the
+  // w×h foreignObject onto the px·w × px·h SVG canvas so the browser renders
+  // the HTML at full resolution.
+  const px = 3;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w * px + '" height="' + h * px +
+    '" viewBox="0 0 ' + w + ' ' + h + '"><foreignObject width="' + w + '" height="' + h + '">' +
+    (fontCss ? '<style><![CDATA[' + fontCss + ']]></style>' : '') + xml + '</foreignObject></svg>';
+  const img = new Image();
+  await new Promise((res, rej) => {
+    img.onload = res; img.onerror = () => rej(new Error('svg load failed'));
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+  const cv = document.createElement('canvas');
+  cv.width = w * px; cv.height = h * px;
+  cv.getContext('2d').drawImage(img, 0, 0);
+  cv.toBlob((blob) => save(blob, 'png'), 'image/png');
+}
+
+function DCArtboardFrame({ sectionId, artboard, label, order, onRename, onReorder, onFocus, onDelete }) {
+  const { id: rawId, label: rawLabel, width = 260, height = 480, children, style = {} } = artboard.props;
+  const id = rawId ?? rawLabel;
+  const ref = React.useRef(null);
+  const cardRef = React.useRef(null);
+  const menuRef = React.useRef(null);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+
+  // ⋯ menu: close on any outside pointerdown. Two-click delete lives inside
+  // the menu — first click arms the row, second commits; closing disarms.
+  React.useEffect(() => {
+    if (!menuOpen) { setConfirming(false); return; }
+    const off = (e) => { if (!menuRef.current || !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener('pointerdown', off, true);
+    return () => document.removeEventListener('pointerdown', off, true);
+  }, [menuOpen]);
+
+  const doExport = (kind) => {
+    setMenuOpen(false);
+    if (!cardRef.current) return;
+    const name = String(label || id || 'artboard').replace(/[^\w\s.-]+/g, '_');
+    dcExport(cardRef.current, width, height, name, kind)
+      .catch((e) => console.error('[design-canvas] export failed:', e));
+  };
+
+  // Live drag-reorder: dragged card sticks to cursor; siblings slide into
+  // their would-be slots in real time via transforms. DOM order only
+  // changes on drop.
+  const onGripDown = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const me = ref.current;
+    // translateX is applied in local (pre-scale) space but pointer deltas and
+    // getBoundingClientRect().left are screen-space — divide by the viewport's
+    // current scale so the dragged card tracks the cursor at any zoom level.
+    const scale = me.getBoundingClientRect().width / me.offsetWidth || 1;
+    const peers = Array.from(document.querySelectorAll(`[data-dc-section="${sectionId}"] [data-dc-slot]`));
+    const homes = peers.map((el) => ({ el, id: el.dataset.dcSlot, x: el.getBoundingClientRect().left }));
+    const slotXs = homes.map((h) => h.x);
+    const startIdx = order.indexOf(id);
+    const startX = e.clientX;
+    let liveOrder = order.slice();
+    me.classList.add('dc-dragging');
+
+    const layout = () => {
+      for (const h of homes) {
+        if (h.id === id) continue;
+        const slot = liveOrder.indexOf(h.id);
+        h.el.style.transform = `translateX(${(slotXs[slot] - h.x) / scale}px)`;
+      }
+    };
+
+    const move = (ev) => {
+      const dx = ev.clientX - startX;
+      me.style.transform = `translateX(${dx / scale}px)`;
+      const cur = homes[startIdx].x + dx;
+      let nearest = 0, best = Infinity;
+      for (let i = 0; i < slotXs.length; i++) {
+        const d = Math.abs(slotXs[i] - cur);
+        if (d < best) { best = d; nearest = i; }
+      }
+      if (liveOrder.indexOf(id) !== nearest) {
+        liveOrder = order.filter((k) => k !== id);
+        liveOrder.splice(nearest, 0, id);
+        layout();
+      }
+    };
+
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      const finalSlot = liveOrder.indexOf(id);
+      me.classList.remove('dc-dragging');
+      me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
+      // After the settle transition, kill transitions + clear transforms +
+      // commit the reorder in the same frame so there's no visual snap-back.
+      setTimeout(() => {
+        for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
+        if (liveOrder.join('|') !== order.join('|')) onReorder(liveOrder);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          for (const h of homes) h.el.style.transition = '';
+        }));
+      }, 180);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  };
+
+  return (
+    <div ref={ref} data-dc-slot={id} style={{ position: 'relative', flexShrink: 0 }}>
+      <div className="dc-header" data-omelette-chrome="" style={{ color: DC.label }} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="dc-labelrow">
+          <div className="dc-grip" onPointerDown={onGripDown} title="Drag to reorder">
+            <svg width="9" height="13" viewBox="0 0 9 13" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6.5" r="1.1"/><circle cx="7" cy="6.5" r="1.1"/><circle cx="2" cy="11" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
+          </div>
+          <div className="dc-labeltext" onClick={onFocus} title="Click to focus">
+            <DCEditable value={label} onChange={onRename} onClick={(e) => e.stopPropagation()}
+              style={{ fontSize: 15, fontWeight: 500, color: DC.label, lineHeight: 1 }} />
+          </div>
+        </div>
+        <div className="dc-btns">
+          <div ref={menuRef} style={{ position: 'relative' }}>
+            <button className="dc-kebab" title="More" onClick={() => setMenuOpen((o) => !o)}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="2.5" cy="6" r="1.1"/><circle cx="6" cy="6" r="1.1"/><circle cx="9.5" cy="6" r="1.1"/></svg>
+            </button>
+            {menuOpen && (
+              <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
+                <button onClick={() => doExport('png')}>Download PNG</button>
+                <button onClick={() => doExport('html')}>Download HTML</button>
+                <hr />
+                <button className="dc-danger"
+                  onClick={() => { if (confirming) { setMenuOpen(false); onDelete(); } else setConfirming(true); }}>
+                  {confirming ? 'Click again to delete' : 'Delete'}
+                </button>
+              </div>
+            )}
+          </div>
+          <button className="dc-expand" onClick={onFocus} title="Focus">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M7 1h4v4M5 11H1V7M11 1L7.5 4.5M1 11l3.5-3.5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div ref={cardRef} className="dc-card"
+        style={{ borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06)', overflow: 'hidden', width, height, background: '#fff', ...style }}>
+        {children || <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 13, fontFamily: DC.font }}>{id}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Inline rename — commits on blur or Enter.
+function DCEditable({ value, onChange, style, tag = 'span', onClick }) {
+  const T = tag;
+  return (
+    <T className="dc-editable" contentEditable suppressContentEditableWarning
+      onClick={onClick}
+      onPointerDown={(e) => e.stopPropagation()}
+      onBlur={(e) => onChange && onChange(e.currentTarget.textContent)}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+      style={style}>{value}</T>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Focus mode — overlay one artboard; ←/→ within section, ↑/↓ across
+// sections, Esc or backdrop click to exit.
+// ─────────────────────────────────────────────────────────────
+function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
+  const ctx = React.useContext(DCCtx);
+  const { sectionId, artboard } = entry;
+  const sec = ctx.section(sectionId);
+  const meta = sectionMeta[sectionId];
+  const peers = meta.slotIds;
+  const aid = artboard.props.id ?? artboard.props.label;
+  const idx = peers.indexOf(aid);
+  const secIdx = sectionOrder.indexOf(sectionId);
+
+  const go = (d) => { const n = peers[(idx + d + peers.length) % peers.length]; if (n) ctx.setFocus(`${sectionId}/${n}`); };
+  const goSection = (d) => {
+    // Sections whose artboards are all deleted have slotIds:[] — step past
+    // them to the next non-empty section so ↑/↓ doesn't dead-end.
+    const n = sectionOrder.length;
+    for (let i = 1; i < n; i++) {
+      const ns = sectionOrder[(((secIdx + d * i) % n) + n) % n];
+      const first = sectionMeta[ns] && sectionMeta[ns].slotIds[0];
+      if (first) { ctx.setFocus(`${ns}/${first}`); return; }
+    }
+  };
+
+  React.useEffect(() => {
+    const k = (e) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); goSection(-1); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); goSection(1); }
+    };
+    document.addEventListener('keydown', k);
+    return () => document.removeEventListener('keydown', k);
+  });
+
+  const { width = 260, height = 480, children } = artboard.props;
+  const [vp, setVp] = React.useState({ w: window.innerWidth, h: window.innerHeight });
+  React.useEffect(() => { const r = () => setVp({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
+  const scale = Math.max(0.1, Math.min((vp.w - 200) / width, (vp.h - 260) / height, 2));
+
+  const [ddOpen, setDd] = React.useState(false);
+  const Arrow = ({ dir, onClick }) => (
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }}
+      style={{ position: 'absolute', top: '50%', [dir]: 28, transform: 'translateY(-50%)',
+        border: 'none', background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.9)',
+        width: 44, height: 44, borderRadius: 22, fontSize: 18, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.18)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.08)')}>
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <path d={dir === 'left' ? 'M11 3L5 9l6 6' : 'M7 3l6 6-6 6'} /></svg>
+    </button>
+  );
+
+  // Portal to body so position:fixed is the real viewport regardless of any
+  // transform on DesignCanvas's ancestors (including the canvas zoom itself).
+  return ReactDOM.createPortal(
+    <div onClick={() => ctx.setFocus(null)}
+      onWheel={(e) => e.preventDefault()}
+      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(24,20,16,.6)', backdropFilter: 'blur(14px)',
+        fontFamily: DC.font, color: '#fff' }}>
+
+      {/* top bar: section dropdown (left) · close (right) */}
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, display: 'flex', alignItems: 'flex-start', padding: '16px 20px 0', gap: 16 }}>
+        <div style={{ position: 'relative' }}>
+          <button onClick={() => setDd((o) => !o)}
+            style={{ border: 'none', background: 'transparent', color: '#fff', cursor: 'pointer', padding: '6px 8px',
+              borderRadius: 6, textAlign: 'left', fontFamily: 'inherit' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 18, fontWeight: 600, letterSpacing: -0.3 }}>{meta.title}</span>
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ opacity: .7 }}><path d="M2 4l3.5 3.5L9 4"/></svg>
+            </span>
+            {meta.subtitle && <span style={{ display: 'block', fontSize: 13, opacity: .6, fontWeight: 400, marginTop: 2 }}>{meta.subtitle}</span>}
+          </button>
+          {ddOpen && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#2a251f', borderRadius: 8,
+              boxShadow: '0 8px 32px rgba(0,0,0,.4)', padding: 4, minWidth: 200, zIndex: 10 }}>
+              {sectionOrder.filter((sid) => sectionMeta[sid].slotIds.length).map((sid) => (
+                <button key={sid} onClick={() => { setDd(false); const f = sectionMeta[sid].slotIds[0]; if (f) ctx.setFocus(`${sid}/${f}`); }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
+                    background: sid === sectionId ? 'rgba(255,255,255,.1)' : 'transparent', color: '#fff',
+                    padding: '8px 12px', borderRadius: 5, fontSize: 14, fontWeight: sid === sectionId ? 600 : 400, fontFamily: 'inherit' }}>
+                  {sectionMeta[sid].title}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => ctx.setFocus(null)}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.12)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          style={{ border: 'none', background: 'transparent', color: 'rgba(255,255,255,.7)', width: 32, height: 32,
+            borderRadius: 16, fontSize: 20, cursor: 'pointer', lineHeight: 1, transition: 'background .12s' }}>×</button>
+      </div>
+
+      {/* card centered, label + index below — only the card itself stops
+          propagation so any backdrop click (including the margins around
+          the card) exits focus */}
+      <div
+        style={{ position: 'absolute', top: 64, bottom: 56, left: 100, right: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: width * scale, height: height * scale, position: 'relative' }}>
+          <div style={{ width, height, transform: `scale(${scale})`, transformOrigin: 'top left', background: '#fff', borderRadius: 2, overflow: 'hidden',
+            boxShadow: '0 20px 80px rgba(0,0,0,.4)' }}>
+            {children || <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb' }}>{aid}</div>}
+          </div>
+        </div>
+        <div onClick={(e) => e.stopPropagation()} style={{ fontSize: 14, fontWeight: 500, opacity: .85, textAlign: 'center' }}>
+          {(sec.labels || {})[aid] ?? artboard.props.label}
+          <span style={{ opacity: .5, marginLeft: 10, fontVariantNumeric: 'tabular-nums' }}>{idx + 1} / {peers.length}</span>
+        </div>
+      </div>
+
+      <Arrow dir="left" onClick={() => go(-1)} />
+      <Arrow dir="right" onClick={() => go(1)} />
+
+      {/* dots */}
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
+        {peers.map((p, i) => (
+          <button key={p} onClick={() => ctx.setFocus(`${sectionId}/${p}`)}
+            style={{ border: 'none', padding: 0, cursor: 'pointer', width: 6, height: 6, borderRadius: 3,
+              background: i === idx ? '#fff' : 'rgba(255,255,255,.3)' }} />
+        ))}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Post-it — absolute-positioned sticky note
+// ─────────────────────────────────────────────────────────────
+function DCPostIt({ children, top, left, right, bottom, rotate = -2, width = 180 }) {
+  return (
+    <div style={{
+      position: 'absolute', top, left, right, bottom, width,
+      background: DC.postitBg, padding: '14px 16px',
+      fontFamily: '"Comic Sans MS", "Marker Felt", "Segoe Print", cursive',
+      fontSize: 14, lineHeight: 1.4, color: DC.postitText,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)',
+      transform: `rotate(${rotate}deg)`,
+      zIndex: 5,
+    }}>{children}</div>
+  );
+}
+
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt });
+
+
+// ━━━━━ primitives.jsx ━━━━━
+// primitives.jsx — small reusable atoms (Badge, Dot, Chip, IconBtn, etc.)
+// Loaded BEFORE other component files. All exported to window.
+
+// Color lookup for severity / status.
+const SEV = {
+  critical: { bg: 'rgba(255,71,87,0.14)', fg: '#ff4757', dot: '#ff4757', label: 'critical' },
+  high:     { bg: 'rgba(255,138,61,0.14)', fg: '#ff8a3d', dot: '#ff8a3d', label: 'high' },
+  medium:   { bg: 'rgba(255,210,61,0.14)', fg: '#ffd23d', dot: '#ffd23d', label: 'medium' },
+  low:      { bg: 'rgba(124,196,255,0.14)', fg: '#7cc4ff', dot: '#7cc4ff', label: 'low' },
+  info:     { bg: 'rgba(139,143,135,0.14)', fg: '#8b8f87', dot: '#8b8f87', label: 'info' },
+};
+const STATUS = {
+  open:        { fg: '#ff4757', label: 'open' },
+  fixed:       { fg: '#00e36b', label: 'fixed' },
+  triaging:    { fg: '#ffd23d', label: 'triaging' },
+  suppressed:  { fg: '#8b8f87', label: 'suppressed' },
+  monitoring:  { fg: '#7cc4ff', label: 'monitoring' },
+};
+
+// Tiny inline SVG icons. 12x12 grid, stroke-based, terminal aesthetic.
+function Icon({ name, size = 12, color = 'currentColor', strokeWidth = 1.5 }) {
+  const p = {
+    chevron:    'M3 4.5 L6 7.5 L9 4.5',
+    chevronUp:  'M3 7.5 L6 4.5 L9 7.5',
+    search:     'M5 5 m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0  M7.5 7.5 L10 10',
+    close:      'M3 3 L9 9 M9 3 L3 9',
+    plus:       'M6 2 L6 10 M2 6 L10 6',
+    sort:       'M3 4 L6 1 L9 4 M3 8 L6 11 L9 8',
+    sortAsc:    'M3 4 L6 1 L9 4',
+    sortDesc:   'M3 8 L6 11 L9 8',
+    arrowRight: 'M2 6 L10 6 M7 3 L10 6 L7 9',
+    check:      'M2 6 L5 9 L10 3',
+    external:   'M3 3 L9 3 L9 9 M3 9 L9 3',
+    filter:     'M2 3 L10 3 L7 7 L7 10 L5 9 L5 7 Z',
+    shield:     'M6 1.5 L10 3 L10 6 C10 8.5 8 10.5 6 10.5 C4 10.5 2 8.5 2 6 L2 3 Z',
+    bug:        'M4 3 L4 5 M8 3 L8 5 M3 6 L9 6 M3 6 L3 9 L4.5 9 M9 6 L9 9 L7.5 9 M4.5 6 L4.5 9 M7.5 6 L7.5 9',
+    git:        'M3 2.5 L3 9.5 M3 2.5 a1 1 0 1 0 0 0.001 M3 9.5 a1 1 0 1 0 0 0.001 M9 5.5 a1 1 0 1 0 0 0.001 M3 5 c0 0 0 1 3 1 c3 0 3 -1.5 3 -1.5',
+    dot:        'M6 6 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0',
+    eye:        'M1.5 6 C3 3.5 4.5 2.5 6 2.5 C7.5 2.5 9 3.5 10.5 6 C9 8.5 7.5 9.5 6 9.5 C4.5 9.5 3 8.5 1.5 6 Z M6 6 m -1.5 0 a 1.5 1.5 0 1 0 3 0 a 1.5 1.5 0 1 0 -3 0',
+    download:   'M6 2 L6 8 M3.5 5.5 L6 8 L8.5 5.5 M2.5 10 L9.5 10',
+    refresh:    'M2 6 C2 3.5 4 2 6 2 C7.5 2 8.5 2.8 9.5 4 M9.5 1.5 L9.5 4 L7 4 M10 6 C10 8.5 8 10 6 10 C4.5 10 3.5 9.2 2.5 8 M2.5 10.5 L2.5 8 L5 8',
+    kebab:      'M6 3 m -0.6 0 a 0.6 0.6 0 1 0 1.2 0 a 0.6 0.6 0 1 0 -1.2 0 M6 6 m -0.6 0 a 0.6 0.6 0 1 0 1.2 0 a 0.6 0.6 0 1 0 -1.2 0 M6 9 m -0.6 0 a 0.6 0.6 0 1 0 1.2 0 a 0.6 0.6 0 1 0 -1.2 0',
+    bell:       'M3 8 L9 8 L8 7 L8 5 C8 3.5 7 2.5 6 2.5 C5 2.5 4 3.5 4 5 L4 7 L3 8 Z M5 9 C5 10 5.5 10.5 6 10.5 C6.5 10.5 7 10 7 9',
+    lock:       'M3.5 6 L8.5 6 L8.5 10 L3.5 10 Z M4.5 6 L4.5 4.5 C4.5 3.5 5 2.5 6 2.5 C7 2.5 7.5 3.5 7.5 4.5 L7.5 6',
+    triangle:   'M6 2 L10 9 L2 9 Z',
+    diamond:    'M6 1.5 L10.5 6 L6 10.5 L1.5 6 Z',
+    moon:       'M9 7 C8 8 6.5 8.5 5 8 C3 7.5 2 6 2 4 C2.5 5.5 4 6.5 5.5 6.5 C7 6.5 8.5 5.5 9 4 C9 5 9 6.5 9 7 Z',
+    sun:        'M6 4 a 2 2 0 1 0 0 4 a 2 2 0 1 0 0 -4 M6 1 L6 2 M6 10 L6 11 M1 6 L2 6 M10 6 L11 6 M2.5 2.5 L3.2 3.2 M8.8 8.8 L9.5 9.5 M2.5 9.5 L3.2 8.8 M8.8 3.2 L9.5 2.5',
+  }[name];
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" stroke={color}
+      strokeWidth={strokeWidth} strokeLinecap="square" strokeLinejoin="miter"
+      style={{ flex: '0 0 auto', display: 'inline-block', verticalAlign: '-2px' }}>
+      <path d={p} />
+    </svg>
+  );
+}
+
+// Severity dot — small filled square (terminal style)
+function Dot({ kind = 'info', size = 8 }) {
+  const c = SEV[kind] || STATUS[kind] || { dot: 'var(--muted)' };
+  return (
+    <span aria-hidden="true" style={{
+      width: size, height: size, background: c.dot || c.fg,
+      display: 'inline-block', flex: '0 0 auto',
+    }} />
+  );
+}
+
+// Severity / status badge — pill with optional dot.
+// variants: 'solid' (text on tint), 'outline', 'minimal' (dot + text)
+function Badge({ kind = 'info', children, variant = 'solid', uppercase = true, count }) {
+  const c = SEV[kind] || STATUS[kind];
+  if (!c) return null;
+  const label = children ?? c.label;
+  const text = uppercase ? String(label).toUpperCase() : String(label);
+
+  if (variant === 'minimal') {
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        fontSize: 11, letterSpacing: '0.04em', color: c.fg,
+      }}>
+        <Dot kind={kind} size={7} />
+        <span>{text}</span>
+        {count != null && <span style={{ color: 'var(--muted)' }}>· {count}</span>}
+      </span>
+    );
+  }
+  if (variant === 'outline') {
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '1px 6px', border: `1px solid ${c.fg}`,
+        color: c.fg, fontSize: 10, letterSpacing: '0.06em',
+        height: 16, lineHeight: 1,
+      }}>
+        <span>{text}</span>
+        {count != null && <span style={{ opacity: 0.7 }}>{count}</span>}
+      </span>
+    );
+  }
+  // solid
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '2px 6px', background: c.bg, color: c.fg,
+      fontSize: 10, letterSpacing: '0.06em', height: 16, lineHeight: 1,
+    }}>
+      <span>{text}</span>
+      {count != null && <span style={{ opacity: 0.75 }}>· {count}</span>}
+    </span>
+  );
+}
+
+// Count chip — number + small label, used in tab counts ("13 today")
+function CountChip({ value, color = 'var(--accent)' }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      minWidth: 18, height: 16, padding: '0 5px',
+      background: 'transparent', color, fontSize: 10, fontWeight: 500,
+      border: `1px solid ${color}`, letterSpacing: '0.02em',
+    }}>{value}</span>
+  );
+}
+
+// Bracket label like [ tab ]  ·  used in terminal tab variant
+function Bracketed({ children, active }) {
+  return (
+    <span style={{
+      color: active ? 'var(--accent)' : 'var(--muted)',
+      letterSpacing: '0.04em',
+    }}>
+      <span style={{ opacity: active ? 1 : 0.5 }}>[</span>
+      <span style={{ padding: '0 4px' }}>{children}</span>
+      <span style={{ opacity: active ? 1 : 0.5 }}>]</span>
+    </span>
+  );
+}
+
+// Simple ghost button used in headers
+function GhostBtn({ children, icon, onClick, accent }) {
+  return (
+    <button onClick={onClick} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '5px 10px', height: 26, border: '1px solid var(--border-strong)',
+      background: 'transparent', color: accent ? 'var(--accent)' : 'var(--text)',
+      fontFamily: 'inherit', fontSize: 11, letterSpacing: '0.02em',
+      cursor: 'pointer', borderRadius: 0,
+    }}>
+      {icon && <Icon name={icon} />}
+      {children}
+    </button>
+  );
+}
+
+// Themed input
+function Input({ value, onChange, placeholder, icon = 'search', width = '100%' }) {
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '0 8px', height: 28, border: '1px solid var(--border)',
+      background: 'var(--bg-elev)', width, color: 'var(--text)',
+    }}>
+      <Icon name={icon} color="var(--muted)" />
+      <input value={value} onChange={(e) => onChange?.(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          flex: 1, background: 'transparent', border: 'none', outline: 'none',
+          color: 'inherit', font: 'inherit', fontSize: 11, padding: 0,
+          minWidth: 0,
+        }} />
+    </div>
+  );
+}
+
+// Kbd-style key cap
+function Kbd({ children }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      minWidth: 16, height: 16, padding: '0 4px',
+      border: '1px solid var(--border-strong)', color: 'var(--muted)',
+      fontSize: 10, lineHeight: 1,
+    }}>{children}</span>
+  );
+}
+
+Object.assign(window, { Icon, Dot, Badge, CountChip, Bracketed, GhostBtn, Input, Kbd, SEV, STATUS });
+
+// ━━━━━ headers.jsx ━━━━━
+// headers.jsx — Header / page chrome variants for a security report app.
+// All headers share the same product context: "probe · security report"
+// scanning a hypothetical app codebase. Original aesthetic.
+
+function HeaderA({ theme, onToggleTheme, project = 'web-storefront' }) {
+  // Variant A: meta-driven, identity-first.
+  // logo · product · slash · project name (editable feel) · ━━━━━ · stats
+  return (
+    <div style={{
+      padding: '22px 28px', borderBottom: '1px solid var(--border)',
+      background: 'var(--bg)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {/* product mark — small bracketed glyph */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          color: 'var(--accent)', fontSize: 13, letterSpacing: '0.04em',
+        }}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 2 L2 12 L4 12 M12 2 L12 12 L10 12 M5 7 L9 7" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          <span style={{ fontWeight: 500 }}>probe</span>
+          <span style={{ color: 'var(--muted-2)' }}>/</span>
+          <span style={{ color: 'var(--text)' }}>{project}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 10, padding: '1px 5px', border: '1px solid var(--border)' }}>main</span>
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 10 }}>
+          <Icon name="refresh" color="var(--muted)" />
+          <span>scanned 14:22:08 · 6 minutes ago</span>
+        </div>
+        <GhostBtn icon="download">export</GhostBtn>
+        <GhostBtn icon={theme === 'dark' ? 'sun' : 'moon'} onClick={onToggleTheme} />
+      </div>
+
+      {/* stat bar — three KPIs, low-key */}
+      <div style={{ display: 'flex', gap: 56, marginTop: 22, alignItems: 'flex-end' }}>
+        <Stat label="findings" value="247" delta="+12" />
+        <Stat label="critical" value="3" valueColor="var(--sev-critical)" delta="+1" deltaColor="var(--sev-critical)" />
+        <Stat label="risk score" value="68" deltaLabel="of 100" />
+        <Stat label="last clean build" value="3d" deltaLabel="ago" />
+        <div style={{ flex: 1 }} />
+        <div style={{ color: 'var(--muted)', fontSize: 10, lineHeight: 1.6, maxWidth: 320 }}>
+          Static + dependency analysis across <span style={{ color: 'var(--text)' }}>1,284 files</span> and <span style={{ color: 'var(--text)' }}>312 packages</span>. Includes SAST, secrets, and SBOM diff vs last release.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, delta, deltaLabel, deltaColor, valueColor }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{
+        fontSize: 28, lineHeight: 1, fontWeight: 400, letterSpacing: '-0.02em',
+        color: valueColor || 'var(--text-strong)',
+      }}>
+        {value}
+        {(delta || deltaLabel) && (
+          <span style={{ fontSize: 11, marginLeft: 8, color: deltaColor || 'var(--muted)', letterSpacing: 0 }}>
+            {delta || deltaLabel}
+          </span>
+        )}
+      </div>
+      <div style={{ color: 'var(--muted)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</div>
+    </div>
+  );
+}
+
+function HeaderB({ theme, onToggleTheme }) {
+  // Variant B: command-bar style. ASCII slash + path · search · actions.
+  // No big KPIs — they live in the body. Tighter, more "tool" than "report".
+  return (
+    <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-elev)' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '10px 20px', height: 44,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--accent)', fontSize: 12 }}>
+          <span style={{ fontWeight: 600 }}>▮</span>
+          <span style={{ color: 'var(--text)' }}>probe</span>
+        </div>
+        <span style={{ color: 'var(--muted-2)' }}>›</span>
+        <span style={{ color: 'var(--text)', fontSize: 12 }}>acme-prod</span>
+        <span style={{ color: 'var(--muted-2)' }}>›</span>
+        <span style={{ color: 'var(--muted)', fontSize: 12 }}>web-storefront</span>
+        <span style={{ color: 'var(--muted)', fontSize: 10, padding: '1px 5px', border: '1px solid var(--border)' }}>@v2.18.0</span>
+
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: 26, padding: '0 8px', border: '1px solid var(--border)', background: 'var(--bg)', minWidth: 320, color: 'var(--muted)' }}>
+          <Icon name="search" color="var(--muted)" />
+          <span style={{ fontSize: 11, flex: 1 }}>jump to finding, file, package…</span>
+          <Kbd>⌘</Kbd><Kbd>K</Kbd>
+        </div>
+
+        <GhostBtn icon="bell" />
+        <GhostBtn icon={theme === 'dark' ? 'sun' : 'moon'} onClick={onToggleTheme} />
+        <div style={{
+          width: 26, height: 26, background: 'var(--accent)', color: '#0a0d0a',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, fontWeight: 600,
+        }}>sk</div>
+      </div>
+
+      {/* Sub-row: scan summary one-liner, like a status line in a terminal */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 14,
+        padding: '8px 20px', borderTop: '1px solid var(--border)',
+        background: 'var(--bg)', fontSize: 11, color: 'var(--muted)',
+      }}>
+        <span><Dot kind="critical" /> <span style={{ color: 'var(--sev-critical)', marginLeft: 6 }}>3 critical</span></span>
+        <span><Dot kind="high" /> <span style={{ color: 'var(--sev-high)', marginLeft: 6 }}>11 high</span></span>
+        <span><Dot kind="medium" /> <span style={{ color: 'var(--sev-medium)', marginLeft: 6 }}>42 medium</span></span>
+        <span><Dot kind="low" /> <span style={{ color: 'var(--sev-low)', marginLeft: 6 }}>91 low</span></span>
+        <span style={{ color: 'var(--muted-2)' }}>·</span>
+        <span>247 findings across 312 packages</span>
+        <div style={{ flex: 1 }} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 6, height: 6, background: 'var(--accent)', borderRadius: '50%', boxShadow: '0 0 8px var(--accent)' }} />
+          scan complete · 6m ago
+        </span>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { HeaderA, HeaderB, Stat });
+
+// ━━━━━ tabs.jsx ━━━━━
+// tabs.jsx — Three tabs / segmented control variants.
+
+function TabsUnderline({ tabs, active, onChange }) {
+  // Variant A — underline tabs with neutral counts. Most legible / report-y.
+  return (
+    <div style={{
+      display: 'flex', gap: 0, borderBottom: '1px solid var(--border)',
+      paddingLeft: 4,
+    }}>
+      {tabs.map((t) => {
+        const isActive = t.id === active;
+        return (
+          <button key={t.id} onClick={() => onChange?.(t.id)} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '10px 14px', background: 'transparent', border: 'none',
+            borderBottom: `2px solid ${isActive ? 'var(--accent)' : 'transparent'}`,
+            color: isActive ? 'var(--text-strong)' : 'var(--muted)',
+            fontFamily: 'inherit', fontSize: 12, cursor: 'pointer',
+            marginBottom: -1, letterSpacing: '0.01em',
+          }}>
+            <span>{t.label}</span>
+            {t.count != null && (
+              <span style={{
+                fontSize: 10, color: isActive ? 'var(--accent)' : 'var(--muted-2)',
+                fontVariantNumeric: 'tabular-nums',
+              }}>{t.count}</span>
+            )}
+            {t.sev && <Dot kind={t.sev} size={6} />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TabsSegmented({ tabs, active, onChange }) {
+  // Variant B — pill segmented control. Best for short option sets / view modes.
+  return (
+    <div style={{
+      display: 'inline-flex', padding: 2, border: '1px solid var(--border)',
+      background: 'var(--bg-elev)',
+    }}>
+      {tabs.map((t) => {
+        const isActive = t.id === active;
+        return (
+          <button key={t.id} onClick={() => onChange?.(t.id)} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '5px 12px', height: 24, border: 'none',
+            background: isActive ? 'var(--surface-hover)' : 'transparent',
+            color: isActive ? 'var(--text-strong)' : 'var(--muted)',
+            fontFamily: 'inherit', fontSize: 11, cursor: 'pointer',
+            position: 'relative',
+            boxShadow: isActive ? 'inset 0 0 0 1px var(--border-strong)' : 'none',
+          }}>
+            {t.icon && <Icon name={t.icon} color={isActive ? 'var(--text-strong)' : 'var(--muted)'} />}
+            <span>{t.label}</span>
+            {t.count != null && (
+              <span style={{
+                fontSize: 10, opacity: 0.7, fontVariantNumeric: 'tabular-nums',
+              }}>{t.count}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TabsBracket({ tabs, active, onChange }) {
+  // Variant C — terminal-style bracket tabs with prefix glyph.
+  // Reads like `> [ open 247 ]   [ fixed 1.2k ]   [ all 1.4k ]`.
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12 }}>
+      <span style={{ color: 'var(--accent)' }}>›</span>
+      {tabs.map((t) => {
+        const isActive = t.id === active;
+        return (
+          <button key={t.id} onClick={() => onChange?.(t.id)} style={{
+            background: 'transparent', border: 'none', padding: 0,
+            font: 'inherit', cursor: 'pointer',
+            color: isActive ? 'var(--accent)' : 'var(--muted)',
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{ opacity: isActive ? 1 : 0.4 }}>[</span>
+            <span style={{ padding: '0 2px', color: isActive ? 'var(--text-strong)' : 'inherit' }}>
+              {t.label}
+              {t.count != null && (
+                <span style={{ color: isActive ? 'var(--accent)' : 'var(--muted-2)', marginLeft: 6, fontVariantNumeric: 'tabular-nums' }}>
+                  {t.count}
+                </span>
+              )}
+            </span>
+            <span style={{ opacity: isActive ? 1 : 0.4 }}>]</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+Object.assign(window, { TabsUnderline, TabsSegmented, TabsBracket });
+
+// ━━━━━ badges.jsx ━━━━━
+// badges.jsx — Status / count badge showcase. Multiple variants laid out as a swatch wall.
+
+function BadgeShowcase() {
+  const sevs = ['critical', 'high', 'medium', 'low', 'info'];
+  const statuses = ['open', 'triaging', 'fixed', 'monitoring', 'suppressed'];
+
+  const ColLabel = ({ children }) => (
+    <div style={{ color: 'var(--muted)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12 }}>{children}</div>
+  );
+
+  const Row = ({ items, render }) => (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+      {items.map(render)}
+    </div>
+  );
+
+  return (
+    <div style={{ padding: 24, background: 'var(--bg)', color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 36 }}>
+
+        {/* Severity column */}
+        <div>
+          <div style={{ color: 'var(--text-strong)', fontSize: 12, marginBottom: 16, letterSpacing: '0.02em' }}>severity</div>
+
+          <ColLabel>solid</ColLabel>
+          <Row items={sevs} render={(s) => <Badge key={s} kind={s} variant="solid" />} />
+
+          <ColLabel>outline</ColLabel>
+          <Row items={sevs} render={(s) => <Badge key={s} kind={s} variant="outline" />} />
+
+          <ColLabel>with count</ColLabel>
+          <Row items={sevs} render={(s) => <Badge key={s} kind={s} variant="solid" count={Math.floor(Math.random() * 90) + 2} />} />
+
+          <ColLabel>minimal · dot + label</ColLabel>
+          <Row items={sevs} render={(s) => <Badge key={s} kind={s} variant="minimal" uppercase={false} />} />
+
+          <ColLabel>inline ramp</ColLabel>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, marginBottom: 18 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--sev-critical)' }}>
+              <Dot kind="critical" /> 3
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--sev-high)' }}>
+              <Dot kind="high" /> 11
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--sev-medium)' }}>
+              <Dot kind="medium" /> 42
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--sev-low)' }}>
+              <Dot kind="low" /> 91
+            </span>
+            <span style={{ color: 'var(--muted)' }}>·</span>
+            <span style={{ color: 'var(--muted)' }}>247 total</span>
+          </div>
+
+          <ColLabel>stacked bar (severity mix)</ColLabel>
+          <SeverityBar parts={[
+            { kind: 'critical', n: 3 },
+            { kind: 'high', n: 11 },
+            { kind: 'medium', n: 42 },
+            { kind: 'low', n: 91 },
+            { kind: 'info', n: 100 },
+          ]} />
+        </div>
+
+        {/* Status / count column */}
+        <div>
+          <div style={{ color: 'var(--text-strong)', fontSize: 12, marginBottom: 16, letterSpacing: '0.02em' }}>status & counts</div>
+
+          <ColLabel>minimal · dot + label</ColLabel>
+          <Row items={statuses} render={(s) => <Badge key={s} kind={s} variant="minimal" uppercase={false} />} />
+
+          <ColLabel>outline</ColLabel>
+          <Row items={statuses} render={(s) => <Badge key={s} kind={s} variant="outline" />} />
+
+          <ColLabel>count chips · ref count</ColLabel>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 14, fontSize: 11 }}>
+            <span style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>4</span>
+            <span style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>13</span>
+            <span style={{ color: 'var(--sev-medium)', fontVariantNumeric: 'tabular-nums' }}>22</span>
+            <span style={{ color: 'var(--sev-high)', fontVariantNumeric: 'tabular-nums' }}>46</span>
+            <span style={{ color: 'var(--sev-critical)', fontVariantNumeric: 'tabular-nums' }}>201</span>
+            <span style={{ color: 'var(--muted-2)' }}>n/a</span>
+          </div>
+
+          <ColLabel>bordered count chips</ColLabel>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14 }}>
+            <CountChip value="3" color="var(--sev-critical)" />
+            <CountChip value="11" color="var(--sev-high)" />
+            <CountChip value="42" color="var(--sev-medium)" />
+            <CountChip value="91" color="var(--sev-low)" />
+            <CountChip value="247" color="var(--muted)" />
+          </div>
+
+          <ColLabel>tag pills (topics)</ColLabel>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+            {['auth', 'crypto', 'dependency', 'secrets', 'rce', 'ssrf', 'xss', 'dos'].map(t => (
+              <span key={t} style={{
+                fontSize: 10, padding: '2px 7px', border: '1px solid var(--border-strong)',
+                color: 'var(--muted)',
+              }}>{t}</span>
+            ))}
+          </div>
+
+          <ColLabel>ASCII delta</ColLabel>
+          <div style={{ display: 'flex', gap: 18, alignItems: 'center', fontSize: 11, marginBottom: 14 }}>
+            <span style={{ color: 'var(--sev-critical)' }}>▲ +2 critical</span>
+            <span style={{ color: 'var(--accent)' }}>▼ −6 high</span>
+            <span style={{ color: 'var(--muted)' }}>± 0 medium</span>
+          </div>
+
+          <ColLabel>state tags</ColLabel>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <StateTag>EXPLOITABLE</StateTag>
+            <StateTag color="var(--sev-medium)">PATCH AVAILABLE</StateTag>
+            <StateTag color="var(--accent)">AUTO-FIXABLE</StateTag>
+            <StateTag color="var(--muted)">NO FIX</StateTag>
+            <StateTag color="var(--sev-low)">REACHABLE</StateTag>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StateTag({ children, color = 'var(--sev-critical)' }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      fontSize: 9, letterSpacing: '0.1em', padding: '2px 6px',
+      color, border: `1px dashed ${color}`, opacity: 0.95,
+    }}>{children}</span>
+  );
+}
+
+function SeverityBar({ parts, height = 4 }) {
+  const total = parts.reduce((s, p) => s + p.n, 0);
+  return (
+    <div style={{ display: 'flex', width: '100%', height, gap: 1, marginBottom: 8 }}>
+      {parts.map((p, i) => (
+        <div key={i} title={`${p.kind}: ${p.n}`} style={{
+          flex: p.n, height: '100%',
+          background: `var(--sev-${p.kind})`,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+Object.assign(window, { BadgeShowcase, SeverityBar, StateTag });
+
+// ━━━━━ table.jsx ━━━━━
+// table.jsx — Dense data table for security findings.
+// Sortable columns, hoverable rows, severity-aware.
+
+const FINDINGS = [
+  { id: 'CVE-2024-39338', sev: 'critical', title: 'SSRF via undici proxy header injection',           pkg: 'undici',           ver: '5.28.2',  fixIn: '6.21.1', status: 'open',     age: '2h',  refs: 4, file: 'web/server/proxy.ts' },
+  { id: 'PR-7741',         sev: 'critical', title: 'Hard-coded JWT signing key in build artefact',     pkg: 'src/auth/jwt.ts',  ver: '—',       fixIn: '—',      status: 'open',     age: '4h',  refs: 1, file: 'src/auth/jwt.ts' },
+  { id: 'CVE-2024-29415',  sev: 'critical', title: 'ip package allows attacker-controlled bypass',      pkg: 'ip',               ver: '1.1.8',   fixIn: '2.0.1',  status: 'triaging', age: '1d',  refs: 7, file: '12 importers' },
+  { id: 'CVE-2024-28849',  sev: 'high',     title: 'follow-redirects leaks auth across hosts',          pkg: 'follow-redirects', ver: '1.15.4',  fixIn: '1.15.6', status: 'open',     age: '6h',  refs: 9, file: '7 importers' },
+  { id: 'GHSA-7q7g-4xm8',  sev: 'high',     title: 'tar slip on POSIX symlink during extraction',       pkg: 'tar',              ver: '6.1.13',  fixIn: '6.2.1',  status: 'open',     age: '8h',  refs: 3, file: 'scripts/restore.sh' },
+  { id: 'PR-2210',         sev: 'high',     title: 'Insecure cookie missing SameSite + Secure',          pkg: 'src/web/session.ts', ver: '—',     fixIn: '—',      status: 'monitoring',  age: '1d',  refs: 1, file: 'src/web/session.ts' },
+  { id: 'CVE-2024-37890',  sev: 'high',     title: 'ws DoS via permessage-deflate large frames',         pkg: 'ws',               ver: '8.16.0',  fixIn: '8.17.1', status: 'open',     age: '1d',  refs: 5, file: 'realtime/gateway' },
+  { id: 'SEC-1192',        sev: 'medium',   title: 'Outdated SSL/TLS suite advertised by edge',          pkg: 'edge/cdn.tf',      ver: '—',       fixIn: '—',      status: 'open',     age: '2d',  refs: 2, file: 'infra/edge/cdn.tf' },
+  { id: 'CVE-2024-33883',  sev: 'medium',   title: 'ejs prototype-pollution via render opts',           pkg: 'ejs',              ver: '3.1.9',   fixIn: '3.1.10', status: 'fixed',    age: '3d',  refs: 1, file: 'apps/admin/views' },
+  { id: 'PR-7129',         sev: 'medium',   title: 'Missing rate-limit on /api/login',                  pkg: 'src/api/login.ts', ver: '—',       fixIn: '—',      status: 'triaging', age: '3d',  refs: 1, file: 'src/api/login.ts' },
+  { id: 'CVE-2024-21484',  sev: 'medium',   title: 'jose CBC oracle on key-wrap',                       pkg: 'jose',             ver: '4.15.4',  fixIn: '4.15.5', status: 'fixed',    age: '4d',  refs: 1, file: 'auth/keys' },
+  { id: 'SEC-1085',        sev: 'low',      title: 'Verbose error in production response',              pkg: 'src/api/errors.ts', ver: '—',      fixIn: '—',      status: 'open',     age: '5d',  refs: 1, file: 'src/api/errors.ts' },
+  { id: 'GHSA-9wv6-86v2',  sev: 'low',      title: 'semver regex DoS (low practical impact)',           pkg: 'semver',           ver: '7.5.4',   fixIn: '7.5.5',  status: 'suppressed', age: '5d', refs: 2, file: '23 importers' },
+  { id: 'CVE-2023-45857',  sev: 'low',      title: 'axios CSRF token leak with withCredentials',        pkg: 'axios',            ver: '1.6.0',   fixIn: '1.6.2',  status: 'fixed',    age: '1w',  refs: 4, file: 'web/api/client.ts' },
+];
+
+// Column meta — header label + alignment + sort-fn key
+const COLS = [
+  { id: 'sev',   label: 'sev',     width: 110, align: 'left' },
+  { id: 'id',    label: 'finding', width: 140, align: 'left' },
+  { id: 'title', label: 'title',   width: 'auto', align: 'left', grow: true },
+  { id: 'pkg',   label: 'package · path', width: 220, align: 'left' },
+  { id: 'ver',   label: 'ver → fix', width: 130, align: 'left' },
+  { id: 'refs',  label: 'refs',    width: 50,  align: 'right' },
+  { id: 'status',label: 'status',  width: 110, align: 'left' },
+  { id: 'age',   label: 'age',     width: 50,  align: 'right' },
+];
+
+function FindingsTable({ rows = FINDINGS, density = 'dense', showHeader = true, maxRows }) {
+  const [sortBy, setSortBy] = React.useState({ id: 'sev', dir: 'asc' });
+  const [hover, setHover] = React.useState(null);
+
+  const sevOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const sorted = React.useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      let av = a[sortBy.id], bv = b[sortBy.id];
+      if (sortBy.id === 'sev') { av = sevOrder[av]; bv = sevOrder[bv]; }
+      if (av < bv) return sortBy.dir === 'asc' ? -1 : 1;
+      if (av > bv) return sortBy.dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [rows, sortBy]);
+
+  const visible = maxRows ? sorted.slice(0, maxRows) : sorted;
+  const rowH = density === 'dense' ? 30 : density === 'comfortable' ? 38 : 48;
+
+  return (
+    <div style={{
+      border: '1px solid var(--border)', background: 'var(--bg-elev)',
+      fontSize: 11, color: 'var(--text)',
+    }}>
+      {/* header */}
+      {showHeader && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: COLS.map(c => c.grow ? '1fr' : `${c.width}px`).join(' '),
+          padding: '0 14px', height: 28, alignItems: 'center',
+          borderBottom: '1px solid var(--border)',
+          color: 'var(--muted)', fontSize: 10, letterSpacing: '0.06em',
+          textTransform: 'uppercase', background: 'var(--bg)',
+        }}>
+          {COLS.map((c) => {
+            const isSorted = sortBy.id === c.id;
+            return (
+              <button key={c.id} onClick={() => setSortBy(s => ({ id: c.id, dir: s.id === c.id && s.dir === 'asc' ? 'desc' : 'asc' }))} style={{
+                background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                color: isSorted ? 'var(--text)' : 'inherit', font: 'inherit',
+                fontSize: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit',
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                justifyContent: c.align === 'right' ? 'flex-end' : 'flex-start',
+              }}>
+                <span>{c.label}</span>
+                {isSorted && <Icon name={sortBy.dir === 'asc' ? 'sortAsc' : 'sortDesc'} size={10} color="var(--accent)" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* rows */}
+      {visible.map((r, i) => {
+        const isHover = hover === i;
+        return (
+          <div key={r.id + i}
+            onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: COLS.map(c => c.grow ? '1fr' : `${c.width}px`).join(' '),
+              padding: '0 14px', height: rowH, alignItems: 'center',
+              borderBottom: i === visible.length - 1 ? 'none' : '1px solid var(--border)',
+              background: isHover ? 'var(--surface-hover)' : (i % 2 ? 'var(--row-zebra)' : 'transparent'),
+              cursor: 'pointer', position: 'relative',
+            }}>
+
+            {/* SEV cell */}
+            <div><Badge kind={r.sev} variant="solid" /></div>
+
+            {/* ID cell */}
+            <div style={{ color: 'var(--link)', fontVariantNumeric: 'tabular-nums' }}>{r.id}</div>
+
+            {/* TITLE cell */}
+            <div style={{ color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 12 }}>
+              {r.title}
+            </div>
+
+            {/* PKG · path cell */}
+            <div style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ color: 'var(--text)' }}>{r.pkg}</span>
+              {r.ver !== '—' && <span style={{ color: 'var(--muted-2)' }}> · {r.file.includes('importer') ? r.file : 'pkg'}</span>}
+            </div>
+
+            {/* VER → FIX cell */}
+            <div style={{ color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
+              {r.ver === '—' ? (
+                <span style={{ color: 'var(--muted-2)' }}>—</span>
+              ) : (
+                <>
+                  <span style={{ color: 'var(--text)' }}>{r.ver}</span>
+                  <span style={{ color: 'var(--muted-2)' }}> → </span>
+                  <span style={{ color: r.status === 'fixed' ? 'var(--accent)' : 'var(--sev-medium)' }}>{r.fixIn}</span>
+                </>
+              )}
+            </div>
+
+            {/* REFS cell — count chip like reference */}
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ color: r.refs > 5 ? 'var(--sev-high)' : 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>{r.refs}</span>
+            </div>
+
+            {/* STATUS cell */}
+            <div><Badge kind={r.status} variant="minimal" uppercase={false} /></div>
+
+            {/* AGE cell */}
+            <div style={{ textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{r.age}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+Object.assign(window, { FindingsTable, FINDINGS });
+
+// ━━━━━ report-page.jsx ━━━━━
+// report-page.jsx — Full-bleed assembled security report page using all primitives.
+// This is the "in-context" view — shows how the components fit together.
+
+function ReportPage({ theme, onToggleTheme }) {
+  const [activeTab, setActiveTab] = React.useState('open');
+  const [activeView, setActiveView] = React.useState('table');
+  const [q, setQ] = React.useState('');
+
+  // Counts derived from FINDINGS (the source list)
+  const counts = React.useMemo(() => {
+    const open = FINDINGS.filter(r => r.status !== 'fixed' && r.status !== 'suppressed').length;
+    const fixed = FINDINGS.filter(r => r.status === 'fixed').length;
+    return { open, fixed, all: FINDINGS.length, suppressed: FINDINGS.filter(r => r.status === 'suppressed').length };
+  }, []);
+
+  const tabRows = React.useMemo(() => {
+    let r = FINDINGS;
+    if (activeTab === 'open')        r = r.filter(x => x.status !== 'fixed' && x.status !== 'suppressed');
+    else if (activeTab === 'fixed')  r = r.filter(x => x.status === 'fixed');
+    else if (activeTab === 'suppressed') r = r.filter(x => x.status === 'suppressed');
+    if (q.trim()) {
+      const Q = q.toLowerCase();
+      r = r.filter(x => (x.title + x.id + x.pkg + x.file).toLowerCase().includes(Q));
+    }
+    return r;
+  }, [activeTab, q]);
+
+  return (
+    <div className={`sr theme-${theme}`} style={{ minHeight: '100%', background: 'var(--bg)' }}>
+      <HeaderB theme={theme} onToggleTheme={onToggleTheme} />
+
+      {/* Body */}
+      <div style={{ padding: '24px 20px 60px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* Hero KPI band */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) 1.4fr',
+          gap: 24, padding: '20px 24px',
+          border: '1px solid var(--border)', background: 'var(--bg-elev)',
+        }}>
+          <Stat label="findings" value="247" delta="+12 wk" />
+          <Stat label="critical" value="3" valueColor="var(--sev-critical)" delta="+1" deltaColor="var(--sev-critical)" />
+          <Stat label="high" value="11" valueColor="var(--sev-high)" delta="−2" deltaColor="var(--accent)" />
+          <Stat label="risk score" value="68" deltaLabel="/ 100" />
+          <Stat label="auto-fixable" value="184" valueColor="var(--accent)" deltaLabel="74%" />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'flex-end' }}>
+            <div style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>severity mix</div>
+            <SeverityBar parts={[
+              { kind: 'critical', n: 3 },
+              { kind: 'high', n: 11 },
+              { kind: 'medium', n: 42 },
+              { kind: 'low', n: 91 },
+              { kind: 'info', n: 100 },
+            ]} height={6} />
+            <div style={{ display: 'flex', gap: 14, fontSize: 10 }}>
+              <span style={{ color: 'var(--sev-critical)' }}><Dot kind="critical" size={6} /> 3</span>
+              <span style={{ color: 'var(--sev-high)' }}><Dot kind="high" size={6} /> 11</span>
+              <span style={{ color: 'var(--sev-medium)' }}><Dot kind="medium" size={6} /> 42</span>
+              <span style={{ color: 'var(--sev-low)' }}><Dot kind="low" size={6} /> 91</span>
+              <span style={{ color: 'var(--muted)' }}><Dot kind="info" size={6} /> 100</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter + view controls row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <Input value={q} onChange={setQ} placeholder="filter findings: package, file, advisory, owner…" width={420} />
+          <span style={{ color: 'var(--muted)', fontSize: 10 }}>or:</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {['sev:critical', 'is:reachable', 'has:patch', 'team:platform'].map(f => (
+              <button key={f} style={{
+                fontSize: 10, padding: '4px 8px', border: '1px dashed var(--border-strong)',
+                background: 'transparent', color: 'var(--muted)', cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}>+ {f}</button>
+            ))}
+          </div>
+          <div style={{ flex: 1 }} />
+          <TabsSegmented tabs={[
+            { id: 'table', label: 'table', icon: 'sort' },
+            { id: 'group', label: 'by package' },
+            { id: 'graph', label: 'graph' },
+          ]} active={activeView} onChange={setActiveView} />
+        </div>
+
+        {/* Tab row */}
+        <TabsUnderline
+          active={activeTab} onChange={setActiveTab}
+          tabs={[
+            { id: 'open',       label: 'open',       count: counts.open,       sev: 'critical' },
+            { id: 'fixed',      label: 'fixed',      count: counts.fixed },
+            { id: 'suppressed', label: 'suppressed', count: counts.suppressed },
+            { id: 'all',        label: 'all',        count: counts.all },
+          ]}
+        />
+
+        {/* Table */}
+        <FindingsTable rows={tabRows} density="dense" />
+
+        {/* Footer status line */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 14,
+          color: 'var(--muted)', fontSize: 10, paddingTop: 4,
+        }}>
+          <span>{tabRows.length} findings · sorted by severity</span>
+          <span>·</span>
+          <span>scan id <span style={{ color: 'var(--text)' }}>0x8a1f.b09c</span></span>
+          <span>·</span>
+          <span>next scan in 53m</span>
+          <div style={{ flex: 1 }} />
+          <span style={{ color: 'var(--accent)' }}>▲ all systems nominal</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { ReportPage });
+
+    </script>
+
+    <script type="text/babel" data-presets="env,react">
+    // Themed artboard wrapper. Hosts theme state so each artboard can toggle independently.
+    function Themed({ defaultTheme = 'dark', children, padding = 0 }) {
+      const [theme, setTheme] = React.useState(defaultTheme);
+      const toggle = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+      return (
+        <div className={`ab sr theme-${theme}`} style={{ background: 'var(--bg)', position: 'relative' }}>
+          {/* tiny theme toggle, top-right */}
+          <button onClick={toggle} title="toggle theme" style={{
+            position: 'absolute', top: 8, right: 8, zIndex: 5,
+            width: 22, height: 22, padding: 0,
+            background: 'transparent', border: '1px solid var(--border)',
+            color: 'var(--muted)', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+          </button>
+          <div style={{ padding, height: '100%', overflow: 'auto' }}>
+            {typeof children === 'function' ? children({ theme, setTheme, toggle }) : children}
+          </div>
+        </div>
+      );
+    }
+
+    // Tab demo wrapper — captures the active state for each tab variant.
+    function TabsDemo({ Variant, items, defaultId }) {
+      const [active, setActive] = React.useState(defaultId || items[0].id);
+      return (
+        <div style={{ padding: '28px 32px' }}>
+          <div style={{ marginBottom: 18, color: 'var(--muted)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            {Variant.displayName || Variant.name}
+          </div>
+          <Variant tabs={items} active={active} onChange={setActive} />
+          <div style={{ marginTop: 18, color: 'var(--muted-2)', fontSize: 10 }}>
+            active = <span style={{ color: 'var(--accent)' }}>{active}</span>
+          </div>
+        </div>
+      );
+    }
+
+    const openHigh = [
+      { id: 'open',       label: 'open',       count: 56, sev: 'critical' },
+      { id: 'fixed',      label: 'fixed',      count: 191 },
+      { id: 'suppressed', label: 'suppressed', count: 3 },
+      { id: 'all',        label: 'all',        count: 247 },
+    ];
+    const viewModes = [
+      { id: 'table', label: 'table', icon: 'sort' },
+      { id: 'pkg',   label: 'by package' },
+      { id: 'graph', label: 'graph' },
+    ];
+
+    function App() {
+      return (
+        <DesignCanvas>
+
+          <DCSection id="overview"
+            title="probe · security report"
+            subtitle="component set for an app-security report page. mono, dense, terminal aesthetic. dark + light. each artboard has a theme toggle in its top-right corner.">
+            <DCArtboard id="intro" label="legend" width={520} height={380}>
+              <Themed defaultTheme="dark" padding={28}>
+                {() => (
+                  <div style={{ fontSize: 11, lineHeight: 1.7, color: 'var(--text)' }}>
+                    <div style={{ color: 'var(--accent)', fontSize: 12, marginBottom: 14, letterSpacing: '0.04em' }}>
+                      ▮ probe · security report
+                    </div>
+                    <p style={{ margin: '0 0 14px', color: 'var(--muted)' }}>
+                      A monospace-first component set for static + dependency scan reports. Built for density: 30px rows, 10–11px UI text, severity-aware color.
+                    </p>
+                    <div style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, marginTop: 10 }}>tokens</div>
+                    <ul style={{ paddingLeft: 18, margin: '8px 0 14px', color: 'var(--muted)' }}>
+                      <li>type — JetBrains Mono, 10/11/12/13/28px</li>
+                      <li>severity — <Badge kind="critical" /> <Badge kind="high" /> <Badge kind="medium" /> <Badge kind="low" /> <Badge kind="info" /></li>
+                      <li>status — <Badge kind="open" variant="minimal" uppercase={false} /> &nbsp; <Badge kind="fixed" variant="minimal" uppercase={false} /> &nbsp; <Badge kind="triaging" variant="minimal" uppercase={false} /></li>
+                      <li>accent — green pop, used sparingly</li>
+                    </ul>
+                    <div style={{ color: 'var(--muted)', fontSize: 10 }}>
+                      keys · <Kbd>⌘</Kbd><Kbd>K</Kbd> jump &nbsp; <Kbd>/</Kbd> filter &nbsp; <Kbd>j</Kbd>/<Kbd>k</Kbd> nav
+                    </div>
+                  </div>
+                )}
+              </Themed>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="headers"
+            title="01 · page chrome"
+            subtitle="two header treatments — A is identity + KPI driven; B is a tighter command-bar with an inline severity strip.">
+            <DCArtboard id="hA-dark" label="A · identity + KPIs · dark" width={1200} height={220}>
+              <Themed defaultTheme="dark">{({theme, toggle}) => <HeaderA theme={theme} onToggleTheme={toggle} />}</Themed>
+            </DCArtboard>
+            <DCArtboard id="hA-light" label="A · identity + KPIs · light" width={1200} height={220}>
+              <Themed defaultTheme="light">{({theme, toggle}) => <HeaderA theme={theme} onToggleTheme={toggle} />}</Themed>
+            </DCArtboard>
+            <DCArtboard id="hB-dark" label="B · command bar · dark" width={1200} height={140}>
+              <Themed defaultTheme="dark">{({theme, toggle}) => <HeaderB theme={theme} onToggleTheme={toggle} />}</Themed>
+            </DCArtboard>
+            <DCArtboard id="hB-light" label="B · command bar · light" width={1200} height={140}>
+              <Themed defaultTheme="light">{({theme, toggle}) => <HeaderB theme={theme} onToggleTheme={toggle} />}</Themed>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="tabs"
+            title="02 · tabs & segmented"
+            subtitle="three patterns. underline for primary section nav; segmented for view-mode toggles; bracket for the terminal-leaning surfaces.">
+            <DCArtboard id="t-underline" label="underline tabs · dark" width={700} height={140}>
+              <Themed defaultTheme="dark">
+                <TabsDemo Variant={TabsUnderline} items={openHigh} defaultId="open" />
+              </Themed>
+            </DCArtboard>
+            <DCArtboard id="t-segmented" label="segmented · dark" width={520} height={140}>
+              <Themed defaultTheme="dark">
+                <TabsDemo Variant={TabsSegmented} items={viewModes} defaultId="table" />
+              </Themed>
+            </DCArtboard>
+            <DCArtboard id="t-bracket" label="bracket / terminal · dark" width={620} height={140}>
+              <Themed defaultTheme="dark">
+                <TabsDemo Variant={TabsBracket} items={openHigh} defaultId="open" />
+              </Themed>
+            </DCArtboard>
+            <DCArtboard id="t-light" label="all three · light" width={1200} height={360}>
+              <Themed defaultTheme="light">
+                <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 22 }}>
+                  <TabsUnderline tabs={openHigh} active="open" />
+                  <TabsSegmented tabs={viewModes} active="table" />
+                  <TabsBracket tabs={openHigh} active="open" />
+                </div>
+              </Themed>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="badges"
+            title="03 · status & count badges"
+            subtitle="severity (critical → info) and status (open / triaging / fixed / monitoring / suppressed). three styles each: solid, outline, minimal.">
+            <DCArtboard id="b-dark" label="dark" width={1000} height={620}>
+              <Themed defaultTheme="dark"><BadgeShowcase /></Themed>
+            </DCArtboard>
+            <DCArtboard id="b-light" label="light" width={1000} height={620}>
+              <Themed defaultTheme="light"><BadgeShowcase /></Themed>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="table"
+            title="04 · findings table"
+            subtitle="dense 30px rows. sortable columns (click any header). severity solid badges + status as minimal dot+label. ref count is a small green number, mirroring the reference's commit-count chips.">
+            <DCArtboard id="tbl-dark" label="dark · 14 rows" width={1280} height={520}>
+              <Themed defaultTheme="dark">
+                <div style={{ padding: 22 }}><FindingsTable density="dense" /></div>
+              </Themed>
+            </DCArtboard>
+            <DCArtboard id="tbl-light" label="light · 14 rows" width={1280} height={520}>
+              <Themed defaultTheme="light">
+                <div style={{ padding: 22 }}><FindingsTable density="dense" /></div>
+              </Themed>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="full"
+            title="05 · assembled · full page"
+            subtitle="all components composed into a working report page. the tab row, search input, and sort columns are live — click around.">
+            <DCArtboard id="full-dark" label="assembled · dark" width={1280} height={1100}>
+              <Themed defaultTheme="dark">{({theme, toggle}) => <ReportPage theme={theme} onToggleTheme={toggle} />}</Themed>
+            </DCArtboard>
+            <DCArtboard id="full-light" label="assembled · light" width={1280} height={1100}>
+              <Themed defaultTheme="light">{({theme, toggle}) => <ReportPage theme={theme} onToggleTheme={toggle} />}</Themed>
+            </DCArtboard>
+          </DCSection>
+
+          <DCPostIt top={40} left={80} rotate={-3}>
+            tap the ☼ / ☾ in any artboard's top-right corner to flip its theme
+          </DCPostIt>
+          <DCPostIt top={40} right={80} rotate={2} width={200}>
+            click any artboard's label, or use ⌘+click to focus it fullscreen
+          </DCPostIt>
+        </DesignCanvas>
+      );
+    }
+
+    // External text/babel scripts are async — wait until every component
+    // we depend on has attached to window before rendering.
+    function start() {
+      const needed = ['DesignCanvas','DCSection','DCArtboard','DCPostIt',
+                      'HeaderA','HeaderB','TabsUnderline','TabsSegmented','TabsBracket',
+                      'BadgeShowcase','FindingsTable','ReportPage','Icon','Badge','Dot','Kbd'];
+      if (needed.some(k => typeof window[k] === 'undefined')) {
+        return setTimeout(start, 30);
+      }
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    }
+    start();
+  </script>
+</body>
+</html>

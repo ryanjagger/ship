@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 export const PROBE_GROUPS = [
@@ -71,6 +71,22 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
   const onlyGroups = parseProbeGroups([...readValues(argv, '--only'), process.env.PROBE_ONLY ?? ''].filter(Boolean), '--only');
   const skipGroups = parseProbeGroups([...readValues(argv, '--skip'), process.env.PROBE_SKIP ?? ''].filter(Boolean), '--skip');
 
+  const providedRunId = readValue(argv, '--run-id');
+  let runId: string;
+  if (providedRunId) {
+    try {
+      runId = validateRunId(providedRunId);
+    } catch (error) {
+      if (error instanceof InvalidRunIdError) {
+        console.error(error.message);
+        process.exit(2);
+      }
+      throw error;
+    }
+  } else {
+    runId = `probe-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+  }
+
   return {
     repoRoot,
     apiUrl,
@@ -81,12 +97,112 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
     keepData: argv.includes('--keep-data') || process.env.PROBE_KEEP_DATA === '1',
     outputDir,
     timeoutMs: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : DEFAULT_TIMEOUT_MS,
-    runId: readValue(argv, '--run-id') ?? `probe-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`,
+    runId,
     databaseUrl: process.env.DATABASE_URL,
     onlyGroups,
     skipGroups,
     aggressiveRateLimit: argv.includes('--aggressive-rate-limit') || process.env.PROBE_AGGRESSIVE_RATE_LIMIT === '1',
   };
+}
+
+// Leading char must be alphanumeric or underscore — blocks `..foo`, `.hidden`,
+// and leading-hyphen flag-shaped values that could collide with parent-dir
+// references or future CLI parsers.
+const RUN_ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+
+// probe's own output filenames. These collide only when the runId equals the
+// whole stem (e.g. runId `index` -> index.html clashes with the run-history
+// index; `index.foo` -> index.foo.html does not). Matched against the full
+// lowercased runId.
+const RESERVED_STEMS = new Set<string>(['index', 'security-report']);
+
+// Windows reserved device names. The Win32 API refuses to open these even with
+// an extension, and treats the segment BEFORE the first dot as the device — so
+// `con`, `con.json`, and (after Windows trims trailing dots/spaces) `con.` all
+// resolve to the CON device. Matched against the leading dot-segment.
+const WINDOWS_DEVICE_NAMES = new Set<string>([
+  'con', 'prn', 'aux', 'nul',
+  'com0', 'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt0', 'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+]);
+
+export class InvalidRunIdError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidRunIdError';
+  }
+}
+
+/**
+ * Validate a `--run-id` value before it's interpolated into output filenames.
+ * Rejects path-traversal shapes (slashes, parent-dir refs, NUL) and reserved
+ * names that would collide with alias/index artifacts.
+ */
+export function validateRunId(value: string): string {
+  if (!RUN_ID_PATTERN.test(value)) {
+    throw new InvalidRunIdError(
+      `Invalid --run-id ${JSON.stringify(value)}: must contain only letters, digits, dots, underscores, and hyphens.`
+    );
+  }
+  // Case-insensitive throughout: macOS APFS / Windows NTFS treat filenames as
+  // case-insensitive.
+  const lower = value.toLowerCase();
+
+  // probe alias/index collision — whole-stem match.
+  if (RESERVED_STEMS.has(lower)) {
+    throw new InvalidRunIdError(
+      `Invalid --run-id ${JSON.stringify(value)}: '${value}' collides with probe's alias/index output filenames. Pick a different id.`
+    );
+  }
+
+  // Windows device-name collision — match the leading dot-segment after
+  // trimming trailing dots/spaces, mirroring how Win32 resolves the basename.
+  const leadingSegment = lower.replace(/[. ]+$/, '').split('.')[0] ?? '';
+  if (WINDOWS_DEVICE_NAMES.has(leadingSegment)) {
+    throw new InvalidRunIdError(
+      `Invalid --run-id ${JSON.stringify(value)}: '${value}' resolves to the reserved Windows device name '${leadingSegment}' (reserved even with an extension). Pick a different id.`
+    );
+  }
+  return value;
+}
+
+/**
+ * True when the operator invoked `pnpm probe` with no CLI flags AND stdin is a TTY.
+ * Any flag (anything starting with `-`) or a non-interactive stdin short-circuits to false.
+ */
+export function shouldRunInteractive(argv: string[] = process.argv.slice(2), stdinIsTTY: boolean | undefined = process.stdin.isTTY): boolean {
+  if (!stdinIsTTY) return false;
+  return !argv.some((arg) => arg.startsWith('-'));
+}
+
+/**
+ * Reads the `.ports` file written by scripts/dev.sh and returns API/web URL defaults.
+ * Returns `{}` when the file is absent (the dev server is not running) — never throws.
+ */
+export function loadPortsFile(repoRoot: string): { api?: string; web?: string } {
+  const path = resolve(repoRoot, '.ports');
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return {};
+  }
+
+  const ports: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim();
+    if (key && value) ports[key] = value;
+  }
+
+  const result: { api?: string; web?: string } = {};
+  if (ports.API) result.api = `http://localhost:${ports.API}`;
+  if (ports.WEB) result.web = `http://localhost:${ports.WEB}`;
+  return result;
 }
 
 function findRepoRoot(start: string): string {
@@ -137,5 +253,10 @@ Options:
   --output-dir <dir>    Report output directory. Default: probe/results
   --timeout-ms <ms>     Per-request timeout. Default: ${DEFAULT_TIMEOUT_MS}
   --run-id <id>         Stable run id for namespacing audit-created data.
+                        Used as a filename stem under probe/results/. Must
+                        match ^[A-Za-z0-9_][A-Za-z0-9._-]*$ and not be a
+                        reserved name (case-insensitive: 'index',
+                        'security-report', plus Windows device names CON,
+                        PRN, AUX, NUL, COM0-9, LPT0-9).
 `);
 }
