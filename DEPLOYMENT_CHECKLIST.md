@@ -4,15 +4,15 @@ Quick reference for deploying Ship to AWS.
 
 ## Initial Setup (One-time)
 
-- [ ] Install tools: `terraform`, `awscli`, `awsebcli`, `postgresql@16`
+- [ ] Install tools: `terraform`, `awscli`, `postgresql@16` (the EB CLI / `awsebcli` is **optional** — the deploy scripts use the raw `aws elasticbeanstalk` CLI; install `awsebcli` only if you want `eb logs` / `eb ssh` ergonomics)
 - [ ] Configure AWS credentials: `aws configure`
 - [ ] Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`
 - [ ] Edit `terraform/terraform.tfvars` with your configuration
 - [ ] Deploy infrastructure: `./scripts/deploy-infrastructure.sh` (10-15 min)
-- [ ] Initialize Elastic Beanstalk: `cd api && eb init`
-- [ ] Create EB environment: See DEPLOYMENT.md for full `eb create` command (10-15 min)
+- [ ] (Optional) `cd api && eb init` if you installed `awsebcli` and want EB CLI ergonomics
+- [ ] Create EB environment via Terraform (`elastic-beanstalk.tf`) or `eb create` if using EB CLI (10-15 min)
 - [ ] Initialize database: `./scripts/init-database.sh` (2-3 min)
-- [ ] Deploy API: `./scripts/deploy-api.sh` (3-5 min)
+- [ ] Deploy API: `./scripts/deploy-api.sh` (3-5 min) — uses raw `aws elasticbeanstalk` CLI; no EB CLI required
 - [ ] Deploy frontend: `./scripts/deploy-frontend.sh` (2-3 min)
 
 **Total setup time:** ~30-45 minutes

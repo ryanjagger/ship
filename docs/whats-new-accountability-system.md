@@ -294,15 +294,15 @@ Legend:
 
 ---
 
-## Hypothesis Block
+## Plan Block
 
-Weeks now support a `/hypothesis` slash command that creates a dedicated hypothesis block in the editor.
+Weeks now support a `/plan` slash command (formerly `/hypothesis`, which remains as an alias) that creates a dedicated plan block in the editor.
 
 ### Using the Command
 
 1. Open any week document
-2. Type `/hypothesis` in the editor
-3. A styled hypothesis block appears:
+2. Type `/plan` (or the `/hypothesis` alias) in the editor
+3. A styled plan block appears:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -324,15 +324,15 @@ Weeks now support a `/hypothesis` slash command that creates a dedicated hypothe
 
 ### Bidirectional Sync
 
-The hypothesis block content syncs automatically with the week's `hypothesis` property:
+The plan block content syncs automatically with the week's `plan` property (renamed from `hypothesis` by migration 032):
 
 - Edit the block → property updates
 - Update property via API → block updates
-- The hypothesis field has been removed from the properties sidebar
+- The plan field has been removed from the properties sidebar
 
 ### New Week Default
 
-New weeks are created with a hypothesis block pre-populated with placeholder text.
+New weeks are created with a plan block pre-populated with placeholder text.
 
 ---
 
@@ -397,7 +397,7 @@ Find them in the **Docs** section or at:
 - Hypothesis and review approval workflow
 - Inline diff viewer for changes
 - Accountability grid view
-- `/hypothesis` slash command for weeks
+- `/plan` slash command for weeks (formerly `/hypothesis`; the old name remains as an alias)
 - Federal holiday-aware business day calculations
 
 ### Improvements
@@ -418,7 +418,7 @@ Find them in the **Docs** section or at:
 
 1. **Check your action items** - Log in and see what needs attention
 2. **Set up RACI** - Assign an Accountable person to your projects
-3. **Write hypotheses** - Use `/hypothesis` in week documents
+3. **Write plans** - Use `/plan` in week documents (the `/hypothesis` alias still works)
 4. **Review the grid** - Managers can monitor team accountability
 
 ---

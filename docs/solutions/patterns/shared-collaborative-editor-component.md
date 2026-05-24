@@ -105,8 +105,8 @@ const wsProvider = new WebsocketProvider(
 
 ## Results
 
-- **Before:** IssueEditor.tsx was ~360 lines with duplicate TipTap/Yjs code
-- **After:** IssueEditor.tsx is ~196 lines, using shared Editor component
+- **Before:** Each document type had its own editor page (`IssueEditor.tsx`, `DocumentEditor.tsx`) with duplicate TipTap/Yjs code
+- **After:** Routing was unified into a single `UnifiedDocumentPage.tsx` that uses the shared `Editor` component
 - **Benefit:** Any Editor changes (large title, sync status, presence) apply to all document types
 
 ## Prevention
@@ -119,5 +119,4 @@ When adding a new document type that needs collaborative editing:
 ## Related Files
 
 - `web/src/components/Editor.tsx` - Shared editor component
-- `web/src/pages/DocumentEditor.tsx` - Document usage
-- `web/src/pages/IssueEditor.tsx` - Issue usage with sidebar
+- `web/src/pages/UnifiedDocumentPage.tsx` - Single page that hosts the editor for all document types (issue, project, week, wiki, etc.); the prior `DocumentEditor.tsx` / `IssueEditor.tsx` split has been removed

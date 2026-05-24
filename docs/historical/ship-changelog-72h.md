@@ -1,3 +1,5 @@
+> **Frozen 2026-01-22.** Point-in-time 72-hour changelog. Not maintained. Some references (e.g., `project_id`/`sprint_id` columns, `sprint_plan`/`sprint_retro` types) reflect state before migrations 027, 029, 032, and 033.
+
 # Ship Platform Changes - January 20-22, 2026
 
 This document summarizes all significant changes to the Ship platform and Claude/Ship integration over the past 72 hours.

@@ -206,7 +206,10 @@ const createTokenSchema = z.object({
 ```typescript
 const createDocumentSchema = z.object({
   title: z.string().min(1).max(255).optional().default('Untitled'),
-  document_type: z.enum(['wiki', 'issue', 'program', 'project', 'sprint', 'person']),
+  document_type: z.enum([
+    'wiki', 'issue', 'program', 'project', 'sprint', 'person',
+    'weekly_plan', 'weekly_retro', 'standup', 'weekly_review',
+  ]),
   visibility: z.enum(['private', 'workspace']).optional(),
   // ...
 });

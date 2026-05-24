@@ -83,7 +83,7 @@ The goal isn't to check boxes. It's to capture what your team learned so you can
 
 - [Node.js](https://nodejs.org/) 20 or newer
 - [pnpm](https://pnpm.io/) (`npm install -g pnpm`)
-- [Docker](https://www.docker.com/) (for the database)
+- [PostgreSQL](https://www.postgresql.org/) installed locally and running
 
 ### Setup
 
@@ -95,20 +95,11 @@ cd ship
 # 2. Install dependencies
 pnpm install
 
-# 3. Configure environment
-cp api/.env.example api/.env.local
+# 3. Configure environment (optional — pnpm dev creates api/.env.local on first run)
 cp web/.env.example web/.env
 
-# 4. Start the database
-docker-compose up -d
-
-# 5. Create sample data
-pnpm db:seed
-
-# 6. Run database migrations
-pnpm db:migrate
-
-# 7. Start the application
+# 4. Start the application
+#    pnpm dev creates the database, runs migrations, and seeds on first run.
 pnpm dev
 ```
 
@@ -130,7 +121,7 @@ Log in with the demo account:
 | API server | http://localhost:3000 | Backend services |
 | Swagger UI | http://localhost:3000/api/docs | Interactive API documentation |
 | OpenAPI spec | http://localhost:3000/api/openapi.json | OpenAPI 3.0 specification |
-| PostgreSQL | localhost:5432 | Database (via Docker) |
+| PostgreSQL | localhost:5432 | Database (local install, not Docker) |
 
 ### Common Commands
 
@@ -140,7 +131,8 @@ pnpm dev:web      # Start just the web app
 pnpm dev:api      # Start just the API
 pnpm db:seed      # Reset database with sample data
 pnpm db:migrate   # Run database migrations
-pnpm test         # Run tests
+pnpm test         # Run API unit tests (vitest)
+pnpm test:e2e     # Run E2E tests (Playwright)
 ```
 
 ---
@@ -202,17 +194,20 @@ ship/
 ## Testing
 
 ```bash
-# Run all E2E tests
+# Run API unit tests (vitest)
 pnpm test
 
-# Run tests with UI
-pnpm test:ui
+# Run E2E tests (Playwright)
+pnpm test:e2e
 
-# Run specific test file
-pnpm test e2e/documents.spec.ts
+# Run E2E tests with the Playwright UI
+pnpm test:e2e:ui
+
+# Run a specific E2E test file
+pnpm test:e2e e2e/documents.spec.ts
 ```
 
-Ship uses Playwright for end-to-end testing with 73+ tests covering all major functionality.
+Ship uses vitest for API unit tests and Playwright for end-to-end testing covering all major functionality.
 
 ---
 

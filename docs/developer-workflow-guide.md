@@ -121,31 +121,27 @@ The intended workflow:
 4. Retro is discoverable from the week view
 
 ### Known Issues
-- [ ] **MISSING**: `weekly_retro` document type doesn't exist
-- [ ] **MISSING**: No UI to create retro from week
-- [ ] **MISSING**: No template for retrospective format
+- [x] `weekly_retro` document type exists (added by migration 033; renamed from `sprint_retro`)
+- [ ] UI ergonomics for creating a retro from the week view can still be improved
+- [ ] No canonical template yet for retrospective format
 
 ---
 
 ## Workflow 5: Weekly Plan Document
 
 ### Goal
-Write a weekly plan document capturing goals and hypothesis.
+Write a weekly plan document capturing intent (the `plan` property) and success criteria.
 
 ### Current Path
 
-**NOT YET IMPLEMENTED**
-
-The intended workflow:
-1. When creating a week, click "Write Weekly Plan"
-2. Create a document linked to the week with type `weekly_plan`
-3. Document captures: Goals, hypothesis, key deliverables, risks
-4. Plan is visible from week view header
+1. When creating a week, the week document gets a `plan` property (formerly `hypothesis`; renamed by migration 032)
+2. The plan is edited inline via the TipTap `/plan` slash command, which syncs back to `properties.plan`
+3. A separate `weekly_plan` document type also exists (renamed from `sprint_plan` by migration 033) and can be created as a child of the week
 
 ### Known Issues
-- [ ] **MISSING**: `weekly_plan` document type doesn't exist
-- [ ] **MISSING**: No UI to create plan from week
-- [ ] Week has `goal` field but it's just a text field, not a full document
+- [x] `weekly_plan` document type exists (migration 033)
+- [ ] No prominent UI affordance for "Write Weekly Plan" on week creation
+- [x] The legacy `goal` text field has been superseded by the `plan` property in `WeekProperties`
 
 ---
 
@@ -158,7 +154,7 @@ The intended workflow:
 | View all issues | Click Issues icon | `Cmd+K` → "issues" |
 | View all programs | Click Programs icon | `Cmd+K` → "programs" |
 | Open specific program | Sidebar → Program name | `Cmd+K` → program name |
-| View week | URL: `/weeks/{id}/view` | Click week card |
+| View week | URL: `/sprints/{id}/view` | Click week card |
 | Create issue | Issues page → New Issue | `Cmd+K` → "new issue" |
 | Create week | Program -> Weeks -> New | `Cmd+K` -> "new week" |
 
@@ -256,8 +252,8 @@ Once bugs are fixed, the following improvements are planned:
 | `/programs` | Programs list |
 | `/programs/{id}` | Program editor |
 | `/programs/{id}/view` | Program view (tabs: Issues, Weeks, Settings) |
-| `/weeks/{id}` | Week editor (document) |
-| `/weeks/{id}/view` | Week planning view (backlog/week columns) |
+| `/sprints/{id}` | Week editor (document) — historical route name, see `web/src/main.tsx` |
+| `/sprints/{id}/view` | Week planning view (backlog/week columns) |
 | `/issues` | Issues list |
 | `/issues/{id}` | Issue editor |
 | `/docs` | Wiki documents list |

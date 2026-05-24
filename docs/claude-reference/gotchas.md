@@ -12,8 +12,8 @@ Deleting parent documents cascades to children. This is intentional but can surp
 - `workspace_memberships` - deleting workspace or user removes membership
 
 **Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/api/src/db/schema.sql:103` - `parent_id UUID REFERENCES documents(id) ON DELETE CASCADE`
-- `/Users/jonesshaw/Documents/code/ship/api/src/db/migrations/020_document_associations.sql:17-18` - Both `document_id` and `related_id` cascade
+- `api/src/db/schema.sql:103` - `parent_id UUID REFERENCES documents(id) ON DELETE CASCADE`
+- `api/src/db/migrations/020_document_associations.sql:17-18` - Both `document_id` and `related_id` cascade
 
 **Risk:** Deleting a project document does NOT cascade to issues (uses `ON DELETE SET NULL` at schema.sql:108), but deleting a parent wiki page DOES delete all children.
 
@@ -27,36 +27,34 @@ Sessions have **two** independent timeouts - missing either one logs users out.
 | Absolute | 12 hours | Since session creation |
 
 **Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/shared/src/constants.ts:28` - `SESSION_TIMEOUT_MS = 15 * 60 * 1000`
-- `/Users/jonesshaw/Documents/code/ship/shared/src/constants.ts:31` - `ABSOLUTE_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000`
-- `/Users/jonesshaw/Documents/code/ship/api/src/middleware/auth.ts:154-169` - Both timeouts checked
-- `/Users/jonesshaw/Documents/code/ship/api/src/collaboration/index.ts:446-452` - WebSocket connections also enforce these
+- `shared/src/constants.ts:28` - `SESSION_TIMEOUT_MS = 15 * 60 * 1000`
+- `shared/src/constants.ts:31` - `ABSOLUTE_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000`
+- `api/src/middleware/auth.ts:154-169` - Both timeouts checked
+- `api/src/collaboration/index.ts:446-452` - WebSocket connections also enforce these
 
 **Gotcha:** The collaboration WebSocket enforces the same timeouts. Long-idle editing sessions will disconnect.
 
-## 3. Document Associations - Dual System
+## 3. Document Associations - Junction Table Only
 
-Documents use BOTH direct columns AND a junction table for associations. This is a migration in progress.
+All program / project / sprint relationships live in the `document_associations` junction table. The legacy columns on `documents` were removed:
 
-**Old system (columns):**
+- `project_id` and `sprint_id` dropped in migration `027_drop_legacy_association_columns.sql`
+- `program_id` dropped in migration `029_drop_program_id_column.sql`
+
 ```sql
--- api/src/db/schema.sql:107-109
-program_id UUID REFERENCES documents(id)
-project_id UUID REFERENCES documents(id)
--- Note: sprint_id was dropped by migration 027
+-- api/src/db/schema.sql
+CREATE TABLE document_associations (
+  id UUID PRIMARY KEY,
+  document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  related_id  UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  relationship_type relationship_type NOT NULL,  -- 'parent' | 'program' | 'project' | 'sprint'
+  ...
+);
 ```
 
-**New system (junction table):**
-```sql
--- api/src/db/migrations/020_document_associations.sql
-document_associations(document_id, related_id, relationship_type)
-```
+Only `parent_id` remains as a column on `documents` (for the document tree).
 
-**Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/api/src/db/migrations/021_migrate_associations.sql` - Migrates data from columns to junction
-- `/Users/jonesshaw/Documents/code/ship/api/src/db/seed.ts:532-564` - Seed data writes to BOTH systems
-
-**Gotcha:** When creating associations, you may need to write to both systems. The old columns are kept for rollback safety (see migration 021, line 67).
+**Gotcha:** Older docs (and any code you find that still references `documents.program_id` / `documents.project_id` / `documents.sprint_id`) are stale — those columns no longer exist. Always read and write associations through `document_associations`.
 
 ## 4. Error Response Inconsistency
 
@@ -84,7 +82,7 @@ res.status(500).json({ error: 'Internal server error' });
 ```
 
 **Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/shared/src/types/api.ts:2-12` - Canonical `ApiResponse` type
+- `shared/src/types/api.ts:2-12` - Canonical `ApiResponse` type
 - Routes using old format: `standups.ts`, `team.ts`, `search.ts`
 - Routes using new format: `auth.ts`, `admin.ts`, `workspaces.ts`, `invites.ts`, `api-tokens.ts`
 
@@ -109,8 +107,8 @@ test.fixme('my test', async ({ page }) => {
 ```
 
 **Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/scripts/check-empty-tests.sh` - Pre-commit hook catches these
-- `/Users/jonesshaw/Documents/code/ship/.husky/pre-commit:1-3` - Hook runs on every commit
+- `scripts/check-empty-tests.sh` - Pre-commit hook catches these
+- `.husky/pre-commit:1-3` - Hook runs on every commit
 
 **Gotcha:** The pre-commit hook only catches empty tests at commit time. During development, you won't see failures.
 
@@ -124,7 +122,7 @@ Never run `pnpm test:e2e` directly. It outputs 600+ test results that crash Clau
 - Supports `--last-failed` for iterative fixing
 
 **Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/.claude/CLAUDE.md:55-58` - Documents this requirement
+- `.claude/CLAUDE.md:55-58` - Documents this requirement
 
 ## 7. Yjs State - Binary Buffer Manipulation
 
@@ -140,9 +138,9 @@ await pool.query(
 ```
 
 **Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/api/src/db/schema.sql:99-100` - Column definition
-- `/Users/jonesshaw/Documents/code/ship/api/src/collaboration/index.ts:318-320` - Loading from DB
-- `/Users/jonesshaw/Documents/code/ship/api/src/routes/documents.ts:405-407` - Setting to NULL clears state
+- `api/src/db/schema.sql:99-100` - Column definition
+- `api/src/collaboration/index.ts:318-320` - Loading from DB
+- `api/src/routes/documents.ts:405-407` - Setting to NULL clears state
 
 **Gotcha:** When updating `content` via REST API, `yjs_state` is set to NULL (line 407). This forces the collaboration server to regenerate state from the new content.
 
@@ -156,8 +154,8 @@ Multiple worktrees need different ports to run simultaneously.
 - Worktree-init calculates offset from branch name hash
 
 **Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/scripts/dev.sh:65-92` - Port finding logic
-- `/Users/jonesshaw/Documents/code/ship/scripts/worktree-init.sh:17-27` - Deterministic port offset from branch name
+- `scripts/dev.sh:65-92` - Port finding logic
+- `scripts/worktree-init.sh:17-27` - Deterministic port offset from branch name
 
 **Gotcha:** If you manually start servers, check which ports are in use first. The dev script handles this automatically.
 
@@ -175,9 +173,9 @@ api/src/db/migrations/
 ```
 
 **Key locations:**
-- `/Users/jonesshaw/Documents/code/ship/api/src/db/migrate.ts:46` - Creates `schema_migrations` tracking table
-- `/Users/jonesshaw/Documents/code/ship/api/src/db/migrate.ts:53` - Queries applied migrations
-- `/Users/jonesshaw/Documents/code/ship/api/src/db/migrate.ts:76-91` - Runs each migration in transaction
+- `api/src/db/migrate.ts:46` - Creates `schema_migrations` tracking table
+- `api/src/db/migrate.ts:53` - Queries applied migrations
+- `api/src/db/migrate.ts:76-91` - Runs each migration in transaction
 
 **Gotcha:** `schema.sql` is only for initial database creation. Modifying it doesn't affect existing databases.
 
@@ -186,16 +184,16 @@ api/src/db/migrations/
 Not all types are in `shared/src/types/`. Some domain types are defined locally in route files.
 
 **Types in route files:**
-- `/Users/jonesshaw/Documents/code/ship/api/src/routes/issues.ts:105` - `interface BelongsToEntry`
-- `/Users/jonesshaw/Documents/code/ship/api/src/routes/dashboard.ts:11-21` - `Urgency` type, `WorkItem` interface
-- `/Users/jonesshaw/Documents/code/ship/api/src/routes/caia-auth.ts:381` - `interface PendingInvite`
-- `/Users/jonesshaw/Documents/code/ship/api/src/routes/claude.ts:21-43` - Multiple stat interfaces
+- `api/src/routes/issues.ts:105` - `interface BelongsToEntry`
+- `api/src/routes/dashboard.ts:11-21` - `Urgency` type, `WorkItem` interface
+- `api/src/routes/caia-auth.ts:381` - `interface PendingInvite`
+- `api/src/routes/claude.ts:21-43` - Multiple stat interfaces
 
 **Types in shared:**
-- `/Users/jonesshaw/Documents/code/ship/shared/src/types/api.ts` - `ApiResponse`, `ApiError`, `PaginationParams`
-- `/Users/jonesshaw/Documents/code/ship/shared/src/types/document.ts` - Document types
-- `/Users/jonesshaw/Documents/code/ship/shared/src/types/user.ts` - User types
-- `/Users/jonesshaw/Documents/code/ship/shared/src/types/workspace.ts` - Workspace types
+- `shared/src/types/api.ts` - `ApiResponse`, `ApiError`, `PaginationParams`
+- `shared/src/types/document.ts` - Document types
+- `shared/src/types/user.ts` - User types
+- `shared/src/types/workspace.ts` - Workspace types
 
 **Gotcha:** When adding types, decide: if used by both API and web, put in `shared/`. If API-only and route-specific, local definition is acceptable.
 

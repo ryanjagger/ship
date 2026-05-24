@@ -110,7 +110,7 @@ Extend session timeout (called by "Stay Logged In" button).
 
 ## Documents
 
-Documents are the core data model. All content types (wiki, issue, program, project, sprint, person) are stored as documents with a `document_type` field.
+Documents are the core data model. All ten content types (`wiki`, `issue`, `program`, `project`, `sprint`, `person`, `weekly_plan`, `weekly_retro`, `standup`, `weekly_review`) are stored as documents with a `document_type` field.
 
 ### GET /api/documents
 
@@ -119,7 +119,7 @@ List documents with optional filters.
 **Authentication:** Required
 
 **Query Parameters:**
-- `type` - Filter by document_type (wiki, issue, program, project, sprint, person)
+- `type` - Filter by document_type (any of: wiki, issue, program, project, sprint, person, weekly_plan, weekly_retro, standup, weekly_review)
 - `parent_id` - Filter by parent document (use "null" for root documents)
 
 **Response:**
@@ -175,7 +175,7 @@ Update a document.
 - `title`, `content`, `parent_id`, `position`, `visibility`, `document_type`
 - Issue fields: `state`, `priority`, `estimate`, `assignee_id`, `source`, `belongs_to`
 - Project fields: `impact`, `confidence`, `ease`, `color`, `owner_id`
-- Week fields: `start_date`, `end_date`, `sprint_status` (historical name), `goal`
+- Week fields: `sprint_number`, `owner_id`, `status` (`planning` | `active` | `completed`), `plan`, `success_criteria`, `confidence` (start/end dates are *computed* from `sprint_number` + workspace `sprint_start_date`, not stored)
 
 ### DELETE /api/documents/:id
 
@@ -237,10 +237,10 @@ List issues with optional filters.
 
 **Query Parameters:**
 - `state` - Comma-separated states (triage, backlog, todo, in_progress, in_review, done, cancelled)
-- `priority` - urgent, high, medium, low, none
+- `priority` - urgent, high, medium, low (the API also accepts `none` even though the TypeScript `IssuePriority` type does not list it)
 - `assignee_id` - UUID or "null"/"unassigned"
-- `program_id` - Filter by program association
-- `week_id` - Filter by week association (via document_associations table)
+- `program_id` - Filter by program association (translated to a `document_associations` lookup)
+- `sprint_id` - Filter by week (sprint) association (translated to a `document_associations` lookup; historical param name)
 - `source` - internal or external
 - `parent_filter` - top_level, has_children, is_sub_issue
 
@@ -436,7 +436,7 @@ List projects.
     "issue_count": 15,
     "inferred_status": "active",
     "is_complete": false,
-    "missing_fields": ["hypothesis"]
+    "missing_fields": ["plan"]
   }
 ]
 ```
@@ -464,7 +464,7 @@ Create a new project.
   "color": "#6366f1",
   "emoji": null,
   "program_id": null,
-  "hypothesis": null,
+  "plan": null,
   "target_date": null
 }
 ```
@@ -506,7 +506,7 @@ Create a week under a project.
   "sprint_number": null,
   "owner_id": null,
   "goal": null,
-  "hypothesis": null,
+  "plan": null,
   "success_criteria": [],
   "confidence": null
 }
@@ -527,7 +527,7 @@ Create/finalize project retrospective.
 **Request Body:**
 ```json
 {
-  "hypothesis_validated": true,
+  "plan_validated": true,
   "monetary_impact_actual": "$50K savings",
   "success_criteria": ["Met goal 1", "Met goal 2"],
   "next_steps": "Continue monitoring",
@@ -545,7 +545,7 @@ Update project retrospective.
 
 ## Weeks
 
-Weeks are documents with `document_type = 'sprint'` (historical name). They have numbered weeks and hypothesis-driven goals.
+Weeks are documents with `document_type = 'sprint'` (historical name). They have numbered weeks and a plan-driven workflow (the property was renamed from `hypothesis` to `plan` by migration 032; the underlying philosophy is still hypothesis-driven).
 
 ### GET /api/weeks
 
@@ -553,9 +553,9 @@ List active weeks.
 
 **Authentication:** Required
 
-### GET /api/weeks/my-action-items
+### GET /api/issues/action-items
 
-Get action items for current user across all weeks.
+Get action items for the current user. (Lives under the issues router, not weeks. Was previously documented as `/api/weeks/my-action-items` — that path does not exist.)
 
 **Authentication:** Required
 
@@ -589,16 +589,16 @@ Delete a week.
 
 **Authentication:** Required
 
-### PATCH /api/weeks/:id/hypothesis
+### PATCH /api/weeks/:id/plan
 
-Update week hypothesis.
+Update a week's plan. (Renamed from `/hypothesis` by migration 032.)
 
 **Authentication:** Required
 
 **Request Body:**
 ```json
 {
-  "hypothesis": "New hypothesis text",
+  "plan": "New plan text",
   "success_criteria": ["Criteria 1", "Criteria 2"],
   "confidence": 75
 }

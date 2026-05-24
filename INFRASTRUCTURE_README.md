@@ -19,10 +19,13 @@ cp terraform.tfvars.example terraform.tfvars
 cd ..
 ./scripts/deploy-infrastructure.sh
 
-# 4. Initialize Elastic Beanstalk (one-time, 10-15 min)
+# 4. (Optional) Initialize Elastic Beanstalk CLI for ergonomics
+# The deploy scripts use the raw `aws elasticbeanstalk` CLI, so this step is
+# only needed if you want `eb logs` / `eb ssh`. The EB environment itself is
+# provisioned by Terraform (`terraform/elastic-beanstalk.tf`).
 cd api
-eb init
-# Follow prompts, then create environment (see DEPLOYMENT.md for full command)
+eb init   # optional
+cd ..
 
 # 5. Initialize database (one-time, 2-3 min)
 cd ..
@@ -132,10 +135,10 @@ scripts/
 
 ### Cost Optimization
 - Aurora Serverless v2 (scales to 0.5 ACU, ~$43/month)
-- Single NAT Gateway (~$33/month)
+- Single NAT Gateway (~$33/month) — enabled by default per `terraform/variables.tf` (`enable_nat_gateway = true`)
 - t3.small EB instances (~$15/month)
 - CloudFront PriceClass_100 (US/Canada/Europe only)
-- **Total dev cost:** ~$80/month
+- **Total dev cost:** ~$113/month with NAT Gateway, ~$80/month if NAT is disabled (VPC endpoints route ECR/S3/SSM traffic instead)
 
 ### High Availability
 - Multi-AZ deployment (2 AZs)
@@ -147,17 +150,18 @@ scripts/
 
 | Environment | Aurora | EB | ALB | NAT | S3+CF | Total |
 |-------------|--------|----|----|-----|-------|-------|
-| **Dev** | $43 | $15 | $20 | - | $2 | **~$80/mo** |
+| **Dev (default)** | $43 | $15 | $20 | $33 | $2 | **~$113/mo** |
+| **Dev (NAT off)** | $43 | $15 | $20 | -   | $2 | **~$80/mo** |
 | **Prod** | $86 | $60-120 | $20 | $33 | $5 | **~$200-260/mo** |
 
-Note: Dev environment can disable NAT Gateway if using VPC endpoints for ECR/S3/SSM.
+Note: NAT Gateway is on by default in dev (`enable_nat_gateway = true` in `terraform/variables.tf`). Set it to `false` and add VPC endpoints for ECR/S3/SSM to drop ~$33/mo.
 
 ## Deployment Workflow
 
 ### Initial Setup (One-time)
 1. **Infrastructure** (10-15 min): `./scripts/deploy-infrastructure.sh`
    - Creates VPC, Aurora, S3, CloudFront, security groups, IAM roles
-2. **EB Environment** (10-15 min): `eb init` then `eb create`
+2. **EB Environment**: Provisioned by Terraform (`terraform/elastic-beanstalk.tf`). `eb init` is optional (only needed for EB CLI ergonomics like `eb logs`).
    - Creates ALB, EC2 instances, deploys Docker container
 3. **Database** (2-3 min): `./scripts/init-database.sh`
    - Applies schema, optionally seeds data

@@ -1,3 +1,5 @@
+> **Frozen 2026-01.** Point-in-time snapshot of demo notes from the `feature/ship-clarity-claude-integration` branch. Not maintained. Terminology and APIs predate the sprint→week and hypothesis→plan renames (migrations 032/033).
+
 # Ship Clarity Integration - Feature Demo
 
 **Branch:** `feature/ship-clarity-claude-integration`
