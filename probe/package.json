@@ -9,6 +9,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@inquirer/prompts": "^7.3.1",
     "pg": "^8.13.1"
   },
   "devDependencies": {

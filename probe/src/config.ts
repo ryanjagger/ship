@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 export const PROBE_GROUPS = [
@@ -87,6 +87,45 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
     skipGroups,
     aggressiveRateLimit: argv.includes('--aggressive-rate-limit') || process.env.PROBE_AGGRESSIVE_RATE_LIMIT === '1',
   };
+}
+
+/**
+ * True when the operator invoked `pnpm probe` with no CLI flags AND stdin is a TTY.
+ * Any flag (anything starting with `-`) or a non-interactive stdin short-circuits to false.
+ */
+export function shouldRunInteractive(argv: string[] = process.argv.slice(2), stdinIsTTY: boolean | undefined = process.stdin.isTTY): boolean {
+  if (!stdinIsTTY) return false;
+  return !argv.some((arg) => arg.startsWith('-'));
+}
+
+/**
+ * Reads the `.ports` file written by scripts/dev.sh and returns API/web URL defaults.
+ * Returns `{}` when the file is absent (the dev server is not running) — never throws.
+ */
+export function loadPortsFile(repoRoot: string): { api?: string; web?: string } {
+  const path = resolve(repoRoot, '.ports');
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return {};
+  }
+
+  const ports: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim();
+    if (key && value) ports[key] = value;
+  }
+
+  const result: { api?: string; web?: string } = {};
+  if (ports.API) result.api = `http://localhost:${ports.API}`;
+  if (ports.WEB) result.web = `http://localhost:${ports.WEB}`;
+  return result;
 }
 
 function findRepoRoot(start: string): string {

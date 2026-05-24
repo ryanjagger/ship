@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { PROBE_GROUPS, parseConfig, type ProbeConfig, type ProbeGroup } from './config.js';
+import { PROBE_GROUPS, parseConfig, shouldRunInteractive, type ProbeConfig, type ProbeGroup } from './config.js';
 import { createReport, finding, writeReports, type ProbeCheck } from './report.js';
+import { promptForConfig } from './prompts.js';
 import { runPreflightProbe } from './probes/preflight.js';
 import { runAuthProbe } from './probes/auth.js';
 import { runWebSocketProbe } from './probes/websocket.js';
@@ -63,7 +64,9 @@ const PROBE_RUNNERS: ProbeRunner[] = [
 ];
 
 async function main(): Promise<void> {
-  const config = parseConfig();
+  const argv = process.argv.slice(2);
+  const interactive = shouldRunInteractive(argv);
+  const config = interactive ? await promptForConfig(parseConfig([])) : parseConfig(argv);
   const checks: ProbeCheck[] = [];
   const activeGroups = PROBE_RUNNERS
     .filter((runner) => shouldRunGroup(config, runner.group))
