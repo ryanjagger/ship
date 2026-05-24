@@ -1,5 +1,39 @@
 # Manual Security Review
 
+## Remediation Log
+
+### `auth.roles.member.invite_session_cookie` — Invite-accepted member session cookie is hardened (High)
+
+The probe `auth` group flagged that the session cookie issued by the invite-accept endpoint (`POST /api/invites/:token/accept`) diverged from every other auth flow: it minted a 36-char UUID instead of a 64-char hex token and set `SameSite=Lax` instead of `Strict`. Fixed in `api/src/routes/invites.ts` by switching to the shared `generateSecureSessionId()` (256-bit hex, used by login and CAIA callback) and aligning the cookie options. Verified: `pnpm type-check` clean, `pnpm run test` green (453 api / 151 web / 83 probe).
+
+| Attribute | Before (probe finding) | After (fix) |
+| --- | --- | --- |
+| Token generator | `uuidv4()` | `generateSecureSessionId()` (`crypto.randomBytes(32).toString('hex')`) |
+| `valueLength` | 36 | 64 |
+| `valueShape` | `uuid` | 64-char hex |
+| `samesite` | `Lax` | `Strict` |
+| `path` | _(absent)_ | `/` |
+| `httponly` | `true` | `true` _(unchanged)_ |
+| `secure` | `NODE_ENV === 'production'` | `NODE_ENV === 'production'` _(unchanged)_ |
+| `max-age` | `900` | `900` _(unchanged)_ |
+| Probe `failures` | `session_id is not a 64-character hex token`, `SameSite is not Strict` | _(none)_ |
+
+### `inputs.sql_injection.query_params` — Document list query params reject malformed input (High)
+
+The probe `inputs` group fired SQL-injection payloads at list endpoints. `/api/search/*` and `/api/issues` already returned `200` with empty results (parameterized queries — no injection), but `GET /api/documents?type=<payload>` returned `500 Internal server error` on every payload. Root cause was **not** SQL injection: the `type` value is correctly bound as a parameter, but `documents.document_type` is a Postgres `ENUM` and `parent_id` is a `UUID` column, so any non-conforming value raised a cast error (`invalid input value for enum document_type`) that surfaced as a 500. Fixed in `api/src/routes/documents.ts` by validating both query params with a Zod schema (`type` against the 10-value enum allowlist, `parent_id` as UUID or the `null`/`''` sentinels) before building the SQL — invalid input now returns `400 Invalid input`. Added 5 regression tests in `documents.test.ts`. Verified: `pnpm type-check` clean, `pnpm run test` green (458 api / 151 web / 83 probe).
+
+| `GET /api/documents` input | Before | After |
+| --- | --- | --- |
+| `?type=' OR '1'='1` | `500` (enum cast error) | `400 Invalid input` |
+| `?type=' UNION SELECT NULL,NULL,NULL--` | `500` | `400 Invalid input` |
+| `?type=');  SELECT pg_sleep(1); --` | `500` | `400 Invalid input` |
+| `?type=probe'--` | `500` | `400 Invalid input` |
+| `?parent_id=probe'--` (non-UUID) | `500` (uuid cast error) | `400 Invalid input` |
+| `?type=issue` (valid) | `200` | `200` _(unchanged)_ |
+| `?parent_id=null` (sentinel) | `200` | `200` _(unchanged)_ |
+| Injection reachable | No (parameterized) — but errored | No — rejected before DB |
+
+Note: this finding was a hardening gap (DB-error 500s on hostile input), not an exploitable injection. The query was already parameterized; the fix removes the error-oracle / noisy-500 surface and returns a clean 4xx.
 
 ## Scope
 

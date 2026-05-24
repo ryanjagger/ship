@@ -875,3 +875,90 @@ describe('Documents API - Conversion', () => {
     })
   })
 })
+
+describe('Documents API - List query validation', () => {
+  const app = createApp()
+  const testRunId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  const testEmail = `docs-list-${testRunId}@ship.local`
+  const testWorkspaceName = `Docs List Test ${testRunId}`
+
+  let sessionCookie: string
+  let testWorkspaceId: string
+  let testUserId: string
+
+  beforeAll(async () => {
+    const workspaceResult = await pool.query(
+      `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
+      [testWorkspaceName]
+    )
+    testWorkspaceId = workspaceResult.rows[0].id
+
+    const userResult = await pool.query(
+      `INSERT INTO users (email, password_hash, name)
+       VALUES ($1, 'test-hash', 'Test User') RETURNING id`,
+      [testEmail]
+    )
+    testUserId = userResult.rows[0].id
+
+    await pool.query(
+      `INSERT INTO workspace_memberships (workspace_id, user_id, role)
+       VALUES ($1, $2, 'member')`,
+      [testWorkspaceId, testUserId]
+    )
+
+    const sessionId = crypto.randomBytes(32).toString('hex')
+    await pool.query(
+      `INSERT INTO sessions (id, user_id, workspace_id, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 hour')`,
+      [sessionId, testUserId, testWorkspaceId]
+    )
+    sessionCookie = `session_id=${sessionId}`
+  })
+
+  afterAll(async () => {
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [testUserId])
+    await pool.query('DELETE FROM documents WHERE workspace_id = $1', [testWorkspaceId])
+    await pool.query('DELETE FROM workspace_memberships WHERE user_id = $1', [testUserId])
+    await pool.query('DELETE FROM users WHERE id = $1', [testUserId])
+    await pool.query('DELETE FROM workspaces WHERE id = $1', [testWorkspaceId])
+  })
+
+  describe('GET /api/documents', () => {
+    it('returns 200 for a valid document_type filter', async () => {
+      const res = await request(app)
+        .get('/api/documents?type=issue')
+        .set('Cookie', sessionCookie)
+      expect(res.status).toBe(200)
+      expect(Array.isArray(res.body)).toBe(true)
+    })
+
+    it('returns 400 (not 500) for a SQL-injection style type value', async () => {
+      const res = await request(app)
+        .get(`/api/documents?type=${encodeURIComponent("' OR '1'='1")}`)
+        .set('Cookie', sessionCookie)
+      expect(res.status).toBe(400)
+      expect(res.body.error).toBe('Invalid input')
+    })
+
+    it('returns 400 for an arbitrary invalid enum value', async () => {
+      const res = await request(app)
+        .get('/api/documents?type=not_a_real_type')
+        .set('Cookie', sessionCookie)
+      expect(res.status).toBe(400)
+    })
+
+    it('returns 400 for a non-UUID parent_id', async () => {
+      const res = await request(app)
+        .get("/api/documents?parent_id=probe'--")
+        .set('Cookie', sessionCookie)
+      expect(res.status).toBe(400)
+    })
+
+    it('still accepts parent_id=null sentinel', async () => {
+      const res = await request(app)
+        .get('/api/documents?parent_id=null')
+        .set('Cookie', sessionCookie)
+      expect(res.status).toBe(200)
+    })
+  })
+})

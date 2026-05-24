@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import type { Router as RouterType } from 'express';
 import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../db/client.js';
 import { ERROR_CODES, HTTP_STATUS, SESSION_TIMEOUT_MS } from '@ship/shared';
 import { logAuditEvent } from '../services/audit.js';
 import { linkUserToWorkspaceViaInvite } from '../services/invite-acceptance.js';
+import { generateSecureSessionId } from '../services/oauth-state.js';
 
 const router: RouterType = Router();
 
@@ -223,7 +223,7 @@ router.post('/:token/accept', async (req: Request, res: Response): Promise<void>
     await linkUserToWorkspaceViaInvite(user, invite);
 
     // Create session
-    const sessionId = uuidv4();
+    const sessionId = generateSecureSessionId();
     const expiresAt = new Date(Date.now() + SESSION_TIMEOUT_MS);
 
     await pool.query(
@@ -246,8 +246,9 @@ router.post('/:token/accept', async (req: Request, res: Response): Promise<void>
     res.cookie('session_id', sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'strict',
       maxAge: SESSION_TIMEOUT_MS,
+      path: '/',
     });
 
     res.status(HTTP_STATUS.CREATED).json({
