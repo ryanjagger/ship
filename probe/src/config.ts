@@ -132,9 +132,12 @@ export function validateRunId(value: string): string {
       `Invalid --run-id ${JSON.stringify(value)}: must contain only letters, digits, dots, underscores, and hyphens.`
     );
   }
-  if (RESERVED_RUN_IDS.has(value)) {
+  // macOS APFS and Windows NTFS are case-insensitive by default, so a runId
+  // like `Index` or `Security-Report` would still collide with the lowercase
+  // alias and index files. Normalize before the reserved-name check.
+  if (RESERVED_RUN_IDS.has(value.toLowerCase())) {
     throw new InvalidRunIdError(
-      `Invalid --run-id ${JSON.stringify(value)}: '${value}' is reserved for the report alias and index files. Pick a different id.`
+      `Invalid --run-id ${JSON.stringify(value)}: '${value}' is reserved for the report alias and index files (case-insensitive on macOS/Windows). Pick a different id.`
     );
   }
   return value;
