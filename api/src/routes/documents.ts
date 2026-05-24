@@ -91,11 +91,26 @@ const updateDocumentSchema = z.object({
   plan: z.string().optional(), // Alias for hypothesis (frontend sends 'plan', stored as 'plan' in properties)
 });
 
+// Query param validation for listing documents. `document_type` is a Postgres
+// ENUM and `parent_id` is a UUID column, so invalid values would otherwise reach
+// the DB and raise a cast error surfacing as a 500. Validate up front -> 400.
+const listDocumentsQuerySchema = z.object({
+  type: z
+    .enum(['wiki', 'issue', 'program', 'project', 'sprint', 'person', 'weekly_plan', 'weekly_retro', 'standup', 'weekly_review'])
+    .optional(),
+  parent_id: z.union([z.literal('null'), z.literal(''), z.string().uuid()]).optional(),
+});
+
 // List documents
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!assertAuthed(req, res)) return;
-    const { type, parent_id } = req.query;
+    const parsedQuery = listDocumentsQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      res.status(400).json({ error: 'Invalid input', details: parsedQuery.error.errors });
+      return;
+    }
+    const { type, parent_id } = parsedQuery.data;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
 
