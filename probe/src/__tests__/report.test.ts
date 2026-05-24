@@ -46,9 +46,11 @@ describe('writeReports', () => {
     expect(paths.jsonPath).toBe(join(tmp, 'security-report.json'));
     expect(paths.markdownPath).toBe(join(tmp, 'security-report.md'));
     expect(paths.htmlPath).toBe(join(tmp, 'security-report.html'));
+    expect(paths.indexPath).toBe(join(tmp, 'index.html'));
 
     const files = (await readdir(tmp)).sort();
     expect(files).toEqual([
+      'index.html',
       'probe-fixed-test.html',
       'probe-fixed-test.json',
       'probe-fixed-test.md',
@@ -87,6 +89,7 @@ describe('writeReports', () => {
 
     const files = (await readdir(tmp)).sort();
     expect(files).toEqual([
+      'index.html',
       'probe-first.html',
       'probe-first.json',
       'probe-first.md',
@@ -114,6 +117,7 @@ describe('writeReports', () => {
 
     const files = (await readdir(nested)).sort();
     expect(files).toEqual([
+      'index.html',
       'probe-fixed-test.html',
       'probe-fixed-test.json',
       'probe-fixed-test.md',

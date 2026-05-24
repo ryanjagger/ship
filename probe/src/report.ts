@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ProbeConfig } from './config.js';
 import { renderHtml } from './viewer/html.js';
+import { renderIndexHtml, scanRuns } from './viewer/index-html.js';
 
 export type ProbeSurface =
   | 'preflight'
@@ -172,6 +173,7 @@ export type WriteReportsResult = {
   runJsonPath: string;
   runMarkdownPath: string;
   runHtmlPath: string;
+  indexPath: string;
 };
 
 export async function writeReports(config: ProbeConfig, report: ProbeReport): Promise<WriteReportsResult> {
@@ -187,6 +189,7 @@ export async function writeReports(config: ProbeConfig, report: ProbeReport): Pr
   const runJsonPath = join(config.outputDir, `${report.runId}.json`);
   const runMarkdownPath = join(config.outputDir, `${report.runId}.md`);
   const runHtmlPath = join(config.outputDir, `${report.runId}.html`);
+  const indexPath = join(config.outputDir, 'index.html');
 
   await Promise.all([
     writeFile(runJsonPath, jsonContent, 'utf8'),
@@ -197,7 +200,12 @@ export async function writeReports(config: ProbeConfig, report: ProbeReport): Pr
     writeFile(htmlPath, htmlContent, 'utf8'),
   ]);
 
-  return { jsonPath, markdownPath, htmlPath, runJsonPath, runMarkdownPath, runHtmlPath };
+  // Rescan after the new run's JSON is on disk so the index includes it.
+  const runs = await scanRuns(config.outputDir);
+  const indexContent = await renderIndexHtml(runs);
+  await writeFile(indexPath, indexContent, 'utf8');
+
+  return { jsonPath, markdownPath, htmlPath, runJsonPath, runMarkdownPath, runHtmlPath, indexPath };
 }
 
 export function renderMarkdown(report: ProbeReport): string {
