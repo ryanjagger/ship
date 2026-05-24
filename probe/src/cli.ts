@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import open from 'open';
 import { PROBE_GROUPS, parseConfig, shouldRunInteractive, type ProbeConfig, type ProbeGroup } from './config.js';
 import { createReport, finding, writeReports, type ProbeCheck } from './report.js';
 import { promptForConfig } from './prompts.js';
@@ -108,6 +109,27 @@ async function main(): Promise<void> {
   console.log(`Index: ${paths.indexPath}`);
   console.log(`JSON: ${paths.jsonPath}`);
   console.log(`Markdown: ${paths.markdownPath}`);
+
+  await maybeOpenReport(interactive, paths.runHtmlPath, process.stdout.isTTY ?? false);
+}
+
+/**
+ * Open the report HTML in the default browser when the run was interactive AND
+ * stdout is a TTY. Anything else (CI, scripted, non-TTY) is a no-op. Browser-
+ * open failures are non-fatal — log a soft warning, never crash the run.
+ */
+export async function maybeOpenReport(
+  interactive: boolean,
+  htmlPath: string,
+  stdoutIsTTY: boolean,
+  openImpl: (target: string) => Promise<unknown> = open
+): Promise<void> {
+  if (!interactive || !stdoutIsTTY) return;
+  try {
+    await openImpl(htmlPath);
+  } catch (error) {
+    console.warn(`Could not open browser automatically — open ${htmlPath} manually (${(error as Error).message})`);
+  }
 }
 
 function shouldRunGroup(config: ProbeConfig, group: ProbeGroup): boolean {

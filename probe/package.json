@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^7.3.1",
+    "open": "^10.1.0",
     "pg": "^8.13.1"
   },
   "devDependencies": {
