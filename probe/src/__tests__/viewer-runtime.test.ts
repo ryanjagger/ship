@@ -365,6 +365,113 @@ describe('viewer runtime (jsdom)', () => {
       expect(document.querySelectorAll('.probe-row-detail').length).toBe(0);
       expect(document.querySelectorAll('.probe-row.is-expanded').length).toBe(0);
     });
+
+    it('keeps the expanded row open across sort clicks (state.expandedId restore)', async () => {
+      const report = createReport(makeConfig(), [
+        finding('aa.x', 'A', 'auth', 'critical', { k: 1 }, ['step']),
+        finding('zz.x', 'Z', 'auth', 'critical', { k: 2 }, ['step']),
+      ]);
+      await bootViewer(report);
+
+      const targetRow = Array.from(document.querySelectorAll<HTMLDivElement>('.probe-row')).find(
+        (r) => r.dataset.checkId === 'aa.x',
+      );
+      targetRow?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(1);
+
+      document.querySelector<HTMLButtonElement>('[data-sort="id"]')?.click(); // re-sort by id (asc)
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(1);
+      const stillExpanded = document.querySelector<HTMLDivElement>('.probe-row.is-expanded');
+      expect(stillExpanded?.dataset.checkId).toBe('aa.x');
+    });
+
+    it('clears expansion if the previously-expanded check is filtered out by search', async () => {
+      const report = createReport(makeConfig(), [
+        finding('alpha.x', 'Alpha', 'auth', 'critical', { k: 1 }, ['step']),
+        finding('omega.x', 'Omega', 'auth', 'high', { k: 2 }, ['step']),
+      ]);
+      await bootViewer(report);
+
+      const alphaRow = Array.from(document.querySelectorAll<HTMLDivElement>('.probe-row')).find(
+        (r) => r.dataset.checkId === 'alpha.x',
+      );
+      alphaRow?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(1);
+
+      const search = document.getElementById('probe-search') as HTMLInputElement;
+      search.value = 'omega';
+      search.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(0);
+      expect(document.querySelectorAll('.probe-row.is-expanded').length).toBe(0);
+    });
+
+    it('skips toggling expansion when the user has selected text inside the row', async () => {
+      const report = createReport(makeConfig(), [
+        finding('a.x', 'A', 'auth', 'critical', { k: 1 }, ['step']),
+      ]);
+      await bootViewer(report);
+
+      const row = document.querySelector<HTMLDivElement>('.probe-row');
+      const titleCell = row?.querySelector<HTMLDivElement>('.probe-cell-title');
+      expect(titleCell).not.toBeNull();
+
+      const range = document.createRange();
+      range.selectNodeContents(titleCell!);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+
+      row?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(0);
+      expect(row?.classList.contains('is-expanded')).toBe(false);
+
+      selection?.removeAllRanges();
+      row?.click();
+      expect(document.querySelectorAll('.probe-row-detail').length).toBe(1);
+    });
+
+    it('truncates very large evidence with a helpful marker so the page does not freeze', async () => {
+      const big = 'x'.repeat(150_000);
+      const report = createReport(makeConfig(), [
+        finding('big.x', 'big payload', 'auth', 'critical', { body: big }, []),
+      ]);
+      await bootViewer(report);
+
+      document.querySelector<HTMLDivElement>('.probe-row')?.click();
+      const pre = document.querySelector('.probe-detail-evidence');
+      expect(pre?.textContent?.length).toBeLessThan(150_000);
+      expect(pre?.textContent).toContain('truncated');
+      expect(pre?.textContent).toMatch(/\d+ bytes hidden/);
+    });
+
+    it('exposes aria-label, aria-controls, and a matching detail panel id', async () => {
+      const report = createReport(makeConfig(), [
+        finding(
+          'auth.login.default_credentials',
+          'Default or configured credentials could not log in',
+          'auth',
+          'critical',
+          { k: 1 },
+          ['step'],
+        ),
+      ]);
+      await bootViewer(report);
+
+      const row = document.querySelector<HTMLDivElement>('.probe-row');
+      const label = row?.getAttribute('aria-label') ?? '';
+      expect(label).toContain('CRITICAL');
+      expect(label).toContain('auth.login.default_credentials');
+      expect(label).toContain('Default or configured credentials could not log in');
+
+      const controls = row?.getAttribute('aria-controls');
+      expect(controls).toBeTruthy();
+
+      row?.click();
+      const detail = document.querySelector('.probe-row-detail');
+      expect(detail?.id).toBe(controls);
+      expect(detail?.getAttribute('role')).toBe('region');
+    });
   });
 
   describe('refs column', () => {

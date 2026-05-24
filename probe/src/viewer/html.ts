@@ -135,10 +135,11 @@ const PROBE_REPORT_CSS = `
 .probe-row:last-child { border-bottom: none; }
 .probe-row-zebra { background: var(--row-zebra); }
 .probe-row:hover { background: var(--surface-hover); }
-.probe-row.is-expanded { background: var(--surface-hover); border-bottom-color: var(--border-strong); }
+.probe-row.is-expanded { background: var(--surface-hover); border-bottom: 1px solid var(--border-strong); }
 .probe-row.is-expanded > .probe-cell-id::before { content: '▾ '; color: var(--accent); }
 
-.probe-row-detail { padding: 14px 18px 18px; background: var(--bg); border-bottom: 1px solid var(--border); border-left: 2px solid var(--border-strong); }
+.probe-row-detail { padding: 14px 18px 18px; background: var(--bg); border-left: 2px solid var(--border-strong); }
+.probe-row-detail:not(:last-child) { border-bottom: 1px solid var(--border); }
 .probe-row-detail-sev-critical { border-left-color: var(--sev-critical); }
 .probe-row-detail-sev-high { border-left-color: var(--sev-high); }
 .probe-row-detail-sev-medium { border-left-color: var(--sev-medium); }

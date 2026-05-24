@@ -231,20 +231,34 @@
       tbody.appendChild(empty);
       return;
     }
-    // Reset expansion when the visible row set changes (filter/search/sort).
-    state.expandedId = null;
+    // Re-render replaces rows; restore the expanded row after the new set is
+    // attached so search/sort/tab interactions don't drop the open panel.
+    var previouslyExpanded = state.expandedId;
     rows.forEach(function (check, i) {
-      tbody.appendChild(renderRow(check, i));
+      var rowEl = renderRow(check, i);
+      tbody.appendChild(rowEl);
+      if (previouslyExpanded && check.id === previouslyExpanded) expandRow(rowEl, check);
     });
+    // If the previously-expanded check is no longer visible (filtered out),
+    // clear the stale id so a future render doesn't try to re-expand it.
+    if (previouslyExpanded && !rows.some(function (c) { return c.id === previouslyExpanded; })) {
+      state.expandedId = null;
+    }
   }
+
+  var detailIdCounter = 0;
 
   function renderRow(check, i) {
     var row = document.createElement('div');
     row.className = 'probe-row' + (i % 2 ? ' probe-row-zebra' : '');
+    var detailId = 'probe-detail-' + (++detailIdCounter);
     row.setAttribute('role', 'button');
     row.setAttribute('tabindex', '0');
     row.setAttribute('aria-expanded', 'false');
+    row.setAttribute('aria-controls', detailId);
+    row.setAttribute('aria-label', String(check.severity || '').toUpperCase() + ' ' + check.id + ': ' + check.title + ' — toggle detail');
     row.dataset.checkId = check.id;
+    row.dataset.detailId = detailId;
 
     row.appendChild(cellBadge(check.severity, 'sev'));
     row.appendChild(cellText(check.id, 'probe-cell-id'));
@@ -255,6 +269,9 @@
     row.appendChild(cellText(formatAge(report.generatedAt), 'probe-cell-age'));
 
     function toggle() {
+      // Don't hijack a text selection the user is making inside the row.
+      var sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection() : null;
+      if (sel && sel.toString().length > 0 && sel.anchorNode && row.contains(sel.anchorNode)) return;
       var isOpen = row.classList.contains('is-expanded');
       collapseAll();
       if (!isOpen) expandRow(row, check);
@@ -283,6 +300,8 @@
     row.setAttribute('aria-expanded', 'true');
     state.expandedId = check.id;
     var detail = renderDetail(check);
+    detail.id = row.dataset.detailId || '';
+    detail.setAttribute('role', 'region');
     row.parentNode.insertBefore(detail, row.nextSibling);
   }
 
@@ -328,11 +347,18 @@
       evSection.appendChild(evLabel);
       var pre = document.createElement('pre');
       pre.className = 'probe-detail-evidence';
+      var MAX = 100000; // 100KB cap; large response bodies otherwise freeze layout
+      var json;
       try {
-        pre.textContent = JSON.stringify(check.evidence, null, 2);
+        json = JSON.stringify(check.evidence, null, 2);
       } catch (e) {
-        pre.textContent = String(check.evidence);
+        json = String(check.evidence);
       }
+      if (json && json.length > MAX) {
+        var hidden = json.length - MAX;
+        json = json.slice(0, MAX) + '\n\n…[truncated; ' + hidden + ' bytes hidden — open the JSON file for full evidence]';
+      }
+      pre.textContent = json || '';
       evSection.appendChild(pre);
       wrap.appendChild(evSection);
     }
