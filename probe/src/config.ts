@@ -71,6 +71,22 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
   const onlyGroups = parseProbeGroups([...readValues(argv, '--only'), process.env.PROBE_ONLY ?? ''].filter(Boolean), '--only');
   const skipGroups = parseProbeGroups([...readValues(argv, '--skip'), process.env.PROBE_SKIP ?? ''].filter(Boolean), '--skip');
 
+  const providedRunId = readValue(argv, '--run-id');
+  let runId: string;
+  if (providedRunId) {
+    try {
+      runId = validateRunId(providedRunId);
+    } catch (error) {
+      if (error instanceof InvalidRunIdError) {
+        console.error(error.message);
+        process.exit(2);
+      }
+      throw error;
+    }
+  } else {
+    runId = `probe-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
+  }
+
   return {
     repoRoot,
     apiUrl,
@@ -81,12 +97,44 @@ export function parseConfig(argv: string[] = process.argv.slice(2)): ProbeConfig
     keepData: argv.includes('--keep-data') || process.env.PROBE_KEEP_DATA === '1',
     outputDir,
     timeoutMs: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : DEFAULT_TIMEOUT_MS,
-    runId: readValue(argv, '--run-id') ?? `probe-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`,
+    runId,
     databaseUrl: process.env.DATABASE_URL,
     onlyGroups,
     skipGroups,
     aggressiveRateLimit: argv.includes('--aggressive-rate-limit') || process.env.PROBE_AGGRESSIVE_RATE_LIMIT === '1',
   };
+}
+
+const RUN_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+// Filenames the viewer + writeReports reserve for alias and index outputs.
+// A runId equal to one of these would silently overwrite those files or race
+// with their atomic-write sequence.
+const RESERVED_RUN_IDS = new Set(['index', 'security-report']);
+
+export class InvalidRunIdError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidRunIdError';
+  }
+}
+
+/**
+ * Validate a `--run-id` value before it's interpolated into output filenames.
+ * Rejects path-traversal shapes (slashes, parent-dir refs, NUL) and reserved
+ * names that would collide with alias/index artifacts.
+ */
+export function validateRunId(value: string): string {
+  if (!RUN_ID_PATTERN.test(value)) {
+    throw new InvalidRunIdError(
+      `Invalid --run-id ${JSON.stringify(value)}: must contain only letters, digits, dots, underscores, and hyphens.`
+    );
+  }
+  if (RESERVED_RUN_IDS.has(value)) {
+    throw new InvalidRunIdError(
+      `Invalid --run-id ${JSON.stringify(value)}: '${value}' is reserved for the report alias and index files. Pick a different id.`
+    );
+  }
+  return value;
 }
 
 /**
@@ -176,5 +224,8 @@ Options:
   --output-dir <dir>    Report output directory. Default: probe/results
   --timeout-ms <ms>     Per-request timeout. Default: ${DEFAULT_TIMEOUT_MS}
   --run-id <id>         Stable run id for namespacing audit-created data.
+                        Used as a filename stem under probe/results/, so it
+                        must match [A-Za-z0-9._-]+ and cannot be 'index' or
+                        'security-report' (reserved).
 `);
 }
