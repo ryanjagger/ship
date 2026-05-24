@@ -2,8 +2,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ProbeReport, ProbeSeverity } from '../report.js';
 import { loadViewerAssets } from './assets.js';
-
-const THEME_KEY = 'probe-viewer-theme';
+import { PROBE_BASE_CSS } from './css.js';
+import { themeInitScriptBody, themeToggleScriptBody } from './theme.js';
 
 export type RunSummary = {
   runId: string;
@@ -25,7 +25,10 @@ export async function scanRuns(outputDir: string): Promise<RunSummary[]> {
     return [];
   }
 
-  const runFiles = entries.filter((name) => /^probe-.*\.json$/.test(name));
+  // Index every JSON file in outputDir that isn't the alias — covers runs made
+  // with custom --run-id values (which don't start with `probe-`) without
+  // double-counting the security-report.json alias.
+  const runFiles = entries.filter((name) => name.endsWith('.json') && name !== 'security-report.json');
   const summaries: RunSummary[] = [];
 
   for (const file of runFiles) {
@@ -66,8 +69,8 @@ function composeIndexHtml(runs: RunSummary[], tokensCss: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Probe — run history</title>
-<style>${tokensCss}${INDEX_CSS}</style>
-<script>${themeInitScript()}</script>
+<style>${tokensCss}${PROBE_BASE_CSS}${INDEX_CSS}</style>
+<script>${themeInitScriptBody()}</script>
 </head>
 <body class="sr">
 <header class="probe-header">
@@ -85,7 +88,7 @@ function composeIndexHtml(runs: RunSummary[], tokensCss: string): string {
 ${runs.length === 0 ? renderEmptyState() : renderTable(runs)}
 </main>
 
-<script>${themeToggleScript()}</script>
+<script>${themeToggleScriptBody()}</script>
 </body>
 </html>
 `;
@@ -154,51 +157,20 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function themeInitScript(): string {
-  return `(function(){try{var t=localStorage.getItem(${JSON.stringify(THEME_KEY)})||'dark';document.documentElement.className='theme-'+(t==='light'?'light':'dark');}catch(e){document.documentElement.className='theme-dark';}})();`;
-}
-
-function themeToggleScript(): string {
-  return `(function(){var btn=document.getElementById('probe-theme-toggle');if(!btn)return;function paint(){var dark=document.documentElement.className!=='theme-light';btn.textContent=dark?'☼':'☾';btn.setAttribute('aria-label',dark?'Switch to light theme':'Switch to dark theme');}btn.addEventListener('click',function(){var dark=document.documentElement.className!=='theme-light';var next=dark?'light':'dark';document.documentElement.className='theme-'+next;try{localStorage.setItem(${JSON.stringify(THEME_KEY)},next);}catch(e){}paint();});paint();})();`;
-}
-
+// Index overlay applied after PROBE_BASE_CSS. Index-specific bits: row-as-link
+// styling, the index table's wider grid template, and the inline severity-bar
+// width used inside table cells.
 const INDEX_CSS = `
 
-.theme-dark, .theme-light { --status-finding: var(--sev-critical); --status-pass: var(--accent); --status-not-tested: var(--muted); }
-button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); min-height: 100vh; font-family: var(--font-mono); font-size: var(--font-size-base); line-height: var(--leading-normal); }
-
-.probe-header { display: flex; align-items: center; gap: 12px; padding: 10px 20px; height: 44px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
-.probe-brand { color: var(--accent); font-weight: 600; }
-.probe-breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.probe-crumb-sep { color: var(--muted-2); }
-.probe-header-spacer { flex: 1; }
-.probe-scan-age { color: var(--muted); font-size: 11px; }
-.probe-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--border-strong); background: transparent; color: var(--text); font-family: inherit; font-size: 13px; cursor: pointer; padding: 0; }
-.probe-theme-toggle:hover { background: var(--surface-hover); }
-
-.probe-body { padding: 24px 20px 60px; }
-
-.probe-table { border: 1px solid var(--border); background: var(--bg-elev); font-size: 11px; }
-.probe-table-head.probe-index-head { display: grid; grid-template-columns: 230px 1fr 80px 220px 1fr; padding: 0 14px; height: 28px; align-items: center; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; background: var(--bg); }
+.probe-table-head.probe-index-head { display: grid; grid-template-columns: 230px 1fr 80px 220px 1fr; padding: 0 14px; height: 28px; align-items: center; color: var(--muted); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; background: var(--bg); }
 .probe-row.probe-index-row { display: grid; grid-template-columns: 230px 1fr 80px 220px 1fr; padding: 0 14px; height: 32px; align-items: center; border-bottom: 1px solid var(--border); color: inherit; text-decoration: none; }
 .probe-row.probe-index-row:last-child { border-bottom: none; }
 .probe-row.probe-row-zebra { background: var(--row-zebra); }
 .probe-row.probe-index-row:hover { background: var(--surface-hover); }
-.probe-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.probe-cell-id { color: var(--link); font-variant-numeric: tabular-nums; }
-.probe-cell-refs { text-align: right; color: var(--accent); font-variant-numeric: tabular-nums; padding-right: 16px; }
+.probe-cell-refs { padding-right: 16px; }
 
-.probe-sev-bar { display: flex; width: 100%; height: 6px; gap: 1px; }
 .probe-sev-bar-inline { width: 200px; }
-.probe-sev-seg { height: 100%; }
-.probe-sev-seg.probe-sev-critical { background: var(--sev-critical); }
-.probe-sev-seg.probe-sev-high { background: var(--sev-high); }
-.probe-sev-seg.probe-sev-medium { background: var(--sev-medium); }
-.probe-sev-seg.probe-sev-low { background: var(--sev-low); }
-.probe-sev-seg.probe-sev-info { background: var(--sev-info); }
-.probe-sev-seg.probe-sev-empty { background: var(--border); }
 
-.probe-empty { padding: 60px 24px; text-align: center; color: var(--muted); font-size: 12px; }
+.probe-empty { padding: 60px 24px; font-size: 12px; }
 .probe-empty code { color: var(--accent); }
 `;

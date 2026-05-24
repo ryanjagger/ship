@@ -85,5 +85,9 @@ export async function promptForConfig(baseConfig: ProbeConfig): Promise<ProbeCon
     allowMutation,
     aggressiveRateLimit,
     onlyGroups,
+    // The checkbox is the single source of truth in interactive mode — clear
+    // any PROBE_SKIP env value that parseConfig may have pulled into baseConfig
+    // so it doesn't silently mask the operator's explicit selection.
+    skipGroups: [],
   };
 }

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ProbeConfig } from './config.js';
 import { renderHtml } from './viewer/html.js';
@@ -191,21 +191,49 @@ export async function writeReports(config: ProbeConfig, report: ProbeReport): Pr
   const runHtmlPath = join(config.outputDir, `${report.runId}.html`);
   const indexPath = join(config.outputDir, 'index.html');
 
-  await Promise.all([
-    writeFile(runJsonPath, jsonContent, 'utf8'),
-    writeFile(runMarkdownPath, markdownContent, 'utf8'),
-    writeFile(runHtmlPath, htmlContent, 'utf8'),
-    writeFile(jsonPath, jsonContent, 'utf8'),
-    writeFile(markdownPath, markdownContent, 'utf8'),
-    writeFile(htmlPath, htmlContent, 'utf8'),
-  ]);
+  // Stage every output into sibling .tmp files first, then rename into place.
+  // If any of the six file writes fails, the previous run's alias files stay
+  // intact and the operator sees the error rather than a half-updated set.
+  const writes: Array<[string, string]> = [
+    [runJsonPath, jsonContent],
+    [runMarkdownPath, markdownContent],
+    [runHtmlPath, htmlContent],
+    [jsonPath, jsonContent],
+    [markdownPath, markdownContent],
+    [htmlPath, htmlContent],
+  ];
+  await writeAtomically(writes);
 
-  // Rescan after the new run's JSON is on disk so the index includes it.
+  // Rescan after the new run's JSON is on disk so the index includes it. The
+  // index is regenerated from disk every run; if it fails the previous index
+  // remains and the operator sees the error.
   const runs = await scanRuns(config.outputDir);
   const indexContent = await renderIndexHtml(runs);
-  await writeFile(indexPath, indexContent, 'utf8');
+  await writeAtomically([[indexPath, indexContent]]);
 
   return { jsonPath, markdownPath, htmlPath, runJsonPath, runMarkdownPath, runHtmlPath, indexPath };
+}
+
+async function writeAtomically(writes: Array<[string, string]>): Promise<void> {
+  const tmpPaths = writes.map(([finalPath]) => `${finalPath}.tmp`);
+  try {
+    await Promise.all(writes.map(([finalPath, content], i) => writeFile(tmpPaths[i] ?? `${finalPath}.tmp`, content, 'utf8')));
+  } catch (error) {
+    await Promise.allSettled(tmpPaths.map((tmp) => rm(tmp, { force: true })));
+    throw error;
+  }
+  // Rename pass. fs/promises.rename is atomic on the same filesystem; if a
+  // rename fails partway, we still try the rest so the operator sees as much
+  // of the new run as possible, but we surface the first error.
+  let firstError: unknown = null;
+  for (let i = 0; i < writes.length; i += 1) {
+    try {
+      await rename(tmpPaths[i] ?? '', writes[i]?.[0] ?? '');
+    } catch (error) {
+      if (firstError === null) firstError = error;
+    }
+  }
+  if (firstError) throw firstError;
 }
 
 export function renderMarkdown(report: ProbeReport): string {
@@ -241,7 +269,7 @@ export function renderMarkdown(report: ProbeReport): string {
   lines.push('');
   lines.push('| Surface | Findings | Not tested | Passed |');
   lines.push('| --- | ---: | ---: | ---: |');
-  for (const summary of summarizeBySurface(report)) {
+  for (const summary of summarizeBySurface(report.checks)) {
     lines.push(`| ${summary.surface} | ${summary.findings} | ${summary.notTested} | ${summary.passed} |`);
   }
   lines.push('');
@@ -305,10 +333,10 @@ function summarizeFindingsByIdPrefix(report: ProbeReport, surface: ProbeSurface,
   return findings.map((check) => `${check.severity}: ${check.title}`).join('<br>');
 }
 
-function summarizeBySurface(report: ProbeReport): Array<{ surface: ProbeSurface; findings: number; notTested: number; passed: number }> {
+export function summarizeBySurface(checks: ProbeCheck[]): Array<{ surface: ProbeSurface; findings: number; notTested: number; passed: number }> {
   const summaries = new Map<ProbeSurface, { surface: ProbeSurface; findings: number; notTested: number; passed: number }>();
 
-  for (const check of report.checks) {
+  for (const check of checks) {
     const current = summaries.get(check.surface) ?? { surface: check.surface, findings: 0, notTested: 0, passed: 0 };
     if (check.status === 'finding') current.findings += 1;
     if (check.status === 'not-tested') current.notTested += 1;

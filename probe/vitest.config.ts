@@ -5,5 +5,12 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // jsdom env (opted into per-file via `// @vitest-environment jsdom`) needs
+    // a non-about:blank URL or its Storage implementation throws on access.
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost/',
+      },
+    },
   },
 });

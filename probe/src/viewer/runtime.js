@@ -6,7 +6,10 @@
 (function () {
   'use strict';
 
-  var THEME_KEY = 'probe-viewer-theme';
+  // Template placeholder. html.ts replaces __PROBE_THEME_KEY__ with
+  // JSON.stringify(THEME_KEY) from viewer/theme.ts at emit time so the key
+  // string is declared once.
+  var THEME_KEY = __PROBE_THEME_KEY__;
   var SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
   var STATUS_ORDER = { finding: 0, 'not-tested': 1, pass: 2 };
 

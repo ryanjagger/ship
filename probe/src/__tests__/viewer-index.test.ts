@@ -74,10 +74,16 @@ describe('scanRuns', () => {
     expect(runs).toEqual([]);
   });
 
-  it('returns empty array when no probe-*.json files exist', async () => {
-    await writeFile(join(tmp, 'something-else.json'), '{}');
+  it('returns empty array when only the security-report.json alias is present', async () => {
+    await writeFile(join(tmp, 'security-report.json'), '{}');
     const runs = await scanRuns(tmp);
     expect(runs).toEqual([]);
+  });
+
+  it('indexes JSON files with custom --run-id values (not just probe- prefix)', async () => {
+    await writeFile(join(tmp, 'nightly-2026-05-24.json'), JSON.stringify(makeReport({ runId: 'nightly-2026-05-24' })));
+    const runs = await scanRuns(tmp);
+    expect(runs.map((r) => r.runId)).toEqual(['nightly-2026-05-24']);
   });
 
   it('skips malformed files and logs a warning', async () => {

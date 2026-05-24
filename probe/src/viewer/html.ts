@@ -1,7 +1,7 @@
 import type { ProbeReport } from '../report.js';
 import { loadViewerAssets, type ViewerAssets } from './assets.js';
-
-const THEME_KEY = 'probe-viewer-theme';
+import { PROBE_BASE_CSS } from './css.js';
+import { THEME_KEY, themeInitScriptBody } from './theme.js';
 
 export async function renderHtml(report: ProbeReport): Promise<string> {
   const assets = await loadViewerAssets();
@@ -11,6 +11,7 @@ export async function renderHtml(report: ProbeReport): Promise<string> {
 function composeHtml(report: ProbeReport, assets: ViewerAssets): string {
   const json = JSON.stringify(report).replace(/<\/(script)/gi, '<\\/$1');
   const title = `Probe report — ${escapeHtml(report.runId)}`;
+  const runtimeJs = assets.runtimeJs.replace(/__PROBE_THEME_KEY__/g, JSON.stringify(THEME_KEY));
 
   return `<!DOCTYPE html>
 <html lang="en" class="theme-dark">
@@ -18,20 +19,16 @@ function composeHtml(report: ProbeReport, assets: ViewerAssets): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
-<style>${assets.tokensCss}${PROBE_EXTRAS_CSS}</style>
-<script>${themeInitScript()}</script>
+<style>${assets.tokensCss}${PROBE_BASE_CSS}${PROBE_REPORT_CSS}</style>
+<script>${themeInitScriptBody()}</script>
 </head>
 <body class="sr">
 ${renderSkeleton()}
 <script id="probe-data" type="application/json">${json}</script>
-<script>${assets.runtimeJs}</script>
+<script>${runtimeJs}</script>
 </body>
 </html>
 `;
-}
-
-function themeInitScript(): string {
-  return `(function(){try{var t=localStorage.getItem(${JSON.stringify(THEME_KEY)})||'dark';document.documentElement.className='theme-'+(t==='light'?'light':'dark');}catch(e){document.documentElement.className='theme-dark';}})();`;
 }
 
 function renderSkeleton(): string {
@@ -84,7 +81,7 @@ function renderSkeleton(): string {
       <button class="probe-th probe-cell-surface" type="button" data-sort="surface">surface <span class="probe-sort-arrow"></span></button>
       <button class="probe-th probe-cell-refs" type="button" data-sort="refs">refs <span class="probe-sort-arrow"></span></button>
       <button class="probe-th probe-cell-status" type="button" data-sort="status">status <span class="probe-sort-arrow"></span></button>
-      <button class="probe-th probe-cell-age" type="button" data-sort="age">age <span class="probe-sort-arrow"></span></button>
+      <div class="probe-th probe-cell-age">age</div>
     </div>
     <div id="probe-table-rows" class="probe-table-body"></div>
   </div>
@@ -97,33 +94,17 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Probe-specific CSS overlay applied after tokens.css. Defines:
-// - status tokens for probe values (finding/pass/not-tested) — tokens.css only
-//   has the design's open/fixed/triage/suppressed set
-// - severity foreground utility classes used by the KPI stats
-// - layout for header / KPI band / tabs / table / search / row badges
-// - :focus-visible rule (tokens.css omits focus styles)
-const PROBE_EXTRAS_CSS = `
+// Per-run viewer overlay applied after PROBE_BASE_CSS. Layout/components
+// unique to the per-run report: KPI band, tabs, search input, sortable table,
+// badges, and the scan-age dot-pulse refinement.
+const PROBE_REPORT_CSS = `
 
-.theme-dark, .theme-light { --status-finding: var(--sev-critical); --status-pass: var(--accent); --status-not-tested: var(--muted); }
-
-button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-
-html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); min-height: 100vh; font-family: var(--font-mono); font-size: var(--font-size-base); line-height: var(--leading-normal); }
-
-.probe-header { display: flex; align-items: center; gap: 12px; padding: 10px 20px; height: 44px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
-.probe-brand { color: var(--accent); font-weight: 600; }
-.probe-breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.probe-crumb-sep { color: var(--muted-2); }
 .probe-target { color: var(--text); }
 .probe-run-id { color: var(--muted); }
-.probe-header-spacer { flex: 1; }
-.probe-scan-age { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.probe-scan-age { display: inline-flex; align-items: center; gap: 6px; }
 .probe-scan-age::before { content: ''; display: inline-block; width: 6px; height: 6px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 8px var(--accent); }
-.probe-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--border-strong); background: transparent; color: var(--text); font-family: inherit; font-size: 13px; cursor: pointer; padding: 0; }
-.probe-theme-toggle:hover { background: var(--surface-hover); }
 
-.probe-body { padding: 24px 20px 60px; display: flex; flex-direction: column; gap: 20px; }
+.probe-body { display: flex; flex-direction: column; gap: 20px; }
 
 .probe-kpi-band { display: grid; grid-template-columns: repeat(5, 1fr) 1.4fr; gap: 24px; padding: 20px 24px; border: 1px solid var(--border); background: var(--bg-elev); }
 .probe-stat { display: flex; flex-direction: column; gap: 6px; }
@@ -135,14 +116,6 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); m
 .probe-sev-medium-fg { color: var(--sev-medium); }
 .probe-sev-low-fg { color: var(--sev-low); }
 .probe-muted-fg { color: var(--muted); }
-.probe-sev-bar { display: flex; width: 100%; height: 6px; gap: 1px; }
-.probe-sev-seg { height: 100%; }
-.probe-sev-seg.probe-sev-critical { background: var(--sev-critical); }
-.probe-sev-seg.probe-sev-high { background: var(--sev-high); }
-.probe-sev-seg.probe-sev-medium { background: var(--sev-medium); }
-.probe-sev-seg.probe-sev-low { background: var(--sev-low); }
-.probe-sev-seg.probe-sev-info { background: var(--sev-info); }
-.probe-sev-seg.probe-sev-empty { background: var(--border); }
 
 .probe-filter-row { display: flex; align-items: center; gap: 14px; }
 .probe-search-wrap { display: inline-flex; align-items: center; height: 28px; min-width: 360px; padding: 0 10px; border: 1px solid var(--border); background: var(--bg-elev); }
@@ -154,7 +127,6 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); m
 .probe-tab-count { font-size: 10px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
 .probe-tab.is-active .probe-tab-count { color: var(--accent); }
 
-.probe-table { border: 1px solid var(--border); background: var(--bg-elev); font-size: 11px; }
 .probe-table-head { display: grid; grid-template-columns: 110px 160px 1fr 110px 60px 130px 70px; padding: 0 14px; height: 28px; align-items: center; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; background: var(--bg); }
 .probe-th { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: none; padding: 0; color: inherit; font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; text-align: left; }
 .probe-sort-arrow { font-size: 9px; }
@@ -163,11 +135,8 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); m
 .probe-row:last-child { border-bottom: none; }
 .probe-row-zebra { background: var(--row-zebra); }
 .probe-row:hover { background: var(--surface-hover); }
-.probe-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.probe-cell-id { color: var(--link); font-variant-numeric: tabular-nums; }
 .probe-cell-title { color: var(--text-strong); padding-right: 12px; }
 .probe-cell-surface { color: var(--muted); }
-.probe-cell-refs { text-align: right; color: var(--accent); font-variant-numeric: tabular-nums; }
 .probe-cell-age { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .probe-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; font-size: 10px; letter-spacing: 0.06em; height: 16px; line-height: 1; }
 .probe-badge-sev { color: var(--sev-info); background: rgba(139,143,135,0.14); }
@@ -183,6 +152,4 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); m
 .probe-status-bg-finding { background: var(--status-finding); }
 .probe-status-bg-pass { background: var(--status-pass); }
 .probe-status-bg-not-tested { background: var(--status-not-tested); }
-
-.probe-empty { padding: 24px; text-align: center; color: var(--muted); font-size: 11px; }
 `;

@@ -2,7 +2,7 @@
 
 import open from 'open';
 import { PROBE_GROUPS, parseConfig, shouldRunInteractive, type ProbeConfig, type ProbeGroup } from './config.js';
-import { createReport, finding, writeReports, type ProbeCheck } from './report.js';
+import { createReport, finding, summarizeBySurface, writeReports, type ProbeCheck } from './report.js';
 import { promptForConfig } from './prompts.js';
 import { runPreflightProbe } from './probes/preflight.js';
 import { runAuthProbe } from './probes/auth.js';
@@ -137,22 +137,13 @@ function shouldRunGroup(config: ProbeConfig, group: ProbeGroup): boolean {
   return !config.skipGroups.includes(group);
 }
 
-function summarizeBySurface(checks: ProbeCheck[]): Array<{ surface: string; findings: number; notTested: number; passed: number }> {
-  const order = [...PROBE_GROUPS, 'secrets', 'runner'];
-  const summaries = new Map<string, { surface: string; findings: number; notTested: number; passed: number }>();
-
-  for (const check of checks) {
-    const current = summaries.get(check.surface) ?? { surface: check.surface, findings: 0, notTested: 0, passed: 0 };
-    if (check.status === 'finding') current.findings += 1;
-    if (check.status === 'not-tested') current.notTested += 1;
-    if (check.status === 'pass') current.passed += 1;
-    summaries.set(check.surface, current);
-  }
-
-  return [...summaries.values()].sort((a, b) => order.indexOf(a.surface) - order.indexOf(b.surface));
-}
-
 main().catch((error) => {
+  // @inquirer/prompts throws ExitPromptError when the user Ctrl-Cs mid-prompt.
+  // Detect by name (the package doesn't export the class) and exit with the
+  // standard SIGINT code without dumping a stack trace.
+  if (error instanceof Error && error.name === 'ExitPromptError') {
+    process.exit(130);
+  }
   console.error(error instanceof Error ? error.stack ?? error.message : error);
-  process.exit(0);
+  process.exit(1);
 });
