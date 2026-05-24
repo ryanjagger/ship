@@ -5,7 +5,7 @@
 
 | Audit | Report | Peer review | Implementation |
 | --- | --- | --- | --- |
-| Type Safety | [README](type-safety/README.md) | [peer review](type-safety/peer-review.md) | — |
+| Type Safety | [README](type-safety/README.md) | [peer review](type-safety/peer-review.md) | [implementation](type-safety/implementation.md) |
 | Bundle Size | [README](bundle-size/README.md) | [peer review](bundle-size/peer-review.md) | [implementation](bundle-size/implementation.md) |
 | API Response Time | [README](api-response-time/README.md) | [peer review](api-response-time/peer-review.md) | [implementation](api-response-time/implementation.md) |
 | Database Query Efficiency | [README](database-query-efficiency/README.md) | [peer review](database-query-efficiency/peer-review.md) | [implementation](database-query-efficiency/implementation.md) |
