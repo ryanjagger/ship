@@ -17,6 +17,7 @@ import type { DocumentType as SelectableDocumentType } from '@/components/sideba
 import { useAuth } from '@/hooks/useAuth';
 import { PlanQualityBanner, RetroQualityBanner } from '@/components/PlanQualityBanner';
 import { FleetReviewContainer } from '@/components/fleet/FleetReviewContainer';
+import { FleetGraphChatLauncher } from '@/components/fleetgraph/FleetGraphChatLauncher';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { Person } from '@/components/PersonCombobox';
 import type { BelongsTo } from '@ship/shared';
@@ -431,7 +432,18 @@ export function UnifiedEditor({
       return <RetroQualityBanner documentId={document.id} editorContent={editorContent} planContent={null} onAnalysisChange={handleRetroAnalysisChange} />;
     }
     if (document.document_type === 'project') {
-      return <FleetReviewContainer projectId={document.id} variant="details" />;
+      // Fleet plan-review card + the U10 context-scoped chat launcher.
+      return (
+        <div className="space-y-3">
+          <FleetReviewContainer projectId={document.id} variant="details" />
+          <FleetGraphChatLauncher entityId={document.id} entityType="project" />
+        </div>
+      );
+    }
+    // A "Week" is document_type='sprint'; the chat backend maps week→sprint, so
+    // we pass entityType='week' here. (U10)
+    if (document.document_type === 'sprint') {
+      return <FleetGraphChatLauncher entityId={document.id} entityType="week" />;
     }
     return undefined;
   }, [document.id, document.document_type, editorContent, handlePlanAnalysisChange, handleRetroAnalysisChange]);

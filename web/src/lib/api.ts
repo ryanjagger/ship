@@ -51,7 +51,16 @@ function handleSessionExpired(): never {
   throw new Error('Session expired - redirecting to login');
 }
 
-async function ensureCsrfToken(): Promise<string> {
+/** Base API URL ('' in dev — Vite proxy; VITE_API_URL in prod). */
+export const apiBaseUrl = API_URL;
+
+/**
+ * Fetch (and cache) the CSRF token. Exported so non-JSON flows that build their
+ * own fetch (e.g. the FleetGraph SSE chat stream, which must send the CSRF
+ * header on a streaming POST) can reuse the same token + cache as the JSON
+ * helpers above.
+ */
+export async function ensureCsrfToken(): Promise<string> {
   if (!csrfToken) {
     const response = await fetch(`${API_URL}/api/csrf-token`, {
       credentials: 'include',
