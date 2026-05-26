@@ -154,6 +154,26 @@ describe('FleetGraph chat API', () => {
     expect(String(final.data.answer)).toContain('stalled issue');
   });
 
+  // ── Regression: array-content answers (text blocks) must not leak as JSON ──
+  // The chat reason node binds only write tools (read context is pre-fetched into
+  // the prompt), and extracts text from array content rather than JSON.stringify.
+  // A model returning content as an array of text blocks must surface clean prose,
+  // never the raw `[{"type":"text",...}]` array.
+  it('renders array-content (text-block) answers as clean prose, not JSON', async () => {
+    modelState.next = () =>
+      new AIMessage({
+        content: [
+          { type: 'text', text: 'This project has one active issue and a stale plan.' },
+        ] as unknown as string,
+      });
+    const res = await chat({ message: 'give me an overview', entityId: projectId, entityType: 'project' });
+    const final = parseSse(res.text).find((e) => e.type === 'final')!;
+    const answer = String(final.data.answer);
+    expect(answer).toBe('This project has one active issue and a stale plan.');
+    expect(answer).not.toContain('"type"');
+    expect(answer).not.toContain('[{');
+  });
+
   it('streams a grounded answer for a Week (sprint)', async () => {
     const res = await chat({ message: 'status?', entityId: sprintId, entityType: 'week' });
     expect(res.status).toBe(200);
