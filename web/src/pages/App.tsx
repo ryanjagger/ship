@@ -1244,7 +1244,10 @@ function ProjectsList({
   // Determine current tab from URL (weeks, issues, retro, or details)
   const getCurrentTab = (projectId: string): string | null => {
     const path = location.pathname;
-    if (path === `/documents/${projectId}`) return 'details';
+    // The bare document root renders the first tab (Issues), so highlight Issues
+    // there — not Details, which now has its own /details path.
+    if (path === `/documents/${projectId}`) return 'issues';
+    if (path === `/documents/${projectId}/details`) return 'details';
     if (path === `/documents/${projectId}/weeks`) return 'weeks';
     if (path === `/documents/${projectId}/issues`) return 'issues';
     if (path === `/documents/${projectId}/retro`) return 'retro';
@@ -1340,16 +1343,16 @@ function ProjectsList({
                 <ul className="ml-6 space-y-0.5 mt-0.5" role="group">
                   <li role="treeitem">
                     <Link
-                      to={`/documents/${project.id}`}
+                      to={`/documents/${project.id}/issues`}
                       className={cn(
                         "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
-                        currentTab === 'details'
+                        currentTab === 'issues'
                           ? 'bg-border/50 text-foreground'
                           : 'text-muted hover:bg-border/30 hover:text-foreground'
                       )}
                     >
-                      <DocIcon />
-                      <span>Details</span>
+                      <IssueIcon />
+                      <span>Issues</span>
                     </Link>
                   </li>
                   <li role="treeitem">
@@ -1368,16 +1371,16 @@ function ProjectsList({
                   </li>
                   <li role="treeitem">
                     <Link
-                      to={`/documents/${project.id}/issues`}
+                      to={`/documents/${project.id}/details`}
                       className={cn(
                         "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
-                        currentTab === 'issues'
+                        currentTab === 'details'
                           ? 'bg-border/50 text-foreground'
                           : 'text-muted hover:bg-border/30 hover:text-foreground'
                       )}
                     >
-                      <IssueIcon />
-                      <span>Issues</span>
+                      <DocIcon />
+                      <span>Details</span>
                     </Link>
                   </li>
                   <li role="treeitem">
