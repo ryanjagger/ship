@@ -29,6 +29,7 @@ export * from './weekly-plans.js';
 export * from './comments.js';
 export * from './ai.js';
 export * from './fleet.js';
+export * from './fleetgraph.js';
 
 // Re-export registry and generator for convenience
 export { registry, generateOpenAPIDocument } from '../registry.js';

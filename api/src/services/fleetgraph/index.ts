@@ -214,6 +214,91 @@ export async function runChatTurn(
   return interpretResult(args.conversationDocId, final as Record<string, unknown>);
 }
 
+// ── streaming (U9) ───────────────────────────────────────────────────────────
+
+/**
+ * A streamed chat event. U9's SSE route serializes these as SSE frames; U10
+ * parses them client-side:
+ *   - `token`: an incremental chunk of the assistant's prose answer.
+ *   - `final`: the turn resolved with an answer (terminal).
+ *   - `paused`: the graph paused awaiting confirmation; carries the proposal
+ *     (terminal — the client surfaces a confirm/decline UI and calls the
+ *     confirm endpoint, which resumes on the same thread_id).
+ */
+export type ChatStreamEvent =
+  | { type: 'token'; token: string }
+  | { type: 'final'; answer: string; threadId: string; executed?: unknown }
+  | { type: 'paused'; proposal: WriteProposal; threadId: string };
+
+export interface StreamChatTurnArgs extends RunChatTurnArgs {
+  /** Abort signal wired to the client connection close (U9 route). */
+  signal?: AbortSignal;
+}
+
+/**
+ * Stream one chat turn token-by-token. Reuses the SAME compiled graph instance as
+ * runChatTurn (default `getCompiledGraph()`) so the U3 checkpointer + thread_id
+ * config are shared — there is exactly ONE compiled graph in the process. We
+ * stream with `streamMode: ['messages','values']`:
+ *   - `messages` chunks carry per-token model output (the chat prose answer).
+ *   - `values` chunks carry full state; the final one bears `__interrupt__` (when
+ *     paused) or the finalized `answer`.
+ *
+ * The terminal event is derived from the LAST `values` payload (the canonical,
+ * checkpointer-agnostic signal, matching runChatTurn's `__interrupt__` detection)
+ * rather than from token accumulation, so a tool-call turn (no prose tokens) that
+ * pauses still yields the proposal. `config.signal` carries the abort signal so a
+ * client disconnect aborts the run.
+ */
+export async function* streamChatTurn(
+  args: StreamChatTurnArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): AsyncGenerator<ChatStreamEvent> {
+  const config: RunnableConfig = {
+    ...chatConfig(args.conversationDocId),
+    signal: args.signal,
+  };
+
+  let lastValues: Record<string, unknown> | undefined;
+
+  const stream = await graph.stream(
+    {
+      mode: 'chat',
+      entityId: args.entityId,
+      entityType: args.entityType,
+      ctx: args.ctx,
+      conversationDocId: args.conversationDocId,
+      message: args.message,
+    },
+    { ...config, streamMode: ['messages', 'values'] }
+  );
+
+  for await (const chunk of stream) {
+    // With multiple stream modes, each chunk is [mode, payload].
+    const [mode, payload] = chunk as [string, unknown];
+    if (mode === 'messages') {
+      // payload is [messageChunk, metadata]; emit only non-empty string content.
+      const [msg] = payload as [{ content?: unknown }, unknown];
+      const text = typeof msg?.content === 'string' ? msg.content : '';
+      if (text) yield { type: 'token', token: text };
+    } else if (mode === 'values') {
+      lastValues = payload as Record<string, unknown>;
+    }
+  }
+
+  const result = interpretResult(args.conversationDocId, lastValues ?? {});
+  if (result.status === 'paused') {
+    yield { type: 'paused', proposal: result.proposal, threadId: result.threadId };
+  } else {
+    yield {
+      type: 'final',
+      answer: result.answer,
+      threadId: result.threadId,
+      executed: result.executed,
+    };
+  }
+}
+
 export interface ResumeChatTurnArgs {
   conversationDocId: string;
   approved: boolean;
