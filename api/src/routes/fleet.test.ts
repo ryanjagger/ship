@@ -13,6 +13,7 @@ vi.mock('../services/fleet-ai.js', () => ({
   isFleetAiAvailable,
   evaluateStructured,
   checkFleetRefreshRateLimit,
+  checkFleetReviewRateLimit: () => true,
   isFleetAiError: (x: unknown) => typeof x === 'object' && x !== null && 'error' in x,
 }));
 

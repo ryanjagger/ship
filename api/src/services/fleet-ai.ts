@@ -195,28 +195,43 @@ export async function evaluateStructured<T>(req: FleetEvalRequest<T>): Promise<T
 // ---------------------------------------------------------------------------
 const refreshLimits = new Map<string, { count: number; resetAt: number }>();
 const REFRESH_RATE_LIMIT = 30; // max forced refreshes per user per hour
+// Cache-miss GET model calls are more frequent (a user editing a plan), so a
+// looser budget; over it, the GET degrades to deterministic-only.
+const reviewLimits = new Map<string, { count: number; resetAt: number }>();
+const REVIEW_RATE_LIMIT = 60; // max AI-computing GETs per user per hour
 const RATE_WINDOW_MS = 60 * 60 * 1000;
+
+function takeToken(buckets: Map<string, { count: number; resetAt: number }>, userId: string, limit: number): boolean {
+  const now = Date.now();
+  const entry = buckets.get(userId);
+  if (!entry || now >= entry.resetAt) {
+    buckets.set(userId, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= limit) return false;
+  entry.count++;
+  return true;
+}
 
 const cleanup = setInterval(() => {
   const now = Date.now();
-  for (const [key, entry] of refreshLimits) {
-    if (now >= entry.resetAt) refreshLimits.delete(key);
+  for (const buckets of [refreshLimits, reviewLimits]) {
+    for (const [key, entry] of buckets) {
+      if (now >= entry.resetAt) buckets.delete(key);
+    }
   }
 }, 10 * 60 * 1000);
 // Don't keep the process (or the test runner) alive for this timer.
 cleanup.unref?.();
 
-/** Returns false when the user has exceeded the refresh budget for the window. */
+/** Returns false when the user has exceeded the forced-refresh budget (POST). */
 export function checkFleetRefreshRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = refreshLimits.get(userId);
-  if (!entry || now >= entry.resetAt) {
-    refreshLimits.set(userId, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= REFRESH_RATE_LIMIT) return false;
-  entry.count++;
-  return true;
+  return takeToken(refreshLimits, userId, REFRESH_RATE_LIMIT);
+}
+
+/** Returns false when the user has exceeded the cache-miss review budget (GET). */
+export function checkFleetReviewRateLimit(userId: string): boolean {
+  return takeToken(reviewLimits, userId, REVIEW_RATE_LIMIT);
 }
 
 /** Test-only: clear cached client/init state and rate-limit buckets. */
@@ -224,4 +239,5 @@ export function __resetFleetAiForTests(): void {
   cachedClient = null;
   initFailed = false;
   refreshLimits.clear();
+  reviewLimits.clear();
 }
