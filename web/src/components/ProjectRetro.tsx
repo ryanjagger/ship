@@ -5,6 +5,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { cn } from '@/lib/cn';
 import { useToast } from '@/components/ui/Toast';
 import { apiPost, apiPatch, apiGet } from '@/lib/api';
+import { FleetReviewContainer } from '@/components/fleet/FleetReviewContainer';
 
 interface ProjectRetroProps {
   projectId: string;
@@ -194,6 +195,12 @@ export function ProjectRetro({ projectId }: ProjectRetroProps) {
           {/* Properties sidebar */}
           <div className="w-72 border-l border-border p-4 overflow-y-auto">
             <h3 className="text-sm font-medium text-foreground mb-4">Retrospective Properties</h3>
+
+            {/* Fleet advisory recommendation — read-only, sits beside the human
+                Validated/Invalidated control below but never sets it. */}
+            <div className="mb-6">
+              <FleetReviewContainer projectId={projectId} variant="retro" />
+            </div>
 
             {/* Plan Validation */}
             <div className="space-y-2 mb-6">

@@ -35,6 +35,7 @@ import dashboardRoutes from './routes/dashboard.js';
 import associationsRoutes from './routes/associations.js';
 import accountabilityRoutes from './routes/accountability.js';
 import aiRoutes from './routes/ai.js';
+import fleetgraphRoutes from './routes/fleetgraph.js';
 import weeklyPlansRoutes, { weeklyRetrosRouter } from './routes/weekly-plans.js';
 import { documentCommentsRouter, commentsRouter } from './routes/comments.js';
 import { setupSwagger } from './swagger.js';
@@ -221,6 +222,13 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
 
   // AI analysis routes - plan and retro quality feedback (CSRF protected)
   app.use('/api/ai', conditionalCsrf, aiRoutes);
+
+  // FleetGraph chat routes - SSE streaming turn + confirm/decline + conversation
+  // fetch (CSRF protected). The chat POST sets `Content-Type: text/event-stream`
+  // + `Cache-Control: no-transform` before its first write so the global
+  // compression() (mounted at the top of createApp) does NOT buffer the stream;
+  // mounting after compression does not by itself exempt the route.
+  app.use('/api/fleetgraph', conditionalCsrf, fleetgraphRoutes);
 
   // Weekly plans routes - per-person accountability documents (CSRF protected)
   app.use('/api/weekly-plans', conditionalCsrf, weeklyPlansRoutes);

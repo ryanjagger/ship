@@ -436,14 +436,14 @@ async function validateWebSocketSession(request: IncomingMessage): Promise<{ use
 }
 
 // Check if user can access a document for collaboration (visibility check)
-async function canAccessDocumentForCollab(
+export async function canAccessDocumentForCollab(
   docId: string,
   userId: string,
   workspaceId: string
 ): Promise<boolean> {
   try {
     const result = await pool.query(
-      `SELECT d.id,
+      `SELECT d.id, d.document_type,
               (d.visibility = 'workspace' OR d.created_by = $2 OR
                (SELECT role FROM workspace_memberships WHERE workspace_id = $3 AND user_id = $2) = 'admin') as can_access
        FROM documents d
@@ -452,6 +452,16 @@ async function canAccessDocumentForCollab(
     );
 
     if (result.rows.length === 0) {
+      return false;
+    }
+
+    // Deny collaboration on FleetGraph engine-state docs. A Yjs persist does a
+    // full `properties = $3` replacement, which would WIPE fleetgraph_checkpoint
+    // / fleetgraph_transcript / fleetgraph_pending on a conversation or insight
+    // doc — orphaning a paused write and corrupting history. These docs are never
+    // edited via the collaborative editor, so reject the room join outright.
+    const docType = result.rows[0].document_type;
+    if (docType === 'conversation' || docType === 'insight') {
       return false;
     }
 

@@ -7,6 +7,8 @@ import { DEFAULT_PROJECT_PROPERTIES, computeICEScore, type SqlParam } from '@shi
 import { checkDocumentCompleteness } from '../utils/extractHypothesis.js';
 import { logDocumentChange, getLatestDocumentFieldHistory } from '../utils/document-crud.js';
 import { broadcastToUser } from '../collaboration/index.js';
+import { getReview } from '../services/fleet-service.js';
+import { checkFleetRefreshRateLimit } from '../services/fleet-ai.js';
 
 type RouterType = ReturnType<typeof Router>;
 const router: RouterType = Router();
@@ -747,11 +749,30 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     properties.is_complete = completeness.isComplete;
     properties.missing_fields = completeness.missingFields;
 
+    // When a plan is provided via the create form, seed the document body with a
+    // hypothesisBlock so it renders in the editor exactly like the /plan command
+    // (the collaboration server converts this JSON content to Yjs on first open).
+    // properties.plan above stays the source of truth for lists/Fleet/completeness
+    // and is re-derived from this block on subsequent edits.
+    const planContent = plan
+      ? {
+          type: 'doc',
+          content: [
+            {
+              type: 'hypothesisBlock',
+              attrs: { placeholder: 'What do you expect to accomplish?' },
+              content: [{ type: 'text', text: plan }],
+            },
+            { type: 'paragraph' },
+          ],
+        }
+      : null;
+
     const result = await pool.query(
-      `INSERT INTO documents (workspace_id, document_type, title, properties, created_by)
-       VALUES ($1, 'project', $2, $3, $4)
+      `INSERT INTO documents (workspace_id, document_type, title, properties, content, created_by)
+       VALUES ($1, 'project', $2, $3, $4, $5)
        RETURNING id, title, properties, archived_at, created_at, updated_at`,
-      [req.workspaceId, title, JSON.stringify(properties), req.userId]
+      [req.workspaceId, title, JSON.stringify(properties), planContent ? JSON.stringify(planContent) : null, req.userId]
     );
 
     // Create program association in junction table (mirrors PATCH behavior)
@@ -1291,6 +1312,58 @@ router.post('/:id/retro', authMiddleware, async (req: Request, res: Response) =>
     });
   } catch (err) {
     console.error('Create project retro error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// Fleet Endpoints - Project Plan Review
+// ============================================
+
+// GET /api/projects/:id/fleet/plan-review - plan review + retro recommendation
+router.get('/:id/fleet/plan-review', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!assertAuthed(req, res)) return;
+    const { id } = req.params;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
+
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const review = await getReview(id as string, { workspaceId, userId, isAdmin });
+    if (!review) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    res.json(review);
+  } catch (err) {
+    console.error('Fleet plan-review error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/projects/:id/fleet/plan-review/refresh - force a fresh AI evaluation
+router.post('/:id/fleet/plan-review/refresh', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!assertAuthed(req, res)) return;
+    const { id } = req.params;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
+
+    // force:true bypasses the cache and runs both model calls — rate-limit it.
+    if (!checkFleetRefreshRateLimit(userId)) {
+      res.status(429).json({ error: 'Too many Fleet refreshes. Please try again later.' });
+      return;
+    }
+
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const review = await getReview(id as string, { workspaceId, userId, isAdmin }, { force: true });
+    if (!review) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    res.json(review);
+  } catch (err) {
+    console.error('Fleet plan-review refresh error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
