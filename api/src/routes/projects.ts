@@ -7,6 +7,8 @@ import { DEFAULT_PROJECT_PROPERTIES, computeICEScore, type SqlParam } from '@shi
 import { checkDocumentCompleteness } from '../utils/extractHypothesis.js';
 import { logDocumentChange, getLatestDocumentFieldHistory } from '../utils/document-crud.js';
 import { broadcastToUser } from '../collaboration/index.js';
+import { getReview } from '../services/fleet-service.js';
+import { checkFleetRefreshRateLimit } from '../services/fleet-ai.js';
 
 type RouterType = ReturnType<typeof Router>;
 const router: RouterType = Router();
@@ -1291,6 +1293,58 @@ router.post('/:id/retro', authMiddleware, async (req: Request, res: Response) =>
     });
   } catch (err) {
     console.error('Create project retro error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// Fleet Endpoints - Project Plan Review
+// ============================================
+
+// GET /api/projects/:id/fleet/plan-review - plan review + retro recommendation
+router.get('/:id/fleet/plan-review', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!assertAuthed(req, res)) return;
+    const { id } = req.params;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
+
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const review = await getReview(id as string, { workspaceId, userId, isAdmin });
+    if (!review) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    res.json(review);
+  } catch (err) {
+    console.error('Fleet plan-review error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/projects/:id/fleet/plan-review/refresh - force a fresh AI evaluation
+router.post('/:id/fleet/plan-review/refresh', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!assertAuthed(req, res)) return;
+    const { id } = req.params;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
+
+    // force:true bypasses the cache and runs both model calls — rate-limit it.
+    if (!checkFleetRefreshRateLimit(userId)) {
+      res.status(429).json({ error: 'Too many Fleet refreshes. Please try again later.' });
+      return;
+    }
+
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const review = await getReview(id as string, { workspaceId, userId, isAdmin }, { force: true });
+    if (!review) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    res.json(review);
+  } catch (err) {
+    console.error('Fleet plan-review refresh error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
