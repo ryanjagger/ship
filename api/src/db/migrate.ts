@@ -35,11 +35,28 @@ async function migrate() {
   try {
     console.log('Running database migrations...');
 
-    // Step 1: Run schema.sql for initial setup
+    // Step 1: Run schema.sql for initial setup.
+    //
+    // schema.sql is only fully idempotent for an empty database. On an existing
+    // database some statements (e.g. the bare `CREATE TRIGGER
+    // prevent_circular_parent_trigger`, which has no IF NOT EXISTS form) raise
+    // "already exists". That is expected and harmless — the schema is already
+    // there. Crucially this MUST be caught here, not by the outer catch:
+    // otherwise the throw skips the entire numbered-migration loop below, so no
+    // migration ever runs after the database's first deploy.
     const schemaPath = join(__dirname, 'schema.sql');
     const schema = readFileSync(schemaPath, 'utf-8');
-    await pool.query(schema);
-    console.log('✅ Schema applied');
+    try {
+      await pool.query(schema);
+      console.log('✅ Schema applied');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('already exists')) {
+        console.log('Schema already exists, continuing to migrations...');
+      } else {
+        throw err;
+      }
+    }
 
     // Step 2: Create migrations tracking table
     await pool.query(`
@@ -101,14 +118,10 @@ async function migrate() {
     }
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    // "already exists" errors from schema.sql are fine
-    if (errorMessage.includes('already exists')) {
-      console.log('Database schema already exists, continuing...');
-    } else {
-      console.error('Database migration failed:', error);
-      process.exit(1);
-    }
+    // schema.sql "already exists" is handled above; anything reaching here is a
+    // real failure (including a migration that errors with "already exists").
+    console.error('Database migration failed:', error);
+    process.exit(1);
   } finally {
     await pool.end();
   }
