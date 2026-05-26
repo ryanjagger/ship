@@ -23,8 +23,9 @@ import type {
   FleetHypothesisPiece,
   FleetPieceId,
 } from '@ship/shared';
-import { deterministicPieces, statusFromPieces, hasText } from './fleet-checks.js';
+import { statusFromPieces, hasText } from './fleet-checks.js';
 import { evaluateStructured, isFleetAiAvailable, isFleetAiError, checkFleetReviewRateLimit } from './fleet-ai.js';
+import { runPlanReview } from './fleetgraph/index.js';
 
 // ---------------------------------------------------------------------------
 // Signals
@@ -255,6 +256,19 @@ function byWhenPiece(signals: FleetSignals): FleetHypothesisPiece {
 // Plan review — "is this a good, testable hypothesis?"
 // ---------------------------------------------------------------------------
 
+/**
+ * The unavailable plan-review: no provider, AI error, or per-user rate budget
+ * exhausted. No deterministic pieces (R18) — the feature requires a provider.
+ */
+function unavailablePlanReview(signals: FleetSignals): FleetPlanReview {
+  return {
+    status: hasText(signals.plan) ? 'needs_work' : 'no_plan',
+    pieces: [],
+    suggested_rewrite: null,
+    ai_available: false,
+  };
+}
+
 export async function buildPlanReview(
   signals: FleetSignals,
   opts: { allowAi?: boolean } = {}
@@ -291,44 +305,28 @@ export async function buildPlanReview(
         ai_available: true,
       };
     }
-    // AI error → fall through to deterministic-only.
+    // AI error → fall through to unavailable.
   }
 
-  // Deterministic-only (no provider, AI error, or oversized input): evaluate only
-  // the pieces detectable without a model — a quantity ("by how much") and the
-  // Target Date ("by when").
-  const pieces = deterministicPieces({ plan: signals.plan, targetDate: signals.targetDate });
-  return {
-    status: statusFromPieces(pieces, true),
-    pieces,
-    suggested_rewrite: null,
-    ai_available: false,
-  };
+  // No provider, AI error, oversized input, or rate-limited: unavailable — NO
+  // deterministic pieces (R18). The feature requires a configured provider.
+  return unavailablePlanReview(signals);
 }
 
 // ---------------------------------------------------------------------------
 // Retro recommendation
 // ---------------------------------------------------------------------------
 
-function deterministicRetroBaseline(signals: FleetSignals): FleetRetroRecommendation {
-  const evidenceFound: string[] = [];
-  const evidenceMissing: string[] = [];
-
-  if (signals.issues.done.length > 0) evidenceFound.push(`${signals.issues.done.length} completed issue(s)`);
-  else evidenceMissing.push('No completed issues');
-  if (signals.monetaryImpactActual) evidenceFound.push(`Actual impact recorded: ${signals.monetaryImpactActual}`);
-  else evidenceMissing.push('No actual impact recorded');
-  if (signals.successCriteria.length > 0) evidenceFound.push(`${signals.successCriteria.length} success criterion/criteria`);
-  else evidenceMissing.push('No success criteria defined');
-
-  // Deterministic mode cannot judge validated vs invalidated — it only flags
-  // whether there is enough evidence to make the call. Always advisory.
+/**
+ * The unavailable retro recommendation: no provider, AI error, no plan, or
+ * oversized input. No deterministic baseline (R18) — requires a provider.
+ */
+function unavailableRetroRecommendation(): FleetRetroRecommendation {
   return {
     recommendation: 'insufficient_evidence',
-    explanation:
-      'AI scoring is not available, so Fleet can only report the evidence present. Review it and make the call yourself.',
-    evidence_found: evidenceFound,
-    evidence_missing: evidenceMissing,
+    explanation: 'Fleet recommendation requires a configured AI provider.',
+    evidence_found: [],
+    evidence_missing: [],
     suggested_conclusion: null,
     ai_available: false,
   };
@@ -361,7 +359,7 @@ export async function buildRetroRecommendation(
     }
   }
 
-  return deterministicRetroBaseline(signals);
+  return unavailableRetroRecommendation();
 }
 
 /** Compose a fresh (uncached) review from gathered signals. */
@@ -449,7 +447,23 @@ export async function getReview(
   if (!planMiss && cache.plan_review) {
     planReview = { ...cache.plan_review.result, computed_at: cache.plan_review.computed_at };
   } else {
-    planReview = await buildPlanReview(signals, { allowAi });
+    // R13: the plan-review compute path is the graph (runPlanReview), not a
+    // direct evaluateStructured call. diagnosis/recommendedNextAction from the
+    // graph are NOT part of FleetReviewResponse — dropped to keep the card
+    // contract identical (AE5).
+    if (allowAi && isFleetAiAvailable()) {
+      try {
+        const graphResult = await runPlanReview({ entityId: projectId, entityType: 'project', ctx });
+        planReview = graphResult.planReview;
+      } catch (err) {
+        console.warn('[fleet-service] graph plan-review failed:', err instanceof Error ? err.message : err);
+        planReview = unavailablePlanReview(signals);
+      }
+    } else {
+      // No provider, or per-user rate budget exhausted: unavailable — NO
+      // deterministic pieces (R18).
+      planReview = unavailablePlanReview(signals);
+    }
     if (planReview.ai_available) {
       const computed_at = new Date().toISOString();
       planReview = { ...planReview, computed_at };

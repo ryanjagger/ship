@@ -219,7 +219,7 @@ function DetailsCard({
       )}
 
       {!pr.ai_available && pr.status !== 'no_plan' && (
-        <p className="mt-1 text-xs text-muted">AI not configured — showing the basic checks only.</p>
+        <p className="mt-1 text-xs text-muted">Fleet plan-review requires an AI provider — contact your admin.</p>
       )}
     </CardShell>
   );
@@ -276,7 +276,7 @@ function RetroPanel({
       )}
 
       {!rec.ai_available && (
-        <p className="mt-3 text-xs text-muted">AI scoring not configured — make the call from the evidence above.</p>
+        <p className="mt-3 text-xs text-muted">Fleet recommendation requires an AI provider — contact your admin.</p>
       )}
     </CardShell>
   );

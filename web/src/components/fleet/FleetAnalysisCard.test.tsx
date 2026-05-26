@@ -86,14 +86,14 @@ describe('FleetAnalysisCard — details variant', () => {
     expect(screen.queryByText('Missing for a testable bet:')).toBeNull();
   });
 
-  it('AI unavailable → shows the basic-checks note', () => {
+  it('AI unavailable → shows the requires-a-provider note', () => {
     renderCard(
       <FleetAnalysisCard
         variant="details"
         review={review({ plan: { status: 'needs_work', ai_available: false } })}
       />
     );
-    expect(screen.getByText(/AI not configured/i)).toBeInTheDocument();
+    expect(screen.getByText(/Fleet plan-review requires an AI provider/i)).toBeInTheDocument();
   });
 
   it('suggested_rewrite renders when present', () => {
