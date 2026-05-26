@@ -16,6 +16,7 @@ import { DocumentTypeSelector, getMissingRequiredFields } from '@/components/sid
 import type { DocumentType as SelectableDocumentType } from '@/components/sidebars/DocumentTypeSelector';
 import { useAuth } from '@/hooks/useAuth';
 import { PlanQualityBanner, RetroQualityBanner } from '@/components/PlanQualityBanner';
+import { FleetReviewContainer } from '@/components/fleet/FleetReviewContainer';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { Person } from '@/components/PersonCombobox';
 import type { BelongsTo } from '@ship/shared';
@@ -427,6 +428,9 @@ export function UnifiedEditor({
     }
     if (document.document_type === 'weekly_retro') {
       return <RetroQualityBanner documentId={document.id} editorContent={editorContent} planContent={null} onAnalysisChange={handleRetroAnalysisChange} />;
+    }
+    if (document.document_type === 'project') {
+      return <FleetReviewContainer projectId={document.id} variant="details" />;
     }
     return undefined;
   }, [document.id, document.document_type, editorContent, handlePlanAnalysisChange, handleRetroAnalysisChange]);
