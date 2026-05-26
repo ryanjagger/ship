@@ -34,6 +34,7 @@ import { AIMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
 import type { AIMessageChunk } from '@langchain/core/messages';
 import {
   isFleetGraphAvailable,
+  getBoundChatModel,
   type ChatModelOptions,
 } from '../model.js';
 // PROACTIVE tier: call the EXISTING fleet-ai.ts structured path so the tested
@@ -49,20 +50,17 @@ import {
   buildPostCommentProposal,
   type WriteProposal,
 } from '../tools/write.js';
+import { RUBRIC, basePlanReviewSchema } from '../plan-review-config.js';
 import type { FetchNodeOutput } from './fetch.js';
 import type { FleetGraphStateType, FleetGraphUpdate, FleetAnalysis } from '../state.js';
 
-// ── proactive plan-review schema + prompt (mirrors fleet-service.ts) ─────────
+// ── proactive plan-review schema + prompt ─────────────────────────────────────
+// RUBRIC + the base schema/prompt come from the canonical plan-review-config.js
+// (C2 — single source). The proactive graph tier EXTENDS the base schema with the
+// differentiating diagnosis / recommended_next_action (F1/F3) and appends the
+// "why stuck" framing + signals reference to the base prompt.
 
-const RUBRIC = [
-  { id: 'what_changes', label: 'What will change', hint: 'Name the outcome that will change.', guidance: 'Names a concrete outcome that will change (not just an activity).' },
-  { id: 'by_how_much', label: 'By how much', hint: 'Add a target number (by how much).', guidance: 'States a specific target number, threshold, or magnitude.' },
-  { id: 'for_whom', label: 'For whom', hint: 'Say who this is for (user, segment, or system).', guidance: 'Names a clear user, segment, system, or business scope.' },
-] as const;
-
-const planReviewAiSchema = z.object({
-  criteria: z.array(z.object({ id: z.string(), met: z.boolean(), note: z.string() })),
-  suggested_rewrite: z.string(),
+const planReviewAiSchema = basePlanReviewSchema.extend({
   /**
    * The differentiating "why is it stuck + what next" output (F1/F3). The model
    * names the diagnosis explicitly, not just a piece checklist.
@@ -228,8 +226,8 @@ async function reasonChat(
   const writeTools = createWriteTools(ctx);
   const allTools = [...readTools, ...writeTools];
 
-  // Build the bound model. We import lazily so model.js can be vi.mock'd.
-  const { getBoundChatModel } = await import('../model.js');
+  // Build the bound model. `getBoundChatModel` is a static import; vitest hoists
+  // vi.mock('../model.js'), so the mock is in effect — no dynamic import needed.
   const bound = getBoundChatModel(allTools, deps.modelOptions);
   if (!bound) {
     return neutralDegrade('Fleet chat is temporarily unavailable.');

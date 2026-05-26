@@ -37,6 +37,9 @@ export function hasQuantity(plan: string): boolean {
  * The pieces deterministic mode can evaluate without a model: a quantity in the
  * plan ("by how much") and the structured Target Date ("by when"). Outcome
  * ("what will change") and audience ("for whom") are AI-only and omitted here.
+ *
+ * M-08: currently has no prod caller (R18 makes the review provider-gated), but
+ * retained for the deferred no-provider path; its own unit test still covers it.
  */
 export function deterministicPieces(input: FleetCheckInput): FleetHypothesisPiece[] {
   const planText = hasText(input.plan) ? (input.plan as string) : '';

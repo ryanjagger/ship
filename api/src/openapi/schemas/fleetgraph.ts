@@ -121,6 +121,9 @@ registry.registerPath({
             answer: z.string().optional(),
             conversationId: UuidSchema,
             executed: z.unknown().optional(),
+            proposal: FleetWriteProposalSchema.optional().openapi({
+              description: 'Present only on the defensive `paused` branch (resume failed to resolve); the write proposal still awaiting confirmation.',
+            }),
           }),
         },
       },
@@ -129,6 +132,8 @@ registry.registerPath({
     401: { description: 'Unauthenticated' },
     403: { description: 'Not the conversation owner' },
     404: { description: 'Conversation not found' },
+    409: { description: 'No pending proposal to confirm (already resolved)' },
+    500: { description: 'Internal server error' },
     503: { description: 'No AI provider configured' },
   },
 });
@@ -149,5 +154,6 @@ registry.registerPath({
     401: { description: 'Unauthenticated' },
     403: { description: 'Not the owner or a workspace admin' },
     404: { description: 'Conversation not found' },
+    500: { description: 'Internal server error' },
   },
 });

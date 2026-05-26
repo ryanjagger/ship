@@ -222,12 +222,21 @@ router.post('/chat', authMiddleware, async (req: Request, res: Response) => {
     }
 
     // ── Record the one-in-flight-turn marker + persist the assistant turn. ──
-    if (!disconnected && finalEvent?.type === 'paused') {
+    // The marker MUST be persisted based on the terminal stream event REGARDLESS
+    // of `disconnected` (B6): the graph keeps running after a client disconnect
+    // (we kept consuming the generator), so a 'paused' terminal means a real
+    // interrupt checkpoint was persisted. If we skipped the marker on disconnect,
+    // that checkpoint would be orphaned (no pending marker) and the NEXT turn
+    // would clobber it. The DB write does not touch the dead socket, so it is
+    // safe to run even when disconnected. Marker and checkpoint cannot diverge.
+    if (finalEvent?.type === 'paused') {
       // A proposal awaits confirmation — store the structured proposal so a
       // concurrent turn is rejected (409) AND the GET can re-surface the
       // confirmable card after navigation (U10), until confirm/decline clears it.
       await setPending(conversationId, finalEvent.proposal);
-    } else if (!disconnected && finalEvent?.type === 'final') {
+    } else if (finalEvent?.type === 'final') {
+      // A resolved turn left no checkpoint (streamChatTurn cleared it). Persist
+      // the assistant transcript even on disconnect so reopening shows the answer.
       const persisted = finalEvent.answer || answerText;
       if (persisted) await appendTurn(conversationId, { role: 'assistant', content: persisted });
     }
@@ -267,6 +276,15 @@ router.post('/chat/confirm', authMiddleware, async (req: Request, res: Response)
       return;
     }
 
+    // Double-confirm guard: there must be a pending proposal to confirm. A second
+    // confirm on an already-resolved conversation (marker cleared) is rejected
+    // BEFORE resume, so a stale checkpoint can never be re-executed (the write
+    // would otherwise fire twice). 409 — no resume.
+    if (!(await isPending(conversationId))) {
+      res.status(409).json({ error: 'No pending proposal to confirm.' });
+      return;
+    }
+
     const result = await resumeChatTurn({ conversationDocId: conversationId, approved });
 
     if (result.status === 'paused') {
@@ -274,10 +292,18 @@ router.post('/chat/confirm', authMiddleware, async (req: Request, res: Response)
       res.json({ status: 'paused', proposal: result.proposal, conversationId });
       return;
     }
-    // The proposal is resolved (applied or declined) — clear the pending marker so
-    // new turns are accepted again, then persist the resolved assistant turn.
-    await setPending(conversationId, null);
-    if (result.answer) await appendTurn(conversationId, { role: 'assistant', content: result.answer });
+
+    // The proposal is resolved (applied or declined) and the write is durably
+    // committed. Clearing the pending marker + persisting the assistant turn are
+    // BEST-EFFORT cleanup: a failure here must NOT 500 (that would leave the
+    // marker set → a permanent 409 lockout despite a successful write). Report
+    // success regardless. (resumeChatTurn already cleared the U3 checkpoint.)
+    try {
+      await setPending(conversationId, null);
+      if (result.answer) await appendTurn(conversationId, { role: 'assistant', content: result.answer });
+    } catch (cleanupErr) {
+      console.error('FleetGraph confirm cleanup (non-fatal):', cleanupErr);
+    }
     res.json({ status: 'answer', answer: result.answer, conversationId, executed: result.executed });
   } catch (err) {
     console.error('FleetGraph confirm error:', err);

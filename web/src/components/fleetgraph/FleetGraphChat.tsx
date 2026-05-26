@@ -11,7 +11,7 @@
  * left pending across navigation is re-surfaced and remains confirmable.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
 import {
@@ -87,7 +87,9 @@ function ProposalCard({
   const target = proposal.targetId;
 
   // Move focus to the card when it appears mid-stream (a11y requirement).
-  useEffect(() => {
+  // useLayoutEffect so focus lands before paint, avoiding a race with the
+  // composer's focus-on-open effect.
+  useLayoutEffect(() => {
     cardRef.current?.focus();
   }, []);
 

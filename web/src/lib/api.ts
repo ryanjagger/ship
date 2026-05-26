@@ -13,6 +13,9 @@ interface ApiResponse<T> {
 
 // CSRF token cache for state-changing requests
 let csrfToken: string | null = null;
+// In-flight token fetch, memoized so concurrent callers share one request
+// instead of each firing their own GET /api/csrf-token.
+let csrfTokenPromise: Promise<string> | null = null;
 
 // Helper: Check if response has JSON content type
 function isJsonResponse(response: Response): boolean {
@@ -61,7 +64,10 @@ export const apiBaseUrl = API_URL;
  * helpers above.
  */
 export async function ensureCsrfToken(): Promise<string> {
-  if (!csrfToken) {
+  if (csrfToken) return csrfToken;
+  // Share a single in-flight fetch among concurrent callers; clear the memo
+  // once it settles so a later call (e.g. after clearCsrfToken) re-fetches.
+  csrfTokenPromise ??= (async () => {
     const response = await fetch(`${API_URL}/api/csrf-token`, {
       credentials: 'include',
     });
@@ -74,8 +80,11 @@ export async function ensureCsrfToken(): Promise<string> {
     }
     const data = await response.json();
     csrfToken = data.token;
-  }
-  return csrfToken!;
+    return csrfToken!;
+  })().finally(() => {
+    csrfTokenPromise = null;
+  });
+  return csrfTokenPromise;
 }
 
 // Clear CSRF token on logout or session change

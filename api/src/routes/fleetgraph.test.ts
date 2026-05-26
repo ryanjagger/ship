@@ -352,6 +352,81 @@ describe('FleetGraph chat API', () => {
     expect(second.status).toBe(409);
   });
 
+  // ── A1: double-confirm guard — a second confirm on a resolved conversation
+  // returns 409 and does NOT re-execute the write (mutation fires exactly once) ──
+  it('a second confirm on a resolved conversation returns 409 and does not re-execute the write', async () => {
+    modelState.next = () =>
+      new AIMessage({
+        content: '',
+        tool_calls: [{ name: 'propose_create_issue', args: { title: 'Confirm once' }, id: 'c1', type: 'tool_call' }],
+      });
+    const res = await chat({ message: 'create', entityId: projectId, entityType: 'project' });
+    const paused = parseSse(res.text).find((e) => e.type === 'paused')!;
+    const conversationId = paused.data.threadId as string;
+
+    // First confirm applies the write.
+    const first = await request(app)
+      .post('/api/fleetgraph/chat/confirm')
+      .set('Cookie', sessionCookie)
+      .set('x-csrf-token', csrfToken)
+      .send({ conversationId, approved: true });
+    expect(first.status).toBe(200);
+    expect(first.body.status).toBe('answer');
+
+    // Second confirm on the now-resolved conversation → 409, no resume.
+    const second = await request(app)
+      .post('/api/fleetgraph/chat/confirm')
+      .set('Cookie', sessionCookie)
+      .set('x-csrf-token', csrfToken)
+      .send({ conversationId, approved: true });
+    expect(second.status).toBe(409);
+
+    // The write fired EXACTLY once — only one issue exists.
+    const created = await pool.query(
+      `SELECT id FROM documents WHERE workspace_id = $1 AND document_type='issue' AND title = 'Confirm once'`,
+      [workspaceId]
+    );
+    expect(created.rowCount).toBe(1);
+  });
+
+  // ── A1: a second turn after an 'answer' turn produces a fresh answer to the
+  // NEW message (no stale-proposal replay), and no checkpoint remains ──
+  it('a second turn after an answer turn answers the new message with no stale replay', async () => {
+    // Turn 1: a plain prose answer (no proposal) → resolved; checkpoint cleared.
+    modelState.next = () => new AIMessage('First answer about the project.');
+    const res1 = await chat({ message: 'status?', entityId: projectId, entityType: 'project' });
+    const final1 = parseSse(res1.text).find((e) => e.type === 'final')!;
+    const conversationId = final1.data.threadId as string;
+    expect(String(final1.data.answer)).toContain('First answer');
+
+    // No checkpoint remains after a resolved turn.
+    const afterTurn1 = await pool.query(
+      `SELECT properties -> 'fleetgraph_checkpoint' AS cp FROM documents WHERE id = $1`,
+      [conversationId]
+    );
+    expect(afterTurn1.rows[0].cp).toBeNull();
+
+    // Turn 2 on the SAME conversation with a NEW message → a fresh answer to the
+    // new message, NOT a replay of turn 1's state.
+    modelState.next = () => new AIMessage('Second answer to the follow-up.');
+    const res2 = await chat({ message: 'follow up?', entityId: projectId, entityType: 'project', conversationId });
+    expect(res2.status).toBe(200);
+    const final2 = parseSse(res2.text).find((e) => e.type === 'final')!;
+    expect(String(final2.data.answer)).toContain('Second answer');
+    expect(final2.data.threadId).toBe(conversationId);
+
+    // Still no checkpoint after the second resolved turn.
+    const afterTurn2 = await pool.query(
+      `SELECT properties -> 'fleetgraph_checkpoint' AS cp FROM documents WHERE id = $1`,
+      [conversationId]
+    );
+    expect(afterTurn2.rows[0].cp).toBeNull();
+
+    // Transcript carried both turns (user + assistant x2 = 4).
+    const got = await request(app).get(`/api/fleetgraph/conversations/${conversationId}`).set('Cookie', sessionCookie);
+    expect(got.body.transcript.length).toBe(4);
+  });
+
   // ── transport: GET on chat route → 405 ──
   it('GET on the chat-turn route returns 405', async () => {
     const res = await request(app).get('/api/fleetgraph/chat').set('Cookie', sessionCookie);

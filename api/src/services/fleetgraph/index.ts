@@ -36,6 +36,9 @@ import type {
   FleetHypothesisPiece,
 } from '@ship/shared';
 import { hasText } from '../fleet-checks.js';
+import { pool as defaultPool } from '../../db/client.js';
+import { ConversationDocCheckpointSaver } from './checkpointer.js';
+import { RUBRIC, BY_WHEN_HINT } from './plan-review-config.js';
 import { getCompiledGraph, compileGraph } from './graph.js';
 import type { FleetContext, FleetEntityType } from './tools/read.js';
 import type { WriteProposal } from './tools/write.js';
@@ -45,14 +48,29 @@ import type { InterruptPayload, ResumeValue } from './nodes/action.js';
 
 type CompiledGraph = ReturnType<typeof compileGraph>;
 
-// The RUBRIC labels/hints, mirrored from fleet-service.ts so the pieces shape is
-// identical to the shipped plan-review.
-const RUBRIC: { id: FleetHypothesisPiece['id']; label: string; hint: string }[] = [
-  { id: 'what_changes', label: 'What will change', hint: 'Name the outcome that will change.' },
-  { id: 'by_how_much', label: 'By how much', hint: 'Add a target number (by how much).' },
-  { id: 'for_whom', label: 'For whom', hint: 'Say who this is for (user, segment, or system).' },
-];
-const BY_WHEN_HINT = 'Set a Target Date (by when).';
+/**
+ * Clear any persisted checkpoint for a conversation thread (U3 deleteThread).
+ *
+ * The U3 checkpointer is latest-tuple-only and keyed by thread_id (=
+ * conversationId). A leftover checkpoint from a RESOLVED prior turn would make
+ * the next `graph.invoke` on the same thread RESUME from that stale state
+ * (replaying the prior proposal / dropping the new message at the scope node's
+ * `messages.length === 0` guard) instead of running the new message cleanly.
+ *
+ * Each chat turn is a clean graph run: history (when threaded) is carried by the
+ * transcript/`history` param, NOT by checkpoint-accumulated channels. So clearing
+ * the checkpoint after a resolved turn — and before a fresh turn — never loses
+ * intended history. A PAUSED turn intentionally leaves the checkpoint in place
+ * (it is what `resume` needs). Best-effort: a missing/nonexistent thread is a
+ * no-op (the UPDATE matches zero rows).
+ */
+export async function clearConversationThread(conversationId: string): Promise<void> {
+  const checkpointer = new ConversationDocCheckpointSaver(defaultPool);
+  await checkpointer.deleteThread(conversationId);
+}
+
+// RUBRIC labels/hints + BY_WHEN_HINT come from the canonical plan-review-config
+// (C2) so the pieces shape is identical to the shipped plan-review.
 
 // ── proactive ────────────────────────────────────────────────────────────────
 
@@ -99,7 +117,7 @@ export async function runPlanReview(
   const ai = (analysis?.planReview as PlanReviewAi | undefined) ?? undefined;
 
   // Build the FleetPlanReview from the structured AI output, mirroring the
-  // shipped buildPlanReview mapping exactly (so U8's card contract is unchanged).
+  // shipped plan-review mapping exactly (so U8's card contract is unchanged).
   if (ai && analysis?.aiAvailable) {
     const metIds = new Set(ai.criteria.filter((c) => c.met).map((c) => c.id));
     const aiPieces: FleetHypothesisPiece[] = RUBRIC.map((r) => ({
@@ -259,6 +277,12 @@ export async function* streamChatTurn(
     signal: args.signal,
   };
 
+  // Clear any stale checkpoint left by a RESOLVED prior turn before this fresh
+  // run, so the new message runs cleanly instead of resuming stale graph state.
+  // (A PAUSED prior turn is gated upstream by the route's isPending 409, so we
+  // never reach here with a legitimately pending checkpoint to preserve.)
+  await clearConversationThread(args.conversationDocId);
+
   let lastValues: Record<string, unknown> | undefined;
 
   const stream = await graph.stream(
@@ -288,8 +312,14 @@ export async function* streamChatTurn(
 
   const result = interpretResult(args.conversationDocId, lastValues ?? {});
   if (result.status === 'paused') {
+    // PAUSED: keep the checkpoint — `resume` needs it.
     yield { type: 'paused', proposal: result.proposal, threadId: result.threadId };
   } else {
+    // RESOLVED with a terminal answer: clear the checkpoint so a SECOND turn on
+    // this conversation runs fresh and never resumes this turn's stale state.
+    // Best-effort: a clear failure must not fail the answer the client already
+    // received, so we swallow it (the start-of-turn clear is the backstop).
+    await clearConversationThread(args.conversationDocId).catch(() => {});
     yield {
       type: 'final',
       answer: result.answer,
@@ -316,7 +346,15 @@ export async function resumeChatTurn(
   const config = chatConfig(args.conversationDocId);
   const resume: ResumeValue = { approved: args.approved };
   const final = await graph.invoke(new Command({ resume }), config);
-  return interpretResult(args.conversationDocId, final as Record<string, unknown>);
+  const result = interpretResult(args.conversationDocId, final as Record<string, unknown>);
+  // A resumed turn ALWAYS resolves (confirm executes; decline abandons) — there
+  // is no second interrupt. Clear the checkpoint so the conversation is clean for
+  // the next turn (and a double-confirm cannot re-enter a stale paused state).
+  // Best-effort: a clear failure must not fail the already-committed write.
+  if (result.status !== 'paused') {
+    await clearConversationThread(args.conversationDocId).catch(() => {});
+  }
+  return result;
 }
 
 export { getCompiledGraph, compileGraph } from './graph.js';

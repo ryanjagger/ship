@@ -152,9 +152,32 @@ export interface WriteProposal {
   contentHash: string;
 }
 
+/**
+ * Deterministic deep serialization: recursively sort object keys at EVERY depth,
+ * preserving array order and scalar values. Unlike `JSON.stringify(args,
+ * Object.keys(args).sort())` — whose array-replacer form is a RECURSIVE property
+ * ALLOWLIST that silently DROPS any nested key not present at the top level (e.g.
+ * `belongs_to[].type`) — this covers all nested arg content, so a mutation to a
+ * nested field changes the hash.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v)).join(',')}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const entries = Object.keys(obj)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`);
+  return `{${entries.join(',')}}`;
+}
+
 function hashProposal(kind: WriteProposalKind, args: unknown): string {
-  // Stable JSON (sorted keys) so the hash is deterministic across serialization.
-  const json = JSON.stringify(args, Object.keys(args as object).sort());
+  // Deep stable JSON (keys sorted at every depth) so the hash is deterministic
+  // across serialization AND covers all nested arg content (e.g. belongs_to[].type).
+  const json = stableStringify(args);
   return crypto.createHash('sha256').update(`${kind}:${json}`).digest('hex');
 }
 

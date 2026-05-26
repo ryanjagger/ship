@@ -46,7 +46,7 @@ interface CommentResponse {
   parent_id: string | null;
   content: string;
   resolved_at: string | null;
-  author: { id: string; name: string; email: string };
+  author: { id: string; name: string | null; email: string | null };
   created_at: string;
   updated_at: string;
 }
@@ -99,7 +99,11 @@ export async function postCommentCore(
     'SELECT id, name, email FROM users WHERE id = $1',
     [ctx.userId]
   );
-  const author = authorResult.rows[0];
+  // The comment INSERT above is already committed. If the author row is gone
+  // (e.g. the user was deleted between INSERT and lookup), do NOT throw on
+  // `author.id` — that would return a 500 for a write that succeeded. Fall back
+  // to a minimal author so the 201 reflects the durable INSERT.
+  const author = authorResult.rows[0] ?? { id: ctx.userId, name: null, email: null };
 
   return {
     status: 201,

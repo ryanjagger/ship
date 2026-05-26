@@ -255,6 +255,22 @@ describe('FleetGraph write tools (U6)', () => {
       ;(proposal.args as any).content = 'TAMPERED'
       await expect(executeProposal(ctx, proposal)).rejects.toThrow(/integrity/i)
     })
+
+    it('contentHash covers NESTED arg content (belongs_to[].type), not just top-level keys (B1)', () => {
+      // Two proposals identical except for a NESTED field. The old top-level
+      // array-replacer hash would collide; the deep stable hash must differ.
+      const id = crypto.randomUUID()
+      const projectId2 = crypto.randomUUID()
+      const a = buildCreateIssueProposal({ title: 'Same title', belongs_to: [{ id: projectId2, type: 'project' }] })
+      const b = buildCreateIssueProposal({ title: 'Same title', belongs_to: [{ id: projectId2, type: 'parent' }] })
+      expect(a.contentHash).not.toBe(b.contentHash)
+      void id
+
+      // And the integrity check rejects a tampered NESTED arg at execute time.
+      const tampered = buildCreateIssueProposal({ title: 'X', belongs_to: [{ id: projectId2, type: 'project' }] })
+      ;(tampered.args as any).belongs_to[0].type = 'parent'
+      return expect(executeProposal(ctx, tampered)).rejects.toThrow(/integrity/i)
+    })
   })
 
   // -------------------------------------------------------------------------

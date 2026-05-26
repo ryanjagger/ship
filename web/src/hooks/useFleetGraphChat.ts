@@ -17,7 +17,7 @@
  * `event: <type>\ndata: <json>\n\n`. We parse on the data line.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet, apiPost, apiBaseUrl, ensureCsrfToken } from '@/lib/api';
 
@@ -132,6 +132,25 @@ export function useFleetGraphChat(
   const conversationIdRef = useRef<string | null>(null);
   const lastMessageRef = useRef<string | null>(null);
 
+  // ── Lifecycle / concurrency guards ─────────────────────────────────────────
+  // `mountedRef` gates every post-await setState so nothing writes to a
+  // torn-down fiber (the hook lives in the always-mounted launcher; closing the
+  // drawer / navigating away unmounts mid-stream). `abortRef` holds the current
+  // turn's controller so we can abort the live fetch on unmount or a new turn.
+  // `isRunningRef` is a synchronous double-submit guard (React `status` hasn't
+  // committed between submit and setStatus('loading')).
+  const mountedRef = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
+  const isRunningRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const setConversation = useCallback((id: string | null) => {
     conversationIdRef.current = id;
     setConversationId(id);
@@ -140,8 +159,16 @@ export function useFleetGraphChat(
   const loadConversation = useCallback(
     async (id: string) => {
       const res = await apiGet(`/api/fleetgraph/conversations/${id}`);
-      if (!res.ok) return;
+      if (!mountedRef.current) return;
+      if (!res.ok) {
+        // Surface the failure instead of silently dropping a server-side
+        // pending proposal and leaving the user in a blank idle state.
+        setError('Could not load the prior conversation.');
+        setStatus('error');
+        return;
+      }
       const data = (await res.json()) as ConversationResponse;
+      if (!mountedRef.current) return;
       setConversation(data.id);
       setMessages(data.transcript.map((t) => ({ role: t.role, content: t.content })));
       setPendingProposal(data.pendingProposal);
@@ -154,7 +181,7 @@ export function useFleetGraphChat(
   /** Consume the SSE ReadableStream, updating the trailing assistant message. */
   const consumeStream = useCallback(
     async (res: Response) => {
-      setStatus('streaming');
+      if (mountedRef.current) setStatus('streaming');
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -162,8 +189,18 @@ export function useFleetGraphChat(
       let sawTerminal = false;
       try {
         for (;;) {
+          // Bail if the component unmounted (drawer closed / navigated away):
+          // cancel the reader so the connection closes and stop updating state.
+          if (!mountedRef.current) {
+            await reader.cancel().catch(() => {});
+            return;
+          }
           const { value, done } = await reader.read();
           if (done) break;
+          if (!mountedRef.current) {
+            await reader.cancel().catch(() => {});
+            return;
+          }
           buffer += decoder.decode(value, { stream: true });
           const { events, rest } = parseFrames(buffer);
           buffer = rest;
@@ -202,11 +239,19 @@ export function useFleetGraphChat(
           }
         }
       } catch {
+        // An abort (unmount / new turn) lands here too — don't write to a
+        // torn-down fiber.
+        if (!mountedRef.current) return;
+        // Remove the partial assistant bubble so the retry path doesn't render
+        // two assistant bubbles for one turn (FR-08).
+        if (assistantText) setMessages((prev) => prev.slice(0, -1));
         setStatus('error');
         setError('The response was interrupted. You can retry.');
         return;
       }
+      if (!mountedRef.current) return;
       if (!sawTerminal) {
+        if (assistantText) setMessages((prev) => prev.slice(0, -1));
         setStatus('error');
         setError('The response ended unexpectedly. You can retry.');
       }
@@ -217,48 +262,68 @@ export function useFleetGraphChat(
   /** POST a turn and stream it. `appendUser` controls re-adding the user line. */
   const runTurn = useCallback(
     async (message: string, appendUser: boolean) => {
-      lastMessageRef.current = message;
-      setError(null);
-      setStatus('loading');
-      setMessages((prev) => [
-        ...prev,
-        ...(appendUser ? [{ role: 'user' as const, content: message }] : []),
-        { role: 'assistant' as const, content: '' },
-      ]);
+      // Synchronous double-submit guard: React `status` hasn't committed yet
+      // between submit and setStatus('loading'), so a rapid double-tap could
+      // co-fire two turns. This ref flips immediately.
+      if (isRunningRef.current) return;
+      isRunningRef.current = true;
 
-      const token = await ensureCsrfToken();
-      const body: Record<string, unknown> = { message, entityId, entityType };
-      if (conversationIdRef.current) body.conversationId = conversationIdRef.current;
+      // Abort any prior in-flight turn and start a fresh controller; pass its
+      // signal to fetch so closing the drawer / a new turn closes the request.
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-      let res: Response;
       try {
-        res = await fetch(`${apiBaseUrl}/api/fleetgraph/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
-          credentials: 'include',
-          body: JSON.stringify(body),
-        });
-      } catch {
-        setMessages((prev) => prev.slice(0, -1)); // Drop the empty assistant slot.
-        setStatus('error');
-        setError('Could not reach Fleet chat. Try again.');
-        return;
-      }
+        lastMessageRef.current = message;
+        setError(null);
+        setStatus('loading');
+        setMessages((prev) => [
+          ...prev,
+          ...(appendUser ? [{ role: 'user' as const, content: message }] : []),
+          { role: 'assistant' as const, content: '' },
+        ]);
 
-      if (!res.ok || !res.body) {
-        setMessages((prev) => prev.slice(0, -1));
-        setStatus('error');
-        setError(
-          res.status === 429
-            ? 'Too many messages — try again in a moment.'
-            : res.status === 409
-              ? 'A proposed change is awaiting your confirmation.'
-              : 'Fleet chat is unavailable right now. Try again.'
-        );
-        return;
-      }
+        const token = await ensureCsrfToken();
+        if (!mountedRef.current) return;
+        const body: Record<string, unknown> = { message, entityId, entityType };
+        if (conversationIdRef.current) body.conversationId = conversationIdRef.current;
 
-      await consumeStream(res);
+        let res: Response;
+        try {
+          res = await fetch(`${apiBaseUrl}/api/fleetgraph/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
+            credentials: 'include',
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+        } catch {
+          if (!mountedRef.current) return;
+          setMessages((prev) => prev.slice(0, -1)); // Drop the empty assistant slot.
+          setStatus('error');
+          setError('Could not reach Fleet chat. Try again.');
+          return;
+        }
+
+        if (!mountedRef.current) return;
+        if (!res.ok || !res.body) {
+          setMessages((prev) => prev.slice(0, -1));
+          setStatus('error');
+          setError(
+            res.status === 429
+              ? 'Too many messages — try again in a moment.'
+              : res.status === 409
+                ? 'A proposed change is awaiting your confirmation.'
+                : 'Fleet chat is unavailable right now. Try again.'
+          );
+          return;
+        }
+
+        await consumeStream(res);
+      } finally {
+        isRunningRef.current = false;
+      }
     },
     [consumeStream, entityId, entityType]
   );
@@ -266,19 +331,19 @@ export function useFleetGraphChat(
   const send = useCallback(
     async (message: string) => {
       const trimmed = message.trim();
-      if (!trimmed || status === 'loading' || status === 'streaming') return;
+      if (!trimmed || isRunningRef.current) return;
       await runTurn(trimmed, true);
     },
-    [runTurn, status]
+    [runTurn]
   );
 
   const retry = useCallback(async () => {
-    if (status === 'loading' || status === 'streaming') return;
+    if (isRunningRef.current) return;
     const last = lastMessageRef.current;
     if (!last) return;
     // The failed user turn is already in `messages`; re-run without re-adding it.
     await runTurn(last, false);
-  }, [runTurn, status]);
+  }, [runTurn]);
 
   const resolveProposal = useCallback(
     async (approved: boolean) => {
@@ -293,6 +358,7 @@ export function useFleetGraphChat(
           conversationId: id,
           approved,
         });
+        if (!mountedRef.current) return;
         if (!res.ok) {
           setPendingProposal(proposal); // Restore — still confirmable.
           setStatus('error');
@@ -300,12 +366,14 @@ export function useFleetGraphChat(
           return;
         }
         const data = (await res.json()) as { status: string; answer?: string };
+        if (!mountedRef.current) return;
         if (data.answer) {
           setMessages((prev) => [...prev, { role: 'assistant', content: data.answer! }]);
         }
         setStatus('idle');
         setError(null);
       } catch {
+        if (!mountedRef.current) return;
         setPendingProposal(proposal);
         setStatus('error');
         setError('Could not complete that action. Try again.');

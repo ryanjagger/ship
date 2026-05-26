@@ -329,4 +329,126 @@ describe('FleetGraphChat error/retry', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('surfaces an error when loadConversation GET fails (non-ok)', async () => {
+    mockFetch({
+      conversation: () => jsonResponse({ error: 'gone' }, 500),
+    });
+
+    renderWithProviders(
+      <FleetGraphChat open onClose={() => {}} entityId="e1" entityType="project" initialConversationId="c1" />
+    );
+
+    // Non-ok GET surfaces a visible error instead of a blank idle state.
+    expect(await screen.findByText(/could not load the prior conversation/i)).toBeInTheDocument();
+  });
+});
+
+describe('FleetGraphChat lifecycle + concurrency', () => {
+  it('aborts the in-flight stream and fires no post-unmount state update on unmount', async () => {
+    let captured: AbortSignal | null = null;
+    let aborted = false;
+    let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/fleetgraph/availability')) return jsonResponse({ available: true });
+      if (url.includes('/csrf-token')) return jsonResponse({ token: 't' });
+      if (url.includes('/fleetgraph/chat')) {
+        captured = init?.signal ?? null;
+        captured?.addEventListener('abort', () => {
+          aborted = true;
+        });
+        const encoder = new TextEncoder();
+        // A stream that never closes on its own — held open so the reader loop
+        // is awaiting reader.read() at unmount time.
+        const stream = new ReadableStream<Uint8Array>({
+          start(c) {
+            controller = c;
+            c.enqueue(encoder.encode(frame({ type: 'token', token: 'partial' })));
+          },
+        });
+        return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }
+      return jsonResponse({});
+    }) as typeof global.fetch;
+
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { unmount } = renderWithProviders(
+      <FleetGraphChat open onClose={() => {}} entityId="e1" entityType="project" />
+    );
+
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'hi' } });
+    fireEvent.submit(input.closest('form')!);
+
+    // Wait until the stream is in flight (token rendered).
+    await waitFor(() => expect(screen.getByText('partial')).toBeInTheDocument());
+
+    await act(async () => {
+      unmount();
+    });
+
+    // The fetch signal was aborted on unmount, closing the live connection.
+    expect(captured).not.toBeNull();
+    expect(aborted).toBe(true);
+
+    // Give any leaked async reader loop a tick; assert no React state-update
+    // warning fired after unmount.
+    await act(async () => {
+      controller?.enqueue(new TextEncoder().encode(frame({ type: 'final', answer: 'late', threadId: 'c1' })));
+      await Promise.resolve();
+    });
+    const warned = warn.mock.calls.some((c) =>
+      String(c[0]).includes("can't perform a React state update")
+    );
+    expect(warned).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('ignores a rapid double-submit: only one turn / one user bubble starts', async () => {
+    let chatCalls = 0;
+    let release: (() => void) | null = null;
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/fleetgraph/availability')) return jsonResponse({ available: true });
+      if (url.includes('/csrf-token')) return jsonResponse({ token: 't' });
+      if (url.includes('/fleetgraph/chat')) {
+        chatCalls += 1;
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(c) {
+            release = () => {
+              c.enqueue(encoder.encode(frame({ type: 'final', answer: 'done', threadId: 'c1' })));
+              c.close();
+            };
+          },
+        });
+        return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }
+      return jsonResponse({});
+    }) as typeof global.fetch;
+
+    renderWithProviders(
+      <FleetGraphChat open onClose={() => {}} entityId="e1" entityType="project" />
+    );
+
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'hi' } });
+    const form = input.closest('form')!;
+    // Two rapid submits before the first turn's status commits.
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(chatCalls).toBe(1));
+    // Exactly one user bubble for "hi".
+    const userBubbles = document.body.querySelectorAll('[data-role="user"]');
+    expect(userBubbles).toHaveLength(1);
+
+    await act(async () => {
+      release?.();
+    });
+    await waitFor(() => expect(screen.getByText('done')).toBeInTheDocument());
+  });
 });

@@ -146,5 +146,49 @@ describe('comments-service (U6)', () => {
       expect(reply.status).toBe(201)
       expect((reply.body as any).parent_id).toBe(parentId)
     })
+
+    it('returns 201 (not 500) when the author row is gone after a committed INSERT (B5)', async () => {
+      // The comment INSERT is already committed; if the author lookup returns zero
+      // rows (user deleted in the window), the service must NOT throw on author.id.
+      // Stub the runner so the doc-check + INSERT succeed but the author lookup is
+      // empty — proving the null-guard fallback rather than a 500.
+      const insertedId = crypto.randomUUID()
+      let call = 0
+      const stubRunner = {
+        query: async (sql: string) => {
+          call += 1
+          if (/FROM documents/.test(sql)) return { rows: [{ id: documentId }] }
+          if (/INTO comments/.test(sql)) {
+            return {
+              rows: [
+                {
+                  id: insertedId,
+                  document_id: documentId,
+                  comment_id: insertedId,
+                  parent_id: null,
+                  content: 'committed',
+                  resolved_at: null,
+                  created_at: '2026-01-01T00:00:00.000Z',
+                  updated_at: '2026-01-01T00:00:00.000Z',
+                },
+              ],
+            }
+          }
+          if (/FROM users/.test(sql)) return { rows: [] } // author gone
+          return { rows: [] }
+        },
+      } as unknown as typeof pool
+
+      const result = await postCommentCore(stubRunner, ctx, documentId, {
+        comment_id: insertedId,
+        content: 'committed',
+      })
+      expect(result.status).toBe(201)
+      const body = result.body as any
+      expect(body.id).toBe(insertedId)
+      expect(body.author.id).toBe(userId) // fallback to the requesting user id
+      expect(body.author.name).toBeNull()
+      expect(call).toBe(3) // doc-check + INSERT + author lookup all ran
+    })
   })
 })

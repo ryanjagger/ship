@@ -3,7 +3,7 @@ import * as Y from 'yjs'
 import * as awarenessProtocol from 'y-protocols/awareness'
 import { WebSocket } from 'ws'
 import { pool } from '../../db/client.js'
-import { handleCollaborationMessage } from '../index.js'
+import { handleCollaborationMessage, canAccessDocumentForCollab } from '../index.js'
 import crypto from 'crypto'
 
 /**
@@ -431,6 +431,29 @@ describe('Collaboration Server', () => {
 
       // Cleanup
       await pool.query('DELETE FROM documents WHERE id = $1', [privateDocId])
+    })
+
+    it('denies a collab join to a FleetGraph conversation doc (B2)', async () => {
+      // A workspace-visible conversation doc — by visibility alone it WOULD pass,
+      // but canAccessDocumentForCollab must reject it by document_type so a Yjs
+      // persist can never clobber its fleetgraph_* engine state.
+      const convResult = await pool.query(
+        `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by)
+         VALUES ($1, 'conversation', 'Untitled', 'workspace', $2)
+         RETURNING id`,
+        [testWorkspaceId, testUserId]
+      )
+      const conversationDocId = convResult.rows[0].id
+
+      // Even the creator (would otherwise pass) is denied for a conversation doc.
+      const access = await canAccessDocumentForCollab(conversationDocId, testUserId, testWorkspaceId)
+      expect(access).toBe(false)
+
+      // A normal workspace doc still passes (control).
+      const ok = await canAccessDocumentForCollab(testDocId, testUserId, testWorkspaceId)
+      expect(ok).toBe(true)
+
+      await pool.query('DELETE FROM documents WHERE id = $1', [conversationDocId])
     })
   })
 

@@ -48,7 +48,7 @@ import { FleetGraphState } from './state.js';
 import { scopeNode } from './nodes/scope.js';
 import { fetchNode } from './nodes/fetch.js';
 import { makeReasonNode, type ReasonNodeDeps } from './nodes/reason.js';
-import { policyNode, policyRoute } from './nodes/policy.js';
+import { policyRoute } from './nodes/policy.js';
 import { makeActionNode, type ActionNodeDeps } from './nodes/action.js';
 import type { FleetGraphStateType, FleetGraphUpdate } from './state.js';
 
@@ -85,18 +85,20 @@ export function buildGraph(deps: BuildGraphDeps = {}) {
   const reasonNode = makeReasonNode(deps.reason);
   const actionNode = makeActionNode(deps.action);
 
+  // M-03: the former `policy` node was a pure pass-through; the classification is
+  // entirely in `policyRoute` (a pure function). We attach the conditional edge
+  // DIRECTLY after `reason` and drop the no-op node. `policyRoute` stays exported
+  // and unit-tested in policy.ts.
   return new StateGraph(FleetGraphState)
     .addNode('scope', scopeNode)
     .addNode('fetch', fetchNodeAdapter)
     .addNode('reason', reasonNode)
-    .addNode('policy', policyNode)
     .addNode('action', actionNode)
     .addNode('output', outputNode)
     .addEdge(START, 'scope')
     .addEdge('scope', 'fetch')
     .addEdge('fetch', 'reason')
-    .addEdge('reason', 'policy')
-    .addConditionalEdges('policy', policyRoute, { action: 'action', output: 'output' })
+    .addConditionalEdges('reason', policyRoute, { action: 'action', output: 'output' })
     .addEdge('action', END)
     .addEdge('output', END);
 }
