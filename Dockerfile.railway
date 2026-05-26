@@ -1,0 +1,32 @@
+# Railway (dev) image: builds the whole pnpm monorepo from source and serves
+# the API + WebSocket endpoints + the built SPA from a single service.
+FROM node:20-slim
+
+WORKDIR /app
+
+# pnpm version pinned to the repo's packageManager field
+RUN npm install -g pnpm@10.27.0
+
+# Install dependencies first (cached layer). Copy only manifests so changes to
+# source don't bust the dependency cache. --ignore-scripts skips husky/git hooks
+# that assume a working tree.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY api/package.json ./api/
+COPY web/package.json ./web/
+COPY shared/package.json ./shared/
+COPY probe/package.json ./probe/
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+# Copy source and build shared -> api -> web. NODE_ENV is intentionally NOT set
+# to production here so dev dependencies (tsc, vite) are available for the build.
+COPY . .
+RUN pnpm build:shared \
+ && pnpm --filter @ship/api build \
+ && pnpm --filter @ship/web build
+
+EXPOSE 3000
+
+# Railway injects PORT, DATABASE_URL, SESSION_SECRET, CORS_ORIGIN, NODE_ENV.
+# Run migrations before starting the server so the schema is present.
+WORKDIR /app/api
+CMD ["sh", "-c", "node dist/db/migrate.js && node dist/index.js"]

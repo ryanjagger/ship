@@ -1,4 +1,7 @@
 import express from 'express';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 import cors from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -240,6 +243,30 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
   // Comments routes
   app.use('/api/documents', conditionalCsrf, documentCommentsRouter);
   app.use('/api/comments', conditionalCsrf, commentsRouter);
+
+  // Serve the built SPA from the same origin as the API (single-service deploy).
+  // Compiled api lives at api/dist, so web/dist sits two levels up. Skipped when
+  // the build isn't present (e.g. local `pnpm dev`, where Vite serves the SPA).
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const webDist = process.env.WEB_DIST_PATH || join(__dirname, '../../web/dist');
+  if (existsSync(join(webDist, 'index.html'))) {
+    app.use(express.static(webDist));
+
+    // SPA fallback: serve index.html for any non-API GET so client-side routes
+    // (e.g. /login, /documents/:id) resolve. Backend paths fall through to their
+    // own handlers / JSON 404s.
+    app.get('*', (req, res, next) => {
+      if (
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/collaboration') ||
+        req.path.startsWith('/events') ||
+        req.path.startsWith('/health')
+      ) {
+        return next();
+      }
+      res.sendFile(join(webDist, 'index.html'));
+    });
+  }
 
   // Initialize CAIA OAuth client at startup
   initializeCAIA().catch((err) => {

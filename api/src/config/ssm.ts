@@ -36,8 +36,10 @@ export async function getSSMSecret(name: string): Promise<string> {
 }
 
 export async function loadProductionSecrets(): Promise<void> {
-  if (process.env.NODE_ENV !== 'production') {
-    return; // Use .env files for local dev
+  // Callers gate this on SECRETS_PROVIDER=ssm; only the AWS/SSM-backed
+  // deployment opts in. Everything else supplies config via env vars.
+  if (process.env.SECRETS_PROVIDER !== 'ssm') {
+    return; // Use env vars / .env files
   }
 
   const environment = process.env.ENVIRONMENT || 'prod';

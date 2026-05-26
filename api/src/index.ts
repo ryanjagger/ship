@@ -11,8 +11,10 @@ config({ path: join(__dirname, '../.env.local') });
 config({ path: join(__dirname, '../.env') });
 
 async function main() {
-  // Load secrets from SSM in production (before importing app)
-  if (process.env.NODE_ENV === 'production') {
+  // Load secrets from AWS SSM only when explicitly opted in (SECRETS_PROVIDER=ssm).
+  // Other deployments (e.g. Railway) provide DATABASE_URL/SESSION_SECRET/CORS_ORIGIN
+  // directly as environment variables, so no AWS calls are made.
+  if (process.env.SECRETS_PROVIDER === 'ssm') {
     const { loadProductionSecrets } = await import('./config/ssm.js');
     await loadProductionSecrets();
   }
