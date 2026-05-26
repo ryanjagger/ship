@@ -233,6 +233,35 @@ describe('getReview caching', () => {
     expect(r!.plan_review.ai_available).toBe(false);
   });
 
+  it('no plan but a STALE cached review → no_plan, cache not served (issue 1 cache-hit path)', async () => {
+    // Regression: a project with no plan that carries a stale plan_review cache
+    // (e.g. computed before the no-plan guard existed) must NOT serve that cached
+    // review — the no-plan check runs before the cache lookup.
+    mockAvailable.mockReturnValue(true);
+    const staleFleet = {
+      plan_review: {
+        hash: 'staleHash',
+        computed_at: '2026-01-01T00:00:00.000Z',
+        result: {
+          status: 'needs_work',
+          pieces: [{ id: 'what_changes', label: 'What will change', met: true, hint: 'h' }],
+          suggested_rewrite: 'a stale AI rewrite',
+          ai_available: true,
+        },
+      },
+    };
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'p1', title: 'P', content: { type: 'doc', content: [] }, properties: { fleet: staleFleet } }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never) // issues
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never); // weeks
+    const r = await getReview('p1', CTX);
+    expect(mockRunPlanReview).not.toHaveBeenCalled();
+    expect(r!.plan_review.status).toBe('no_plan');
+    expect(r!.plan_review.ai_available).toBe(false);
+    expect(r!.plan_review.pieces).toHaveLength(0); // NOT the stale piece
+    expect(r!.plan_review.suggested_rewrite).toBeNull(); // NOT the stale rewrite
+  });
+
   it('AE6/R13: unchanged plan → graph + retro evaluated once across two calls', async () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4)); // plan via graph

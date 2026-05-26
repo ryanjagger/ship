@@ -351,19 +351,21 @@ export async function getReview(
   let planEntry: FleetCacheEntry<FleetPlanReview> | undefined = cache.plan_review;
   let planComputed = false;
 
-  if (!planMiss && cache.plan_review) {
+  if (!hasText(signals.plan)) {
+    // No plan → always 'no_plan'. Checked BEFORE the cache so a stale cached
+    // review (e.g. computed when the project briefly had a plan, or before this
+    // guard existed) is never served, and the model is never called on an empty
+    // plan. Drop any stale AI entry so a retro persist won't rewrite it.
+    planReview = unavailablePlanReview(signals); // status 'no_plan'
+    planEntry = undefined;
+  } else if (!planMiss && cache.plan_review) {
     planReview = { ...cache.plan_review.result, computed_at: cache.plan_review.computed_at };
   } else {
-    if (!hasText(signals.plan)) {
-      // No plan → nothing to review; never call the model. Restores the pre-U8
-      // early-return (runPlanReview/the graph would otherwise invoke the model on
-      // an empty plan). unavailablePlanReview yields status 'no_plan' here.
-      planReview = unavailablePlanReview(signals);
-    } else if (allowAi && isFleetAiAvailable()) {
-      // R13: the plan-review compute path is the graph (runPlanReview), not a
-      // direct evaluateStructured call. diagnosis/recommendedNextAction from the
-      // graph are NOT part of FleetReviewResponse — dropped to keep the card
-      // contract identical (AE5).
+    // R13: the plan-review compute path is the graph (runPlanReview), not a
+    // direct evaluateStructured call. diagnosis/recommendedNextAction from the
+    // graph are NOT part of FleetReviewResponse — dropped to keep the card
+    // contract identical (AE5).
+    if (allowAi && isFleetAiAvailable()) {
       try {
         const graphResult = await runPlanReview({ entityId: projectId, entityType: 'project', ctx });
         planReview = graphResult.planReview;
@@ -384,7 +386,6 @@ export async function getReview(
     } else if (force) {
       planEntry = undefined; // forced refresh degraded → clear stale AI entry
     }
-    // non-forced deterministic result is not cached; any prior AI entry is preserved.
   }
 
   // ----- retro recommendation -----
