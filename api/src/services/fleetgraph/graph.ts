@@ -14,9 +14,7 @@
  *     ▼
  *   reason         (two-tier: proactive→fleet-ai structured; chat→bound chat model)
  *     │
- *     ▼
- *   policy         (pass-through; conditional edge classifies)
- *     │
+ *     ▼  (conditional edge: policyRoute classifies by proposal presence)
  *     ├── policyRoute=='output' ──▶ output ──▶ END
  *     └── policyRoute=='action' ──▶ action
  *                                     │  interrupt(proposal) → pause
@@ -27,9 +25,11 @@
  *
  * Both modes share scope + fetch wholesale. The reason node BRANCHES INTERNALLY
  * by mode (proactive emits a structured insight; chat may emit a tool call). The
- * policy node routes by proposal presence, so the action node is reachable only
- * in chat with a proposed write. (Decision resolved per plan "Deferred to
- * Implementation": shared scope+fetch; reason/policy/output branch by mode.)
+ * conditional edge attached directly after `reason` (the `policyRoute` pure
+ * function — there is NO separate policy node; M-03 removed the no-op) routes by
+ * proposal presence, so the action node is reachable only in chat with a proposed
+ * write. (Decision resolved per plan "Deferred to Implementation": shared
+ * scope+fetch; reason/output branch by mode.)
  *
  * ── COMPILE + POOL ──────────────────────────────────────────────────────────
  *

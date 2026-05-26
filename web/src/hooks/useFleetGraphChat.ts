@@ -349,6 +349,13 @@ export function useFleetGraphChat(
     async (approved: boolean) => {
       const id = conversationIdRef.current;
       if (!id || !pendingProposal) return;
+      // Synchronous double-resolve guard (same ref a turn uses): a double-tap
+      // Confirm — or Confirm-then-Decline in the same tick — must not co-fire two
+      // POST /chat/confirm. The ref flips before any await; the second tap returns
+      // early. A turn and a confirm shouldn't normally overlap, so sharing the ref
+      // is safe and keeps the guard consistent.
+      if (isRunningRef.current) return;
+      isRunningRef.current = true;
       // Optimistically clear the card; the proposal is either applied or declined.
       const proposal = pendingProposal;
       setPendingProposal(null);
@@ -359,14 +366,36 @@ export function useFleetGraphChat(
           approved,
         });
         if (!mountedRef.current) return;
+        if (res.status === 409) {
+          // The proposal was already resolved server-side (e.g. a prior tap
+          // landed, or it expired). Restoring the card would just 409 again on
+          // the next tap (retry loop). Settle to idle without restoring — and
+          // without setting `error`, which renders a misleading Retry control.
+          setPendingProposal(null);
+          setStatus('idle');
+          setError(null);
+          return;
+        }
         if (!res.ok) {
           setPendingProposal(proposal); // Restore — still confirmable.
           setStatus('error');
           setError('Could not complete that action. Try again.');
           return;
         }
-        const data = (await res.json()) as { status: string; answer?: string };
+        const data = (await res.json()) as {
+          status?: string;
+          answer?: string;
+          proposal?: WriteProposal;
+        };
         if (!mountedRef.current) return;
+        if (data.status === 'paused' && data.proposal) {
+          // Defensive: the confirm resolved into another paused write. Re-surface
+          // the card rather than going idle with nothing to act on.
+          setPendingProposal(data.proposal);
+          setStatus('idle');
+          setError(null);
+          return;
+        }
         if (data.answer) {
           setMessages((prev) => [...prev, { role: 'assistant', content: data.answer! }]);
         }
@@ -377,6 +406,8 @@ export function useFleetGraphChat(
         setPendingProposal(proposal);
         setStatus('error');
         setError('Could not complete that action. Try again.');
+      } finally {
+        isRunningRef.current = false;
       }
     },
     [pendingProposal]

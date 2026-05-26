@@ -214,5 +214,48 @@ export async function isPending(conversationId: string): Promise<boolean> {
   return (await getPendingProposal(conversationId)) !== null;
 }
 
+/**
+ * ATOMICALLY claim the pending proposal: in a SINGLE statement, remove the
+ * `fleetgraph_pending` marker and return the proposal it held — but only if it
+ * was present. Returns the claimed `WriteProposal`, or null when no marker was
+ * present to claim.
+ *
+ * This is the concurrency-safe replacement for the old "read isPending, then
+ * setPending(null)" check-then-act, which was NOT atomic: two concurrent confirms
+ * could both pass the `isPending` check and both resume the same checkpoint,
+ * executing the write twice. Here Postgres serializes the row update, so EXACTLY
+ * ONE caller observes a present marker and removes it; every other concurrent
+ * caller claims nothing (null) → the route 409s it without resuming.
+ *
+ * Postgres `RETURNING` sees the NEW (post-update) row, where the key is already
+ * gone — so we capture the OLD value via a CTE that reads (and `FOR UPDATE` locks)
+ * the row's pending value BEFORE the `properties - 'fleetgraph_pending'` is
+ * applied, then return that captured value. The marker is therefore cleared in
+ * the same statement that hands the proposal to the (single) winning caller, so
+ * there is no post-resume `setPending(null)` and thus no failure window that
+ * could leave a stale marker → permanent 409 lockout.
+ */
+export async function claimPending(conversationId: string): Promise<WriteProposal | null> {
+  const res = await pool.query<{ proposal: WriteProposal | null }>(
+    `WITH claimed AS (
+        SELECT id, properties -> '${PENDING_KEY}' AS proposal
+          FROM documents
+         WHERE id = $1 AND document_type = 'conversation'
+           AND properties ? '${PENDING_KEY}'
+         FOR UPDATE
+      )
+      UPDATE documents d
+         SET properties = d.properties - '${PENDING_KEY}'
+        FROM claimed
+       WHERE d.id = claimed.id
+      RETURNING claimed.proposal AS proposal`,
+    [conversationId]
+  );
+  const proposal = res.rows[0]?.proposal;
+  // A claimed marker is the stored WriteProposal object; a cleared marker is JSON
+  // null (and an absent marker means zero rows). Treat non-objects as no-claim.
+  return proposal && typeof proposal === 'object' ? proposal : null;
+}
+
 /** Map an entityType to its backing document_type (re-export for the route). */
 export { resolveDocumentType };

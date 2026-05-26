@@ -409,6 +409,57 @@ describe('FleetGraph chat API', () => {
     expect(created.rowCount).toBe(1);
   });
 
+  // ── P1-1: TWO CONCURRENT confirms on the same paused conversation → exactly
+  // ONE performs the write (atomic claimPending), the other gets 409. This is the
+  // race the old check-then-act (isPending + later setPending(null)) could lose:
+  // both confirms passed the check and both resumed → duplicate write. ──
+  it('two concurrent confirms execute the write exactly once (the loser gets 409)', async () => {
+    modelState.next = () =>
+      new AIMessage({
+        content: '',
+        tool_calls: [{ name: 'propose_create_issue', args: { title: 'Race once' }, id: 'c1', type: 'tool_call' }],
+      });
+    const res = await chat({ message: 'create', entityId: projectId, entityType: 'project' });
+    const paused = parseSse(res.text).find((e) => e.type === 'paused')!;
+    const conversationId = paused.data.threadId as string;
+
+    // Fire BOTH confirms concurrently on the same session.
+    const confirm = () =>
+      request(app)
+        .post('/api/fleetgraph/chat/confirm')
+        .set('Cookie', sessionCookie)
+        .set('x-csrf-token', csrfToken)
+        .send({ conversationId, approved: true });
+    const [a, b] = await Promise.all([confirm(), confirm()]);
+
+    const statuses = [a.status, b.status].sort();
+    // Exactly one 200 (the winner) and one 409 (the loser whose claim found nothing).
+    expect(statuses).toEqual([200, 409]);
+
+    // The write fired EXACTLY once — only one issue exists.
+    const created = await pool.query(
+      `SELECT id FROM documents WHERE workspace_id = $1 AND document_type='issue' AND title = 'Race once'`,
+      [workspaceId]
+    );
+    expect(created.rowCount).toBe(1);
+  });
+
+  // ── P1-1: confirm with no pending marker → 409 (claimPending returns null) ──
+  it('confirm on a conversation with no pending proposal returns 409', async () => {
+    // A resolved (no-proposal) turn leaves no pending marker.
+    modelState.next = () => new AIMessage('Just an answer, no write.');
+    const res = await chat({ message: 'status?', entityId: projectId, entityType: 'project' });
+    const final = parseSse(res.text).find((e) => e.type === 'final')!;
+    const conversationId = final.data.threadId as string;
+
+    const confirm = await request(app)
+      .post('/api/fleetgraph/chat/confirm')
+      .set('Cookie', sessionCookie)
+      .set('x-csrf-token', csrfToken)
+      .send({ conversationId, approved: true });
+    expect(confirm.status).toBe(409);
+  });
+
   // ── A1: a second turn after an 'answer' turn produces a fresh answer to the
   // NEW message (no stale-proposal replay), and no checkpoint remains ──
   it('a second turn after an answer turn answers the new message with no stale replay', async () => {

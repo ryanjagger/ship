@@ -4,7 +4,7 @@
  * Three callers drive the ONE compiled graph:
  *
  *   runPlanReview()   — proactive plan-review (U8 calls this from getReview's
- *                       shell). Runs scope→fetch→reason(structured)→policy→output.
+ *                       shell). Runs scope→fetch→reason(structured)→output.
  *                       No chat, no interrupt. Returns a FleetPlanReview-shaped
  *                       result so it drops into the existing card/retro contract.
  *
@@ -64,9 +64,16 @@ type CompiledGraph = ReturnType<typeof compileGraph>;
  * (it is what `resume` needs). Best-effort: a missing/nonexistent thread is a
  * no-op (the UPDATE matches zero rows).
  */
+// Module-memoized checkpointer for clearConversationThread — constructed once over
+// the shared pool and reused, rather than allocating a fresh saver per call.
+let _clearCheckpointer: ConversationDocCheckpointSaver | null = null;
+function getClearCheckpointer(): ConversationDocCheckpointSaver {
+  if (!_clearCheckpointer) _clearCheckpointer = new ConversationDocCheckpointSaver(defaultPool);
+  return _clearCheckpointer;
+}
+
 export async function clearConversationThread(conversationId: string): Promise<void> {
-  const checkpointer = new ConversationDocCheckpointSaver(defaultPool);
-  await checkpointer.deleteThread(conversationId);
+  await getClearCheckpointer().deleteThread(conversationId);
 }
 
 // RUBRIC labels/hints + BY_WHEN_HINT come from the canonical plan-review-config
@@ -281,7 +288,15 @@ export async function* streamChatTurn(
   // run, so the new message runs cleanly instead of resuming stale graph state.
   // (A PAUSED prior turn is gated upstream by the route's isPending 409, so we
   // never reach here with a legitimately pending checkpoint to preserve.)
-  await clearConversationThread(args.conversationDocId);
+  // Best-effort, matching the other three clearConversationThread sites: a DB
+  // blip here must not fail the whole turn after the user message was already
+  // persisted + the rate-limit token billed.
+  await clearConversationThread(args.conversationDocId).catch((err) =>
+    console.warn(
+      '[fleetgraph] start-of-turn clear failed (non-fatal):',
+      err instanceof Error ? err.message : err
+    )
+  );
 
   let lastValues: Record<string, unknown> | undefined;
 

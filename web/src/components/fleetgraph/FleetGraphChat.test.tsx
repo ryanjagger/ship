@@ -244,6 +244,71 @@ describe('FleetGraphChat proposal card (R5)', () => {
     // Card is gone after declining.
     await waitFor(() => expect(screen.queryByRole('group', { name: /proposed change/i })).toBeNull());
   });
+
+  it('double-tap Confirm fires exactly ONE POST /chat/confirm (in-flight guard)', async () => {
+    // Confirm stays in flight until released, so a second tap lands while the
+    // first is still running — the isRunningRef guard must drop it.
+    let release: ((r: Response) => void) | null = null;
+    const calls = mockFetch({
+      chat: () => sseResponse([frame({ type: 'paused', proposal: sampleProposal, threadId: 'c1' })]),
+      confirm: () => {
+        // Defer the resolution so both taps occur before the POST settles.
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        }) as unknown as Response;
+      },
+    });
+
+    renderWithProviders(
+      <FleetGraphChat open onClose={() => {}} entityId="e1" entityType="project" />
+    );
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'make an issue' } });
+    fireEvent.submit(input.closest('form')!);
+
+    const confirmBtn = await screen.findByRole('button', { name: /^confirm$/i });
+    // Two rapid taps before the first confirm resolves.
+    fireEvent.click(confirmBtn);
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      const confirmCalls = calls.filter(
+        (c) => c.method === 'POST' && c.url.includes('/chat/confirm')
+      );
+      expect(confirmCalls).toHaveLength(1);
+    });
+
+    await act(async () => {
+      release?.(jsonResponse({ status: 'answer', answer: 'Created.', conversationId: 'c1' }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.getByText('Created.')).toBeInTheDocument());
+  });
+
+  it('confirm 409 does NOT restore the card and the drawer goes idle (no loop)', async () => {
+    mockFetch({
+      chat: () => sseResponse([frame({ type: 'paused', proposal: sampleProposal, threadId: 'c1' })]),
+      confirm: () =>
+        jsonResponse({ error: 'No pending proposal to confirm — already resolved' }, 409),
+    });
+
+    renderWithProviders(
+      <FleetGraphChat open onClose={() => {}} entityId="e1" entityType="project" />
+    );
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'make an issue' } });
+    fireEvent.submit(input.closest('form')!);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^confirm$/i }));
+
+    // The 409 settles to idle: the card is NOT restored (so no retry loop),
+    // and no error/Retry control surfaces (a Retry would just 409 again).
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: /proposed change/i })).toBeNull()
+    );
+    expect(screen.queryByRole('button', { name: /^confirm$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+  });
 });
 
 describe('FleetGraphChat re-surface + history', () => {
@@ -373,8 +438,6 @@ describe('FleetGraphChat lifecycle + concurrency', () => {
       return jsonResponse({});
     }) as typeof global.fetch;
 
-    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
-
     const { unmount } = renderWithProviders(
       <FleetGraphChat open onClose={() => {}} entityId="e1" entityType="project" />
     );
@@ -390,21 +453,24 @@ describe('FleetGraphChat lifecycle + concurrency', () => {
       unmount();
     });
 
-    // The fetch signal was aborted on unmount, closing the live connection.
+    // Observable behavior #1: the fetch signal was aborted on unmount, closing
+    // the live connection. (React 19 dropped the "can't perform a React state
+    // update" warning, so asserting on that string would pass vacuously — we
+    // assert on the AbortController signal instead.)
     expect(captured).not.toBeNull();
+    expect(captured!.aborted).toBe(true);
     expect(aborted).toBe(true);
 
-    // Give any leaked async reader loop a tick; assert no React state-update
-    // warning fired after unmount.
+    // Observable behavior #2: pushing a late `final` frame after unmount drives
+    // no further DOM update — the drawer is gone and stays gone (no resurrected
+    // "late" text from a setState on a torn-down fiber).
     await act(async () => {
       controller?.enqueue(new TextEncoder().encode(frame({ type: 'final', answer: 'late', threadId: 'c1' })));
+      controller?.close();
       await Promise.resolve();
     });
-    const warned = warn.mock.calls.some((c) =>
-      String(c[0]).includes("can't perform a React state update")
-    );
-    expect(warned).toBe(false);
-    warn.mockRestore();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    expect(screen.queryByText('late')).toBeNull();
   });
 
   it('ignores a rapid double-submit: only one turn / one user bubble starts', async () => {

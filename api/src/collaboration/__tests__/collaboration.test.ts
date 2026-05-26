@@ -455,6 +455,24 @@ describe('Collaboration Server', () => {
 
       await pool.query('DELETE FROM documents WHERE id = $1', [conversationDocId])
     })
+
+    it('denies a collab join to a FleetGraph insight doc too (T2)', async () => {
+      // The guard rejects BOTH hidden fleetgraph doc types ('conversation' and
+      // 'insight') by document_type, so a Yjs persist can never clobber their
+      // fleetgraph_* engine state — not just the conversation type.
+      const insightResult = await pool.query(
+        `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by)
+         VALUES ($1, 'insight', 'Untitled', 'workspace', $2)
+         RETURNING id`,
+        [testWorkspaceId, testUserId]
+      )
+      const insightDocId = insightResult.rows[0].id
+
+      const access = await canAccessDocumentForCollab(insightDocId, testUserId, testWorkspaceId)
+      expect(access).toBe(false)
+
+      await pool.query('DELETE FROM documents WHERE id = $1', [insightDocId])
+    })
   })
 
   describe('Rate Limiting', () => {

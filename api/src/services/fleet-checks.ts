@@ -11,7 +11,7 @@
  * Pure: no DB, no network.
  */
 
-import type { FleetHypothesisPiece, FleetStatus } from '@ship/shared';
+import type { FleetHypothesisPiece } from '@ship/shared';
 
 export interface FleetCheckInput {
   /** properties.plan text (the synced /plan block / wizard string), or null. */
@@ -57,13 +57,4 @@ export function deterministicPieces(input: FleetCheckInput): FleetHypothesisPiec
       hint: 'Set a Target Date (by when).',
     },
   ];
-}
-
-/**
- * Status from the evaluated pieces: no plan text -> no_plan; every evaluated
- * piece met -> looks_testable; otherwise needs_work.
- */
-export function statusFromPieces(pieces: FleetHypothesisPiece[], hasPlan: boolean): FleetStatus {
-  if (!hasPlan) return 'no_plan';
-  return pieces.every((p) => p.met) ? 'looks_testable' : 'needs_work';
 }

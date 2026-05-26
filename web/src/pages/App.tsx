@@ -1193,7 +1193,10 @@ function ProjectsList({
     // Check if viewing any tab of a project that exists in the list
     const projectIds = projects.map(p => p.id);
     if (!projectIds.includes(activeId)) return null;
-    if (path === `/documents/${activeId}`) return 'details';
+    // Mirror getCurrentTab: the bare document root renders the first tab
+    // (Issues), so map it to 'issues' — Details has its own /details path.
+    if (path === `/documents/${activeId}`) return 'issues';
+    if (path === `/documents/${activeId}/details`) return 'details';
     if (path === `/documents/${activeId}/weeks`) return 'weeks';
     if (path === `/documents/${activeId}/issues`) return 'issues';
     if (path === `/documents/${activeId}/retro`) return 'retro';

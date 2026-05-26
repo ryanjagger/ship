@@ -54,6 +54,7 @@ import {
   appendTurn,
   setPending,
   isPending,
+  claimPending,
   getPendingProposal,
 } from '../services/fleetgraph/conversation.js';
 import { checkFleetChatRateLimit } from '../services/fleetgraph/rate-limit.js';
@@ -276,15 +277,27 @@ router.post('/chat/confirm', authMiddleware, async (req: Request, res: Response)
       return;
     }
 
-    // Double-confirm guard: there must be a pending proposal to confirm. A second
-    // confirm on an already-resolved conversation (marker cleared) is rejected
-    // BEFORE resume, so a stale checkpoint can never be re-executed (the write
-    // would otherwise fire twice). 409 — no resume.
-    if (!(await isPending(conversationId))) {
-      res.status(409).json({ error: 'No pending proposal to confirm.' });
+    // Atomic double-confirm guard (subsumes the old isPending check + the
+    // post-write setPending(null)). `claimPending` removes the marker AND returns
+    // the proposal it held in ONE statement, so EXACTLY ONE concurrent confirm
+    // wins; every other concurrent confirm claims nothing → 409 with NO resume.
+    // This closes the check-then-act race that could resume the same checkpoint
+    // twice (duplicate write). We claim UNCONDITIONALLY for both approve and
+    // decline: the decline path still needs the marker cleared before resuming
+    // with {approved:false}. The marker is now cleared atomically BEFORE resume,
+    // so there is no later setPending(null) and thus no failure window that could
+    // strand the marker → permanent 409 lockout (the old bug).
+    const claimed = await claimPending(conversationId);
+    if (!claimed) {
+      res.status(409).json({ error: 'No pending proposal to confirm (already resolved).' });
       return;
     }
 
+    // EDGE: if resumeChatTurn throws AFTER the claim, the marker is already gone
+    // (no automatic retry) but NO duplicate write occurred — strictly better than
+    // a duplicate write. The interrupt checkpoint may be left orphaned; that is a
+    // known, accepted residual (resumeChatTurn deleteThreads it on a clean
+    // resolve). A 500 here lets the client surface the failure.
     const result = await resumeChatTurn({ conversationDocId: conversationId, approved });
 
     if (result.status === 'paused') {
@@ -294,12 +307,11 @@ router.post('/chat/confirm', authMiddleware, async (req: Request, res: Response)
     }
 
     // The proposal is resolved (applied or declined) and the write is durably
-    // committed. Clearing the pending marker + persisting the assistant turn are
-    // BEST-EFFORT cleanup: a failure here must NOT 500 (that would leave the
-    // marker set → a permanent 409 lockout despite a successful write). Report
-    // success regardless. (resumeChatTurn already cleared the U3 checkpoint.)
+    // committed. The marker was already cleared atomically by claimPending, so the
+    // only remaining cleanup is the best-effort transcript append: a failure here
+    // must NOT 500 (the write already succeeded). (resumeChatTurn already cleared
+    // the U3 checkpoint.)
     try {
-      await setPending(conversationId, null);
       if (result.answer) await appendTurn(conversationId, { role: 'assistant', content: result.answer });
     } catch (cleanupErr) {
       console.error('FleetGraph confirm cleanup (non-fatal):', cleanupErr);

@@ -29,8 +29,8 @@ import { buildCreateIssueProposal } from './tools/write.js';
  * tables before this file runs.
  *
  * Coverage:
- *  - R1/R2: proactive scope→fetch→reason→policy→output, structured result.
- *  - R4: policy routes answer→output, write→action.
+ *  - R1/R2: proactive scope→fetch→reason→output, structured result.
+ *  - R4: the conditional edge after reason routes answer→output, write→action.
  *  - R5: chat write proposal pauses at action; approve executes; decline abandons.
  *  - Idempotency: resume fires the mutation exactly once; model called once.
  *  - R6: fleet-checks-derived signals are in the reasoning prompt.
@@ -150,7 +150,7 @@ describe('proactive plan-review (R1, R2)', () => {
     fleetAiEval.mockReset();
   });
 
-  it('runs scope→fetch→reason→policy→output and returns a structured result', async () => {
+  it('runs scope→fetch→reason→output and returns a structured result', async () => {
     const capture: { system?: string; user?: string } = {};
     fleetAiEval.mockImplementation(async (req: { system: string; user: string }) => {
       capture.system = req.system;
