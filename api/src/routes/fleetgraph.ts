@@ -90,6 +90,14 @@ function sseFrame(event: ChatStreamEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
+// ── GET /availability — lightweight provider gate for the client launcher ────
+// The web launcher hides itself when no provider is configured (rather than
+// rendering a dead control). This is the cheap probe it polls; the heavier
+// chat/confirm routes still 503 independently via assertProviderAvailable.
+router.get('/availability', authMiddleware, (_req, res) => {
+  res.json({ available: isFleetGraphAvailable() });
+});
+
 // ── POST /chat — reject GET (405); stream SSE on POST ────────────────────────
 
 router.get('/chat', (_req, res) => {

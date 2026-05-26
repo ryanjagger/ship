@@ -290,6 +290,23 @@ describe('FleetGraph chat API', () => {
     expect(confirmRes.status).toBe(503);
   });
 
+  // ── R18: availability probe drives the client launcher's hide/show ──
+  it('GET /availability reflects provider configuration (drives launcher hide/show)', async () => {
+    modelState.available = true;
+    const up = await request(app).get('/api/fleetgraph/availability').set('Cookie', sessionCookie);
+    expect(up.status).toBe(200);
+    expect(up.body).toEqual({ available: true });
+
+    modelState.available = false;
+    const down = await request(app).get('/api/fleetgraph/availability').set('Cookie', sessionCookie);
+    expect(down.status).toBe(200);
+    expect(down.body).toEqual({ available: false });
+
+    // Unauthenticated callers get 401, not an availability signal.
+    const anon = await request(app).get('/api/fleetgraph/availability');
+    expect(anon.status).toBe(401);
+  });
+
   // ── R9 (P0): cross-user confirm → 403, no write; non-owner non-admin GET → 403 ──
   it('a different user cannot confirm someone else\'s paused write (403, no write)', async () => {
     modelState.next = () =>

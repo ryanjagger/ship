@@ -62,6 +62,22 @@ const FleetConversationSchema = z
 registry.register('FleetConversation', FleetConversationSchema);
 
 registry.registerPath({
+  method: 'get',
+  path: '/fleetgraph/availability',
+  tags: ['Fleet'],
+  summary: 'Whether FleetGraph chat is available',
+  description:
+    'Lightweight provider gate for the client launcher: returns `{ available }` reflecting whether an AI provider is configured. The launcher hides itself when false rather than rendering a dead control.',
+  responses: {
+    200: {
+      description: 'Availability flag',
+      content: { 'application/json': { schema: z.object({ available: z.boolean() }) } },
+    },
+    401: { description: 'Unauthenticated' },
+  },
+});
+
+registry.registerPath({
   method: 'post',
   path: '/fleetgraph/chat',
   tags: ['Fleet'],
