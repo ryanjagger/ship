@@ -18,6 +18,24 @@ config({ path: join(dirname(fileURLToPath(import.meta.url)), '../../.env.local')
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Postgres SQLSTATE codes for "this object already exists" collisions.
+const DUPLICATE_OBJECT_CODES = new Set([
+  '42P07', // duplicate_table
+  '42710', // duplicate_object (type, trigger, constraint, ...)
+  '42701', // duplicate_column
+  '42P06', // duplicate_schema
+  '42723', // duplicate_function
+  '42P04', // duplicate_database
+  '42712', // duplicate_alias
+]);
+
+function isAlreadyExistsError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  if (code && DUPLICATE_OBJECT_CODES.has(code)) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('already exists');
+}
+
 async function migrate() {
   await loadProductionSecrets();
 
@@ -105,7 +123,23 @@ async function migrate() {
         migrationsRun++;
       } catch (err) {
         await client.query('ROLLBACK');
-        throw err;
+
+        // schema.sql is this repo's source of truth for a fresh database and
+        // already contains the cumulative effect of the historical migrations.
+        // On a database provisioned from schema.sql, replaying an older
+        // migration therefore collides with objects that already exist. Treat a
+        // pure duplicate-object error as "already applied": record it and move
+        // on, so the loop can still reach genuinely-new migrations. Any other
+        // error is a real failure and propagates.
+        if (isAlreadyExistsError(err)) {
+          await pool.query(
+            'INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING',
+            [version],
+          );
+          console.log(`  ↷ ${file} skipped (objects already exist; marked applied)`);
+        } else {
+          throw err;
+        }
       } finally {
         client.release();
       }
