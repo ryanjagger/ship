@@ -274,14 +274,16 @@ export async function buildPlanReview(signals: FleetSignals): Promise<FleetPlanR
     });
 
     if (!isFleetAiError(ai)) {
-      const score = ai.criteria.filter((c) => c.met).length;
-      const findings: FleetFinding[] = ai.criteria
-        .filter((c) => !c.met)
-        .map((c) => ({
-          id: c.id,
-          label: RUBRIC_LABELS[c.id] ?? c.id,
-          message: c.note,
-        }));
+      // Score only the known rubric criteria the model marked met. This bounds
+      // the score to 0–7 even if the model returns extra or duplicate ids
+      // (provider grammar does not enforce item count).
+      const metIds = new Set(ai.criteria.filter((c) => c.met).map((c) => c.id));
+      const score = RUBRIC.filter((r) => metIds.has(r.id)).length;
+      const findings: FleetFinding[] = RUBRIC.filter((r) => !metIds.has(r.id)).map((r) => ({
+        id: r.id,
+        label: r.label,
+        message: ai.criteria.find((c) => c.id === r.id)?.note ?? `Missing: ${r.label}.`,
+      }));
       return {
         status: planStatusFromScore(score),
         score,
@@ -472,13 +474,19 @@ export async function getReview(
     const newBlob: FleetCacheBlob = {};
     if (planEntry) newBlob.plan_review = planEntry;
     if (retroEntry) newBlob.retro_recommendation = retroEntry;
-    await pool.query(
-      `UPDATE documents
-         SET properties = jsonb_set(COALESCE(properties, '{}'::jsonb), '{fleet}', $1::jsonb, true),
-             updated_at = now()
-       WHERE id = $2 AND workspace_id = $3 AND document_type = 'project'`,
-      [JSON.stringify(newBlob), projectId, ctx.workspaceId]
-    );
+    // Caching is best-effort: a write failure must not discard the freshly
+    // computed review. Log and fall through to return the result.
+    try {
+      await pool.query(
+        `UPDATE documents
+           SET properties = jsonb_set(COALESCE(properties, '{}'::jsonb), '{fleet}', $1::jsonb, true),
+               updated_at = now()
+         WHERE id = $2 AND workspace_id = $3 AND document_type = 'project'`,
+        [JSON.stringify(newBlob), projectId, ctx.workspaceId]
+      );
+    } catch (err) {
+      console.warn('[fleet-service] cache write failed:', err instanceof Error ? err.message : err);
+    }
   }
 
   return {

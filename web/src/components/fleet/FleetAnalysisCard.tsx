@@ -20,6 +20,8 @@ interface FleetAnalysisCardProps {
   isLoading?: boolean;
   isError?: boolean;
   isRefreshing?: boolean;
+  /** True when the last refresh mutation failed (e.g. 429 rate limit). */
+  refreshError?: boolean;
   onRefresh?: () => void;
 }
 
@@ -86,12 +88,14 @@ function CardShell({
   freshness,
   onRefresh,
   isRefreshing,
+  refreshError,
   children,
 }: {
   title: string;
   freshness?: string | null;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  refreshError?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -103,6 +107,9 @@ function CardShell({
           <RefreshButton onRefresh={onRefresh} isRefreshing={isRefreshing} />
         </div>
       </div>
+      {refreshError && (
+        <p className="mb-2 text-xs text-yellow-600">Refresh failed — try again in a moment.</p>
+      )}
       {children}
     </div>
   );
@@ -114,6 +121,7 @@ export function FleetAnalysisCard({
   isLoading = false,
   isError = false,
   isRefreshing = false,
+  refreshError = false,
   onRefresh,
 }: FleetAnalysisCardProps) {
   const title = variant === 'retro' ? 'Fleet Recommendation' : 'Fleet — Plan Review';
@@ -150,9 +158,9 @@ export function FleetAnalysisCard({
   if (!review) return null;
 
   return variant === 'retro' ? (
-    <RetroPanel review={review} onRefresh={onRefresh} isRefreshing={isRefreshing} />
+    <RetroPanel review={review} onRefresh={onRefresh} isRefreshing={isRefreshing} refreshError={refreshError} />
   ) : (
-    <DetailsCard review={review} onRefresh={onRefresh} isRefreshing={isRefreshing} />
+    <DetailsCard review={review} onRefresh={onRefresh} isRefreshing={isRefreshing} refreshError={refreshError} />
   );
 }
 
@@ -160,14 +168,16 @@ function DetailsCard({
   review,
   onRefresh,
   isRefreshing,
+  refreshError,
 }: {
   review: FleetReviewResponse;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  refreshError?: boolean;
 }) {
   const pr = review.plan_review;
   return (
-    <CardShell title="Fleet — Plan Review" freshness={formatRelative(pr.computed_at)} onRefresh={onRefresh} isRefreshing={isRefreshing}>
+    <CardShell title="Fleet — Plan Review" freshness={formatRelative(pr.computed_at)} onRefresh={onRefresh} isRefreshing={isRefreshing} refreshError={refreshError}>
       <div className="flex items-center gap-3">
         <span className={cn('rounded-md px-2 py-1 text-xs font-medium', STATUS_CLASSES[pr.status])}>
           {STATUS_LABELS[pr.status]}
@@ -209,14 +219,16 @@ function RetroPanel({
   review,
   onRefresh,
   isRefreshing,
+  refreshError,
 }: {
   review: FleetReviewResponse;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  refreshError?: boolean;
 }) {
   const rec = review.retro_recommendation;
   return (
-    <CardShell title="Fleet Recommendation" freshness={formatRelative(rec.computed_at)} onRefresh={onRefresh} isRefreshing={isRefreshing}>
+    <CardShell title="Fleet Recommendation" freshness={formatRelative(rec.computed_at)} onRefresh={onRefresh} isRefreshing={isRefreshing} refreshError={refreshError}>
       {/* Advisory, read-only — deliberately not the green/red human control. */}
       <div className="rounded-md border border-border bg-border/20 px-3 py-2">
         <div className="text-xs font-medium uppercase tracking-wide text-muted">Recommended outcome</div>
@@ -228,8 +240,8 @@ function RetroPanel({
         <div className="mt-3">
           <div className="text-xs font-medium text-muted">Evidence found</div>
           <ul className="mt-1 space-y-1">
-            {rec.evidence_found.map((e, i) => (
-              <li key={i} className="text-xs text-foreground">• {e}</li>
+            {rec.evidence_found.map((e) => (
+              <li key={e} className="text-xs text-foreground">• {e}</li>
             ))}
           </ul>
         </div>
@@ -239,8 +251,8 @@ function RetroPanel({
         <div className="mt-3">
           <div className="text-xs font-medium text-muted">Evidence missing</div>
           <ul className="mt-1 space-y-1">
-            {rec.evidence_missing.map((e, i) => (
-              <li key={i} className="text-xs text-foreground">• {e}</li>
+            {rec.evidence_missing.map((e) => (
+              <li key={e} className="text-xs text-foreground">• {e}</li>
             ))}
           </ul>
         </div>

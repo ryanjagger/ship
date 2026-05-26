@@ -55,6 +55,7 @@ describe('Fleet plan-review API', () => {
   let sessionCookie: string;
   let otherSessionCookie: string;
   let csrfToken: string;
+  let otherCsrfToken: string;
   let workspaceId: string;
   let userId: string;
   let otherUserId: string;
@@ -87,6 +88,11 @@ describe('Fleet plan-review API', () => {
     csrfToken = csrfRes.body.token;
     const connectSid = csrfRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
     if (connectSid) sessionCookie = `${sessionCookie}; ${connectSid}`;
+
+    const otherCsrfRes = await request(app).get('/api/csrf-token').set('Cookie', otherSessionCookie);
+    otherCsrfToken = otherCsrfRes.body.token;
+    const otherConnectSid = otherCsrfRes.headers['set-cookie']?.[0]?.split(';')[0] || '';
+    if (otherConnectSid) otherSessionCookie = `${otherSessionCookie}; ${otherConnectSid}`;
 
     programId = (await pool.query(
       `INSERT INTO documents (workspace_id, document_type, title, created_by, visibility) VALUES ($1,'program','P',$2,'workspace') RETURNING id`,
@@ -179,6 +185,16 @@ describe('Fleet plan-review API', () => {
       .set('x-csrf-token', csrfToken);
     expect(res.status).toBe(200);
     expect(evaluateStructured.mock.calls.length).toBe(4); // forced re-run of both
+  });
+
+  it('POST refresh for a non-visible project → 404 (cross-workspace, no leak)', async () => {
+    wireAiAvailable();
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/fleet/plan-review/refresh`)
+      .set('Cookie', otherSessionCookie)
+      .set('x-csrf-token', otherCsrfToken);
+    expect(res.status).toBe(404);
+    expect(evaluateStructured).not.toHaveBeenCalled();
   });
 
   it('OpenAPI document includes both Fleet paths', () => {

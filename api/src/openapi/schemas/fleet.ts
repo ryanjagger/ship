@@ -61,6 +61,7 @@ registry.registerPath({
       description: 'Fleet plan review and retro recommendation',
       content: { 'application/json': { schema: FleetReviewResponseSchema } },
     },
+    401: { description: 'Unauthenticated' },
     404: { description: 'Project not found or not visible' },
   },
 });
@@ -80,6 +81,7 @@ registry.registerPath({
       description: 'Refreshed Fleet plan review and retro recommendation',
       content: { 'application/json': { schema: FleetReviewResponseSchema } },
     },
+    401: { description: 'Unauthenticated' },
     404: { description: 'Project not found or not visible' },
     429: { description: 'Refresh rate limit exceeded' },
   },

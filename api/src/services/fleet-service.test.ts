@@ -333,6 +333,28 @@ describe('getReview caching', () => {
     expect(mockEvaluate).toHaveBeenCalledTimes(2); // both re-run despite cache
   });
 
+  it('cache write payload is key-scoped — never includes sibling props like plan_validated (U5)', async () => {
+    mockAvailable.mockReturnValue(true);
+    mockEvaluate.mockResolvedValueOnce(planAiResult(6)).mockResolvedValueOnce(retroAiResult());
+    const withValidated = projRow(null);
+    withValidated.properties = { ...withValidated.properties, plan_validated: true } as typeof withValidated.properties;
+    mockQuery
+      .mockResolvedValueOnce({ rows: [withValidated] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never);
+
+    await getReview('p1', CTX);
+    const update = findUpdateCall();
+    expect(update).toBeTruthy();
+    expect(String(update![0])).toContain("'{fleet}'"); // targets only the fleet key
+    const blob = JSON.parse(String((update![1] as unknown[])[0]));
+    expect(Object.keys(blob).sort()).toEqual(['plan_review', 'retro_recommendation']);
+    expect(blob).not.toHaveProperty('plan_validated');
+    expect(blob).not.toHaveProperty('plan');
+    expect(blob).not.toHaveProperty('success_criteria');
+  });
+
   it('AI unavailable → deterministic result and no cache write', async () => {
     mockAvailable.mockReturnValue(false);
     mockQuery

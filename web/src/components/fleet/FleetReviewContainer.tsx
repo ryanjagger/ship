@@ -24,6 +24,7 @@ export function FleetReviewContainer({ projectId, variant }: FleetReviewContaine
       isLoading={isLoading}
       isError={isError}
       isRefreshing={refresh.isPending}
+      refreshError={refresh.isError}
       onRefresh={() => refresh.mutate()}
     />
   );
