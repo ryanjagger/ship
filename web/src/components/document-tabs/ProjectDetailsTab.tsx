@@ -227,6 +227,8 @@ export default function ProjectDetailsTab({ documentId, document }: DocumentTabP
     // Design review
     has_design_review: document.has_design_review as boolean | null | undefined,
     design_review_notes: document.design_review_notes as string | null | undefined,
+    // Target date (editable post-creation; read from properties)
+    target_date: ((document.properties as Record<string, unknown> | undefined)?.target_date as string | null) ?? null,
   }), [document, programId]);
 
   if (!user) return null;
