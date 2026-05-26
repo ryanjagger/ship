@@ -15,6 +15,7 @@ import {
   buildPlanReview,
   buildRetroRecommendation,
   composeFreshReview,
+  getReview,
   RUBRIC,
   type FleetSignals,
 } from './fleet-service.js';
@@ -35,6 +36,7 @@ function signals(overrides: Partial<FleetSignals> = {}): FleetSignals {
     retroText: '',
     issues: { done: [], cancelled: [], active: [] },
     weeksCount: 0,
+    existingCache: null,
     ...overrides,
   };
 }
@@ -48,8 +50,32 @@ function planAiResult(metCount: number) {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
+
+// ---- helpers for getReview caching tests ----
+const CTX = { workspaceId: 'w1', userId: 'u1', isAdmin: false };
+
+function projRow(fleet: unknown) {
+  return {
+    id: 'p1',
+    title: 'P',
+    content: { type: 'doc', content: [] },
+    properties: { plan: 'Reduce X by 20% by end of Q3', success_criteria: ['a'], fleet },
+  };
+}
+function retroAiResult() {
+  return {
+    recommendation: 'insufficient_evidence' as const,
+    explanation: 'x',
+    evidence_found: [],
+    evidence_missing: ['No actual impact'],
+    suggested_conclusion: '',
+  };
+}
+function findUpdateCall() {
+  return mockQuery.mock.calls.find((c) => String(c[0]).includes('jsonb_set'));
+}
 
 describe('buildPlanReview', () => {
   it('no plan text → no_plan, null score, AI not called (AE1)', async () => {
@@ -210,5 +236,114 @@ describe('gatherSignals', () => {
     const issuesSql = String(mockQuery.mock.calls[1]![0]);
     expect(issuesSql).toContain("visibility = 'workspace'");
     expect(issuesSql).not.toContain('OR TRUE');
+  });
+});
+
+describe('getReview caching', () => {
+  it('returns null when project not visible', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never);
+    expect(await getReview('p1', CTX)).toBeNull();
+  });
+
+  it('AE6: unchanged plan → AI evaluated once across two calls', async () => {
+    mockAvailable.mockReturnValue(true);
+    mockEvaluate.mockResolvedValueOnce(planAiResult(6)).mockResolvedValueOnce(retroAiResult());
+    // Call 1: no cache → 3 reads + 1 update
+    mockQuery
+      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never);
+
+    const r1 = await getReview('p1', CTX);
+    expect(mockEvaluate).toHaveBeenCalledTimes(2); // plan + retro
+    expect(r1!.plan_review.score).toBe(6);
+
+    const update = findUpdateCall();
+    expect(update).toBeTruthy();
+    const sql = String(update![0]);
+    expect(sql).toContain('jsonb_set');
+    expect(sql).toContain("'{fleet}'");
+    expect(sql).not.toMatch(/SET properties = \$1\b/); // not a whole-properties overwrite
+    const blob = JSON.parse(String((update![1] as unknown[])[0]));
+
+    // Call 2: cache present (same plan) → no model call, no update
+    mockEvaluate.mockClear();
+    mockQuery.mockReset();
+    mockQuery
+      .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never);
+
+    const r2 = await getReview('p1', CTX);
+    expect(mockEvaluate).not.toHaveBeenCalled();
+    expect(r2!.plan_review.score).toBe(6);
+    expect(findUpdateCall()).toBeFalsy();
+  });
+
+  it('only an issue change re-runs retro, serves plan from cache', async () => {
+    mockAvailable.mockReturnValue(true);
+    mockEvaluate.mockResolvedValueOnce(planAiResult(6)).mockResolvedValueOnce(retroAiResult());
+    mockQuery
+      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never);
+    const r1 = await getReview('p1', CTX);
+    const blob = JSON.parse(String((findUpdateCall()![1] as unknown[])[0]));
+    expect(r1).toBeTruthy();
+
+    // Call 2: same plan, a new completed issue → retro hash misses only.
+    mockEvaluate.mockReset();
+    mockQuery.mockReset();
+    mockEvaluate.mockResolvedValueOnce(retroAiResult());
+    mockQuery
+      .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
+      .mockResolvedValueOnce({ rows: [{ state: 'done', title: 'NewIssue' }] } as never)
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never);
+
+    const r2 = await getReview('p1', CTX);
+    expect(mockEvaluate).toHaveBeenCalledTimes(1); // retro only
+    expect(r2!.plan_review.score).toBe(6); // plan served from cache
+    expect(findUpdateCall()).toBeTruthy();
+  });
+
+  it('force:true re-runs AI even on a hash match', async () => {
+    mockAvailable.mockReturnValue(true);
+    mockEvaluate.mockResolvedValueOnce(planAiResult(6)).mockResolvedValueOnce(retroAiResult());
+    mockQuery
+      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never);
+    await getReview('p1', CTX);
+    const blob = JSON.parse(String((findUpdateCall()![1] as unknown[])[0]));
+
+    mockEvaluate.mockReset();
+    mockQuery.mockReset();
+    mockEvaluate.mockResolvedValueOnce(planAiResult(6)).mockResolvedValueOnce(retroAiResult());
+    mockQuery
+      .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never);
+
+    await getReview('p1', CTX, { force: true });
+    expect(mockEvaluate).toHaveBeenCalledTimes(2); // both re-run despite cache
+  });
+
+  it('AI unavailable → deterministic result and no cache write', async () => {
+    mockAvailable.mockReturnValue(false);
+    mockQuery
+      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never)
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never);
+
+    const r = await getReview('p1', CTX);
+    expect(r!.plan_review.score).toBeNull();
+    expect(r!.ai_available).toBe(false);
+    expect(mockEvaluate).not.toHaveBeenCalled();
+    expect(findUpdateCall()).toBeFalsy();
   });
 });

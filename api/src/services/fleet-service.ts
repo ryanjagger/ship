@@ -11,6 +11,7 @@
  * properties.fleet (getReview).
  */
 
+import { createHash } from 'crypto';
 import { z } from 'zod';
 import { pool } from '../db/client.js';
 import { VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
@@ -39,6 +40,17 @@ export interface FleetContext {
   isAdmin: boolean;
 }
 
+/** A cached AI sub-result on properties.fleet, keyed by its input hash. */
+export interface FleetCacheEntry<T> {
+  result: T;
+  hash: string;
+  computed_at: string;
+}
+export interface FleetCacheBlob {
+  plan_review?: FleetCacheEntry<FleetPlanReview>;
+  retro_recommendation?: FleetCacheEntry<FleetRetroRecommendation>;
+}
+
 export interface FleetSignals {
   projectId: string;
   title: string;
@@ -55,6 +67,8 @@ export interface FleetSignals {
     active: string[];
   };
   weeksCount: number;
+  /** Existing properties.fleet cache, if any (read alongside the signals). */
+  existingCache: FleetCacheBlob | null;
 }
 
 interface ProjectRow {
@@ -67,6 +81,7 @@ interface ProjectRow {
     monetary_impact_expected?: string | null;
     monetary_impact_actual?: string | null;
     plan_validated?: boolean | null;
+    fleet?: FleetCacheBlob | null;
   } | null;
 }
 interface IssueRow {
@@ -107,7 +122,8 @@ export async function gatherSignals(
        AND da.related_id = $1 AND da.relationship_type = 'project'
      WHERE d.workspace_id = $2 AND d.document_type = 'issue'
        AND d.archived_at IS NULL AND d.deleted_at IS NULL
-       AND ${VISIBILITY_FILTER_SQL('d', '$3', false)}`,
+       AND ${VISIBILITY_FILTER_SQL('d', '$3', false)}
+     ORDER BY d.created_at ASC`,
     [projectId, ctx.workspaceId, ctx.userId]
   );
 
@@ -143,6 +159,7 @@ export async function gatherSignals(
     retroText: extractText(project.content).trim(),
     issues: { done, cancelled, active },
     weeksCount: Number(weeksResult.rows[0]?.n ?? 0),
+    existingCache: project.properties?.fleet ?? null,
   };
 }
 
@@ -359,5 +376,114 @@ export async function composeFreshReview(signals: FleetSignals): Promise<FleetRe
     plan_review: planReview,
     retro_recommendation: retroRecommendation,
     ai_available: planReview.ai_available || retroRecommendation.ai_available,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// U5 — input-hash caching on properties.fleet
+// ---------------------------------------------------------------------------
+
+/** sha256 of a stable JSON serialization of the inputs (mirrors ai-analysis.ts). */
+export function computeHash(parts: unknown): string {
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+}
+
+// Plan-review cache key: only the inputs that affect the plan review.
+function planReviewHash(s: FleetSignals): string {
+  return computeHash({ plan: s.plan, successCriteria: s.successCriteria });
+}
+// Retro-recommendation cache key: plan + criteria + execution evidence.
+function retroHash(s: FleetSignals): string {
+  return computeHash({
+    plan: s.plan,
+    successCriteria: s.successCriteria,
+    issues: s.issues,
+    impactExpected: s.monetaryImpactExpected,
+    impactActual: s.monetaryImpactActual,
+    retroText: s.retroText,
+  });
+}
+
+export interface GetReviewOptions {
+  force?: boolean;
+}
+
+/**
+ * Lazy-on-miss review with per-sub-result caching on properties.fleet.
+ *
+ * Deterministic checks recompute every call (free). Each AI sub-result is
+ * served from cache when its input hash is unchanged; on a miss (or `force`) it
+ * is recomputed and — when AI actually contributed — persisted via a key-scoped
+ * jsonb_set so a concurrent retro save's sibling keys are never clobbered.
+ *
+ * Returns null when the project is not visible to the requester.
+ */
+export async function getReview(
+  projectId: string,
+  ctx: FleetContext,
+  opts: GetReviewOptions = {}
+): Promise<FleetReviewResponse | null> {
+  const signals = await gatherSignals(projectId, ctx);
+  if (!signals) return null;
+
+  const cache = signals.existingCache ?? {};
+  const force = opts.force === true;
+
+  // ----- plan review -----
+  const pHash = planReviewHash(signals);
+  let planReview: FleetPlanReview;
+  let planEntry: FleetCacheEntry<FleetPlanReview> | undefined = cache.plan_review;
+  let planComputed = false;
+
+  if (!force && cache.plan_review && cache.plan_review.hash === pHash) {
+    planReview = { ...cache.plan_review.result, computed_at: cache.plan_review.computed_at };
+  } else {
+    planReview = await buildPlanReview(signals);
+    if (planReview.ai_available) {
+      const computed_at = new Date().toISOString();
+      planReview = { ...planReview, computed_at };
+      planEntry = { result: planReview, hash: pHash, computed_at };
+      planComputed = true;
+    }
+    // deterministic-only result is not cached; any prior AI entry is preserved.
+  }
+
+  // ----- retro recommendation -----
+  const rHash = retroHash(signals);
+  let retroRec: FleetRetroRecommendation;
+  let retroEntry: FleetCacheEntry<FleetRetroRecommendation> | undefined = cache.retro_recommendation;
+  let retroComputed = false;
+
+  if (!force && cache.retro_recommendation && cache.retro_recommendation.hash === rHash) {
+    retroRec = { ...cache.retro_recommendation.result, computed_at: cache.retro_recommendation.computed_at };
+  } else {
+    retroRec = await buildRetroRecommendation(signals);
+    if (retroRec.ai_available) {
+      const computed_at = new Date().toISOString();
+      retroRec = { ...retroRec, computed_at };
+      retroEntry = { result: retroRec, hash: rHash, computed_at };
+      retroComputed = true;
+    }
+  }
+
+  // Persist only when an AI sub-result was freshly computed. Key-scoped write
+  // (jsonb_set on '{fleet}') leaves plan/success_criteria/plan_validated intact.
+  if (planComputed || retroComputed) {
+    const newBlob: FleetCacheBlob = {};
+    if (planEntry) newBlob.plan_review = planEntry;
+    if (retroEntry) newBlob.retro_recommendation = retroEntry;
+    await pool.query(
+      `UPDATE documents
+         SET properties = jsonb_set(COALESCE(properties, '{}'::jsonb), '{fleet}', $1::jsonb, true),
+             updated_at = now()
+       WHERE id = $2 AND workspace_id = $3 AND document_type = 'project'`,
+      [JSON.stringify(newBlob), projectId, ctx.workspaceId]
+    );
+  }
+
+  return {
+    plan_review: planReview,
+    retro_recommendation: retroRec,
+    ai_available: planReview.ai_available || retroRec.ai_available,
   };
 }
