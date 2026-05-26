@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   deterministicPieces,
-  statusFromPieces,
   hasQuantity,
   hasText,
   type FleetCheckInput,
@@ -43,24 +42,6 @@ describe('deterministicPieces', () => {
 
   it('every piece carries a hint for when it is missing', () => {
     for (const p of pieces({ plan: 'x' })) expect(p.hint.length).toBeGreaterThan(0);
-  });
-});
-
-describe('statusFromPieces', () => {
-  it('no plan → no_plan regardless of pieces', () => {
-    expect(statusFromPieces(pieces({ plan: '' }), false)).toBe('no_plan');
-  });
-
-  it('all evaluated pieces met → looks_testable', () => {
-    const p = pieces({ plan: 'reduce churn by 20%', targetDate: '2026-09-30T00:00:00.000Z' });
-    expect(p.every((x) => x.met)).toBe(true);
-    expect(statusFromPieces(p, true)).toBe('looks_testable');
-  });
-
-  it('a missing piece → needs_work', () => {
-    // quantity present, no target date
-    const p = pieces({ plan: 'reduce churn by 20%', targetDate: null });
-    expect(statusFromPieces(p, true)).toBe('needs_work');
   });
 });
 

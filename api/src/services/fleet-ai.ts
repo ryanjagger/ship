@@ -3,7 +3,10 @@
  *
  * One neutral `evaluateStructured` interface over OpenAI, Anthropic, and `none`.
  * Returns typed, schema-validated JSON or a neutral error — it NEVER throws to
- * the caller, so the analysis service can always degrade to deterministic-only.
+ * the caller. As of U8 the plan-review runs through the FleetGraph
+ * (runPlanReview); evaluateStructured remains the structured-output utility used
+ * by the graph's reason node and the retro builder. When no provider is
+ * configured the feature is unavailable (R18 — no deterministic fallback).
  *
  * Deliberately NOT coupled to api/src/services/ai-analysis.ts (which uses
  * Bedrock). Mirrors that module's proven shape only: lazy client init with

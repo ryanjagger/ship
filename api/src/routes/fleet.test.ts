@@ -4,10 +4,14 @@ import crypto from 'crypto';
 
 // Mock the AI provider so route tests never hit a real model. Default:
 // unavailable (deterministic-only). Individual tests flip availability.
-const { isFleetAiAvailable, evaluateStructured, checkFleetRefreshRateLimit } = vi.hoisted(() => ({
+const { isFleetAiAvailable, evaluateStructured, checkFleetRefreshRateLimit, runPlanReview } = vi.hoisted(() => ({
   isFleetAiAvailable: vi.fn(() => false),
   evaluateStructured: vi.fn(),
   checkFleetRefreshRateLimit: vi.fn(() => true),
+  // R13: plan-review runs through the graph. Mock that boundary so the route
+  // test exercises the real getReview shell (cache + DB + jsonb_set) without a
+  // real provider/model.
+  runPlanReview: vi.fn(),
 }));
 vi.mock('../services/fleet-ai.js', () => ({
   isFleetAiAvailable,
@@ -16,6 +20,7 @@ vi.mock('../services/fleet-ai.js', () => ({
   checkFleetReviewRateLimit: () => true,
   isFleetAiError: (x: unknown) => typeof x === 'object' && x !== null && 'error' in x,
 }));
+vi.mock('../services/fleetgraph/index.js', () => ({ runPlanReview }));
 
 import { createApp } from '../app.js';
 import { pool } from '../db/client.js';
@@ -23,12 +28,6 @@ import { generateOpenAPIDocument } from '../openapi/registry.js';
 import '../openapi/schemas/index.js'; // ensure Fleet paths register
 
 const RUBRIC_IDS = ['what_changes', 'by_how_much', 'for_whom'];
-function planAi(metCount: number) {
-  return {
-    criteria: RUBRIC_IDS.map((id, i) => ({ id, met: i < metCount, note: `n ${id}` })),
-    suggested_rewrite: 'rewrite',
-  };
-}
 const retroAi = {
   recommendation: 'insufficient_evidence',
   explanation: 'x',
@@ -36,11 +35,26 @@ const retroAi = {
   evidence_missing: ['No actual impact'],
   suggested_conclusion: '',
 };
+// The graph's FleetPlanReview output (already mapped), available (4/4 pieces).
+function graphPlanReviewResult() {
+  const ids = [...RUBRIC_IDS, 'by_when'];
+  return {
+    planReview: {
+      status: 'looks_testable' as const,
+      pieces: ids.map((id) => ({ id, label: id, met: true, hint: 'h' })),
+      suggested_rewrite: 'rewrite',
+      ai_available: true as const,
+    },
+    diagnosis: 'd',
+    recommendedNextAction: 'a',
+    available: true,
+  };
+}
 function wireAiAvailable() {
   isFleetAiAvailable.mockReturnValue(true);
-  evaluateStructured.mockImplementation((req: { schemaName: string }) =>
-    Promise.resolve(req.schemaName === 'fleet_plan_review' ? planAi(6) : retroAi)
-  );
+  // plan-review via graph; retro still via evaluateStructured.
+  runPlanReview.mockResolvedValue(graphPlanReviewResult());
+  evaluateStructured.mockImplementation(() => Promise.resolve(retroAi));
 }
 
 describe('Fleet plan-review API', () => {
@@ -110,6 +124,7 @@ describe('Fleet plan-review API', () => {
     vi.clearAllMocks();
     isFleetAiAvailable.mockReturnValue(false);
     checkFleetRefreshRateLimit.mockReturnValue(true);
+    runPlanReview.mockReset();
     await pool.query(`DELETE FROM documents WHERE workspace_id = $1 AND document_type IN ('project','issue')`, [workspaceId]);
     projectId = (await pool.query(
       `INSERT INTO documents (workspace_id, document_type, title, created_by, parent_id, visibility, properties)
@@ -129,12 +144,19 @@ describe('Fleet plan-review API', () => {
     expect(res.body.plan_review.pieces.length).toBeGreaterThan(0);
   });
 
-  it('AE4: with AI unavailable, GET still returns 200 with deterministic pieces', async () => {
+  it('AE4/R18: with no provider, GET returns 200 unavailable — NO deterministic pieces', async () => {
     isFleetAiAvailable.mockReturnValue(false);
     const res = await request(app).get(`/api/projects/${projectId}/fleet/plan-review`).set('Cookie', sessionCookie);
     expect(res.status).toBe(200);
     expect(res.body.ai_available).toBe(false);
-    expect(res.body.plan_review.pieces.map((p: { id: string }) => p.id).sort()).toEqual(['by_how_much', 'by_when']);
+    // R18: plan-review unavailable with no pieces; retro unavailable too.
+    expect(res.body.plan_review.pieces).toEqual([]);
+    expect(res.body.plan_review.ai_available).toBe(false);
+    expect(res.body.retro_recommendation.ai_available).toBe(false);
+    expect(res.body.retro_recommendation.evidence_found).toEqual([]);
+    expect(res.body.retro_recommendation.evidence_missing).toEqual([]);
+    // No provider → neither the graph nor evaluateStructured is invoked.
+    expect(runPlanReview).not.toHaveBeenCalled();
     expect(evaluateStructured).not.toHaveBeenCalled();
   });
 
@@ -154,13 +176,14 @@ describe('Fleet plan-review API', () => {
     expect(res.status).toBe(404);
   });
 
-  it('AE6: two GETs evaluate the model once (cache hit on the second)', async () => {
+  it('AE6/R13: two GETs compute once (graph + retro), cache hit on the second', async () => {
     wireAiAvailable();
     await request(app).get(`/api/projects/${projectId}/fleet/plan-review`).set('Cookie', sessionCookie).expect(200);
-    const firstCallCount = evaluateStructured.mock.calls.length; // 2 (plan + retro)
+    expect(runPlanReview.mock.calls.length).toBe(1); // R13: plan via graph
+    expect(evaluateStructured.mock.calls.length).toBe(1); // retro via evaluateStructured
     await request(app).get(`/api/projects/${projectId}/fleet/plan-review`).set('Cookie', sessionCookie).expect(200);
-    expect(firstCallCount).toBe(2);
-    expect(evaluateStructured.mock.calls.length).toBe(2); // unchanged → served from cache
+    expect(runPlanReview.mock.calls.length).toBe(1); // unchanged → served from cache
+    expect(evaluateStructured.mock.calls.length).toBe(1); // unchanged → served from cache
   });
 
   it('POST refresh past the rate limit → 429 and no model call', async () => {
@@ -171,19 +194,22 @@ describe('Fleet plan-review API', () => {
       .set('Cookie', sessionCookie)
       .set('x-csrf-token', csrfToken);
     expect(res.status).toBe(429);
+    expect(runPlanReview).not.toHaveBeenCalled();
     expect(evaluateStructured).not.toHaveBeenCalled();
   });
 
   it('POST refresh forces a re-run even after a cached GET', async () => {
     wireAiAvailable();
     await request(app).get(`/api/projects/${projectId}/fleet/plan-review`).set('Cookie', sessionCookie).expect(200);
-    expect(evaluateStructured.mock.calls.length).toBe(2);
+    expect(runPlanReview.mock.calls.length).toBe(1); // plan via graph
+    expect(evaluateStructured.mock.calls.length).toBe(1); // retro
     const res = await request(app)
       .post(`/api/projects/${projectId}/fleet/plan-review/refresh`)
       .set('Cookie', sessionCookie)
       .set('x-csrf-token', csrfToken);
     expect(res.status).toBe(200);
-    expect(evaluateStructured.mock.calls.length).toBe(4); // forced re-run of both
+    expect(runPlanReview.mock.calls.length).toBe(2); // forced re-run of plan via graph
+    expect(evaluateStructured.mock.calls.length).toBe(2); // forced re-run of retro
   });
 
   it('POST refresh for a non-visible project → 404 (cross-workspace, no leak)', async () => {
@@ -193,6 +219,7 @@ describe('Fleet plan-review API', () => {
       .set('Cookie', otherSessionCookie)
       .set('x-csrf-token', otherCsrfToken);
     expect(res.status).toBe(404);
+    expect(runPlanReview).not.toHaveBeenCalled();
     expect(evaluateStructured).not.toHaveBeenCalled();
   });
 

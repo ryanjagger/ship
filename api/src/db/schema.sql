@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS oauth_state (
 
 -- Document types enum
 DO $$ BEGIN
-  CREATE TYPE document_type AS ENUM ('wiki', 'issue', 'program', 'project', 'sprint', 'person', 'weekly_plan', 'weekly_retro', 'standup', 'weekly_review');
+  CREATE TYPE document_type AS ENUM ('wiki', 'issue', 'program', 'project', 'sprint', 'person', 'weekly_plan', 'weekly_retro', 'standup', 'weekly_review', 'conversation', 'insight');
 EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
@@ -200,7 +200,7 @@ EXECUTE FUNCTION prevent_circular_parent();
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'relationship_type') THEN
-    CREATE TYPE relationship_type AS ENUM ('parent', 'project', 'sprint', 'program');
+    CREATE TYPE relationship_type AS ENUM ('parent', 'project', 'sprint', 'program', 'discusses');
   END IF;
 END
 $$;

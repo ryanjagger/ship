@@ -11,7 +11,7 @@
  * Pure: no DB, no network.
  */
 
-import type { FleetHypothesisPiece, FleetStatus } from '@ship/shared';
+import type { FleetHypothesisPiece } from '@ship/shared';
 
 export interface FleetCheckInput {
   /** properties.plan text (the synced /plan block / wizard string), or null. */
@@ -37,6 +37,9 @@ export function hasQuantity(plan: string): boolean {
  * The pieces deterministic mode can evaluate without a model: a quantity in the
  * plan ("by how much") and the structured Target Date ("by when"). Outcome
  * ("what will change") and audience ("for whom") are AI-only and omitted here.
+ *
+ * M-08: currently has no prod caller (R18 makes the review provider-gated), but
+ * retained for the deferred no-provider path; its own unit test still covers it.
  */
 export function deterministicPieces(input: FleetCheckInput): FleetHypothesisPiece[] {
   const planText = hasText(input.plan) ? (input.plan as string) : '';
@@ -54,13 +57,4 @@ export function deterministicPieces(input: FleetCheckInput): FleetHypothesisPiec
       hint: 'Set a Target Date (by when).',
     },
   ];
-}
-
-/**
- * Status from the evaluated pieces: no plan text -> no_plan; every evaluated
- * piece met -> looks_testable; otherwise needs_work.
- */
-export function statusFromPieces(pieces: FleetHypothesisPiece[], hasPlan: boolean): FleetStatus {
-  if (!hasPlan) return 'no_plan';
-  return pieces.every((p) => p.met) ? 'looks_testable' : 'needs_work';
 }
