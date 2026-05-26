@@ -209,6 +209,51 @@ describe('Projects API', () => {
       expect(res.body.ice_score).toBe(null);
     });
 
+    it('seeds document content with a hypothesisBlock when a plan is provided', async () => {
+      const mockProject = {
+        id: 'project-plan',
+        title: 'Planned',
+        properties: { plan: 'Reduce churn by 10% by end of Q3', color: '#6366f1' },
+        archived_at: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+      vi.mocked(pool.query).mockResolvedValueOnce({ rows: [mockProject] } as any);
+
+      const res = await request(app)
+        .post('/api/projects')
+        .send({ title: 'Planned', plan: 'Reduce churn by 10% by end of Q3' });
+
+      expect(res.status).toBe(201);
+      const insertCall = vi.mocked(pool.query).mock.calls.find((c) => String(c[0]).includes('INSERT INTO documents'));
+      expect(insertCall).toBeTruthy();
+      expect(String(insertCall![0])).toContain('content');
+      const params = insertCall![1] as unknown[];
+      const content = JSON.parse(String(params[3]));
+      expect(content.type).toBe('doc');
+      expect(content.content[0].type).toBe('hypothesisBlock');
+      expect(content.content[0].content[0].text).toBe('Reduce churn by 10% by end of Q3');
+    });
+
+    it('leaves content null when no plan is provided', async () => {
+      const mockProject = {
+        id: 'project-noplan',
+        title: 'No Plan',
+        properties: { color: '#6366f1' },
+        archived_at: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+      vi.mocked(pool.query).mockResolvedValueOnce({ rows: [mockProject] } as any);
+
+      const res = await request(app).post('/api/projects').send({ title: 'No Plan' });
+
+      expect(res.status).toBe(201);
+      const insertCall = vi.mocked(pool.query).mock.calls.find((c) => String(c[0]).includes('INSERT INTO documents'));
+      const params = insertCall![1] as unknown[];
+      expect(params[3]).toBeNull();
+    });
+
     it('validates ICE scores are within 1-5 range', async () => {
       const res = await request(app)
         .post('/api/projects')

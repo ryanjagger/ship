@@ -749,11 +749,30 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     properties.is_complete = completeness.isComplete;
     properties.missing_fields = completeness.missingFields;
 
+    // When a plan is provided via the create form, seed the document body with a
+    // hypothesisBlock so it renders in the editor exactly like the /plan command
+    // (the collaboration server converts this JSON content to Yjs on first open).
+    // properties.plan above stays the source of truth for lists/Fleet/completeness
+    // and is re-derived from this block on subsequent edits.
+    const planContent = plan
+      ? {
+          type: 'doc',
+          content: [
+            {
+              type: 'hypothesisBlock',
+              attrs: { placeholder: 'What do you expect to accomplish?' },
+              content: [{ type: 'text', text: plan }],
+            },
+            { type: 'paragraph' },
+          ],
+        }
+      : null;
+
     const result = await pool.query(
-      `INSERT INTO documents (workspace_id, document_type, title, properties, created_by)
-       VALUES ($1, 'project', $2, $3, $4)
+      `INSERT INTO documents (workspace_id, document_type, title, properties, content, created_by)
+       VALUES ($1, 'project', $2, $3, $4, $5)
        RETURNING id, title, properties, archived_at, created_at, updated_at`,
-      [req.workspaceId, title, JSON.stringify(properties), req.userId]
+      [req.workspaceId, title, JSON.stringify(properties), planContent ? JSON.stringify(planContent) : null, req.userId]
     );
 
     // Create program association in junction table (mirrors PATCH behavior)
