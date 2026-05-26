@@ -35,6 +35,30 @@ export async function getSSMSecret(name: string): Promise<string> {
   return response.Parameter.Value;
 }
 
+/**
+ * Fetch an optional SSM parameter. Returns undefined (never throws) when the
+ * parameter is absent or unreadable, so optional config does not block startup.
+ *
+ * A genuinely-absent parameter (ParameterNotFound) is expected and silent. Any
+ * other failure (IAM denial, network, throttling) still fails open, but logs a
+ * warning — otherwise a misconfigured prod role silently disables the optional
+ * feature with no signal for an operator diagnosing missing behavior.
+ */
+export async function getSSMSecretOptional(name: string): Promise<string | undefined> {
+  try {
+    const response = await getClient().send(
+      new GetParameterCommand({ Name: name, WithDecryption: true }),
+    );
+    return response.Parameter?.Value || undefined;
+  } catch (err) {
+    const errName = (err as { name?: string })?.name;
+    if (errName !== 'ParameterNotFound' && errName !== 'ParameterVersionNotFound') {
+      console.warn(`[ssm] optional parameter ${name} could not be read (${errName ?? 'unknown error'}); continuing without it`);
+    }
+    return undefined;
+  }
+}
+
 export async function loadProductionSecrets(): Promise<void> {
   if (process.env.NODE_ENV !== 'production') {
     return; // Use .env files for local dev
@@ -58,6 +82,16 @@ export async function loadProductionSecrets(): Promise<void> {
   process.env.CORS_ORIGIN = corsOrigin;
   process.env.CDN_DOMAIN = cdnDomain;
   process.env.APP_BASE_URL = appBaseUrl;
+
+  // Optional: LangSmith API key for Fleet observability. Tracing is opt-in
+  // (gated by the LANGSMITH_TRACING EB setting), so a missing key must NOT
+  // block startup — load best-effort. Runs before app.js import, so the key is
+  // present before any FleetGraph invoke when configured.
+  const langsmithApiKey = await getSSMSecretOptional(`${basePath}/LANGSMITH_API_KEY`);
+  if (langsmithApiKey) {
+    process.env.LANGSMITH_API_KEY = langsmithApiKey;
+    console.log('LANGSMITH_API_KEY loaded from SSM (Fleet tracing enabled if LANGSMITH_TRACING=true)');
+  }
 
   console.log('Secrets loaded from SSM Parameter Store');
   console.log(`CORS_ORIGIN: ${corsOrigin}`);

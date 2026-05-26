@@ -134,6 +134,9 @@ importers:
       helmet:
         specifier: ^8.0.0
         version: 8.1.0
+      langsmith:
+        specifier: ^0.7.2
+        version: 0.7.2(openai@6.39.0(ws@8.19.0)(zod@3.25.76))(ws@8.19.0)
       lib0:
         specifier: ^0.2.99
         version: 0.2.117

@@ -22,6 +22,8 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import Anthropic from '@anthropic-ai/sdk';
+import { wrapOpenAI } from 'langsmith/wrappers/openai';
+import { wrapAnthropic } from 'langsmith/wrappers/anthropic';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { ZodType } from 'zod';
 
@@ -50,6 +52,45 @@ function apiKeyFor(provider: FleetProvider): string | undefined {
 let cachedClient: { provider: FleetProvider; client: OpenAI | Anthropic } | null = null;
 let initFailed = false;
 
+/**
+ * True when LangSmith tracing is explicitly enabled via env.
+ *
+ * Matches LangSmith's own `isTracingEnabled` semantics exactly: only the literal
+ * string "true" (case-insensitive) counts. We deliberately do NOT accept "1" or
+ * other truthy aliases — if we wrapped the client on "1" but LangSmith's internal
+ * check still required "true", the client would be wrapped yet emit no traces
+ * (silent operator surprise). Keeping one definition avoids that mismatch.
+ */
+function tracingEnabled(): boolean {
+  return (process.env.LANGSMITH_TRACING || '').trim().toLowerCase() === 'true';
+}
+
+/**
+ * Best-effort LangSmith instrumentation for the raw provider SDK.
+ *
+ * The FleetGraph chat path uses LangChain chat models and auto-traces from the
+ * LANGSMITH_* env vars; this proactive structured-output path uses the raw SDKs
+ * (responses.parse / messages.create), which LangChain auto-tracing does NOT
+ * see. The langsmith wrappers patch exactly those methods so a plan-review run
+ * shows up under the configured project. Wrapping is transparent (signatures
+ * unchanged) and gated on LANGSMITH_TRACING so it is a pure pass-through when
+ * tracing is off. Wrapping never throws — on any failure we fall back to the
+ * unwrapped client, preserving fleet-ai's never-throws contract.
+ */
+function maybeTrace(provider: FleetProvider, client: OpenAI | Anthropic): OpenAI | Anthropic {
+  if (!tracingEnabled()) return client;
+  try {
+    // The wrappers return a PatchedClient<T> (= T & extra overloads), a supertype
+    // of the SDK client, so a direct widening cast is valid — no `unknown` bridge.
+    return provider === 'openai'
+      ? (wrapOpenAI(client as OpenAI) as OpenAI)
+      : (wrapAnthropic(client as Anthropic) as Anthropic);
+  } catch (err) {
+    console.warn('[fleet-ai] LangSmith wrap failed; tracing disabled for this client:', err);
+    return client;
+  }
+}
+
 function getClient(): { provider: FleetProvider; client: OpenAI | Anthropic } | null {
   const provider = resolveProvider();
   if (provider === 'none') return null;
@@ -61,11 +102,15 @@ function getClient(): { provider: FleetProvider; client: OpenAI | Anthropic } | 
   if (initFailed) return null;
 
   try {
-    const client =
+    const rawClient =
       provider === 'openai'
         ? new OpenAI({ apiKey, timeout: CALL_TIMEOUT_MS, maxRetries: MAX_RETRIES })
         : new Anthropic({ apiKey, timeout: CALL_TIMEOUT_MS, maxRetries: MAX_RETRIES });
-    cachedClient = { provider, client };
+    // The wrap/unwrap decision is captured ONCE here and cached. Env vars are
+    // resolved at process boot (dotenv locally, SSM in prod before app import),
+    // so a runtime LANGSMITH_TRACING toggle does not re-wrap until restart — the
+    // intended boot-time model. Tests use __resetFleetAiForTests() to re-decide.
+    cachedClient = { provider, client: maybeTrace(provider, rawClient) };
     return cachedClient;
   } catch (err) {
     console.warn('[fleet-ai] client init failed:', err);

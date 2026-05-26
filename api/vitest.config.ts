@@ -15,6 +15,12 @@ export default defineConfig({
         process.env.DATABASE_URL_TEST ||
         'postgresql://ship:ship_dev_password@localhost:5432/ship_test',
       NODE_ENV: 'test',
+      // Never emit LangSmith traces from the suite. Models are mocked, but a
+      // developer's .env.local LANGSMITH_TRACING=true must not leak into any
+      // unmocked path and turn tests into network calls. These overrides win
+      // over .env.local (vitest env injection takes precedence).
+      LANGSMITH_TRACING: 'false',
+      LANGSMITH_API_KEY: '',
     },
     // Run test files sequentially to prevent database conflicts
     // Tests within each file can still run in parallel
