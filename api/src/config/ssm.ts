@@ -38,6 +38,11 @@ export async function getSSMSecret(name: string): Promise<string> {
 /**
  * Fetch an optional SSM parameter. Returns undefined (never throws) when the
  * parameter is absent or unreadable, so optional config does not block startup.
+ *
+ * A genuinely-absent parameter (ParameterNotFound) is expected and silent. Any
+ * other failure (IAM denial, network, throttling) still fails open, but logs a
+ * warning — otherwise a misconfigured prod role silently disables the optional
+ * feature with no signal for an operator diagnosing missing behavior.
  */
 export async function getSSMSecretOptional(name: string): Promise<string | undefined> {
   try {
@@ -45,7 +50,11 @@ export async function getSSMSecretOptional(name: string): Promise<string | undef
       new GetParameterCommand({ Name: name, WithDecryption: true }),
     );
     return response.Parameter?.Value || undefined;
-  } catch {
+  } catch (err) {
+    const errName = (err as { name?: string })?.name;
+    if (errName !== 'ParameterNotFound' && errName !== 'ParameterVersionNotFound') {
+      console.warn(`[ssm] optional parameter ${name} could not be read (${errName ?? 'unknown error'}); continuing without it`);
+    }
     return undefined;
   }
 }

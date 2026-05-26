@@ -52,10 +52,17 @@ function apiKeyFor(provider: FleetProvider): string | undefined {
 let cachedClient: { provider: FleetProvider; client: OpenAI | Anthropic } | null = null;
 let initFailed = false;
 
-/** True when LangSmith tracing is explicitly enabled via env. */
+/**
+ * True when LangSmith tracing is explicitly enabled via env.
+ *
+ * Matches LangSmith's own `isTracingEnabled` semantics exactly: only the literal
+ * string "true" (case-insensitive) counts. We deliberately do NOT accept "1" or
+ * other truthy aliases — if we wrapped the client on "1" but LangSmith's internal
+ * check still required "true", the client would be wrapped yet emit no traces
+ * (silent operator surprise). Keeping one definition avoids that mismatch.
+ */
 function tracingEnabled(): boolean {
-  const v = (process.env.LANGSMITH_TRACING || '').trim().toLowerCase();
-  return v === 'true' || v === '1';
+  return (process.env.LANGSMITH_TRACING || '').trim().toLowerCase() === 'true';
 }
 
 /**
@@ -73,9 +80,11 @@ function tracingEnabled(): boolean {
 function maybeTrace(provider: FleetProvider, client: OpenAI | Anthropic): OpenAI | Anthropic {
   if (!tracingEnabled()) return client;
   try {
+    // The wrappers return a PatchedClient<T> (= T & extra overloads), a supertype
+    // of the SDK client, so a direct widening cast is valid — no `unknown` bridge.
     return provider === 'openai'
-      ? (wrapOpenAI(client as OpenAI) as unknown as OpenAI)
-      : (wrapAnthropic(client as Anthropic) as unknown as Anthropic);
+      ? (wrapOpenAI(client as OpenAI) as OpenAI)
+      : (wrapAnthropic(client as Anthropic) as Anthropic);
   } catch (err) {
     console.warn('[fleet-ai] LangSmith wrap failed; tracing disabled for this client:', err);
     return client;
@@ -97,6 +106,10 @@ function getClient(): { provider: FleetProvider; client: OpenAI | Anthropic } | 
       provider === 'openai'
         ? new OpenAI({ apiKey, timeout: CALL_TIMEOUT_MS, maxRetries: MAX_RETRIES })
         : new Anthropic({ apiKey, timeout: CALL_TIMEOUT_MS, maxRetries: MAX_RETRIES });
+    // The wrap/unwrap decision is captured ONCE here and cached. Env vars are
+    // resolved at process boot (dotenv locally, SSM in prod before app import),
+    // so a runtime LANGSMITH_TRACING toggle does not re-wrap until restart — the
+    // intended boot-time model. Tests use __resetFleetAiForTests() to re-decide.
     cachedClient = { provider, client: maybeTrace(provider, rawClient) };
     return cachedClient;
   } catch (err) {

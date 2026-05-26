@@ -166,6 +166,10 @@ describe('LangSmith tracing — raw-SDK proactive path instrumentation', () => {
     const result = await evaluateStructured(req());
     expect(result).toEqual({ score: 6 });
     expect(wrapOpenAIMock).toHaveBeenCalledTimes(1);
+    // Pin that the RAW SDK client (not some other object) was handed to the wrapper.
+    expect(wrapOpenAIMock).toHaveBeenCalledWith(
+      expect.objectContaining({ responses: expect.any(Object) }),
+    );
     expect(wrapAnthropicMock).not.toHaveBeenCalled();
   });
 
@@ -180,6 +184,9 @@ describe('LangSmith tracing — raw-SDK proactive path instrumentation', () => {
     const result = await evaluateStructured(req());
     expect(result).toEqual({ score: 5 });
     expect(wrapAnthropicMock).toHaveBeenCalledTimes(1);
+    expect(wrapAnthropicMock).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: expect.any(Object) }),
+    );
     expect(wrapOpenAIMock).not.toHaveBeenCalled();
   });
 
@@ -214,6 +221,22 @@ describe('LangSmith tracing — raw-SDK proactive path instrumentation', () => {
     // never-throws contract preserved; unwrapped client still routes the call
     expect(result).toEqual({ score: 7 });
     expect(openaiParse).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the unwrapped Anthropic client if wrapping throws', async () => {
+    process.env.FLEET_AI_PROVIDER = 'anthropic';
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    process.env.LANGSMITH_TRACING = 'true';
+    wrapAnthropicMock.mockImplementationOnce(() => {
+      throw new Error('langsmith wrap boom');
+    });
+    anthropicCreate.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({ score: 8 }) }],
+    });
+    const result = await evaluateStructured(req());
+    expect(result).toEqual({ score: 8 });
+    expect(anthropicCreate).toHaveBeenCalledTimes(1);
   });
 });
 
