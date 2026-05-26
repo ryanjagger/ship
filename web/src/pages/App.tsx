@@ -1371,20 +1371,6 @@ function ProjectsList({
                   </li>
                   <li role="treeitem">
                     <Link
-                      to={`/documents/${project.id}/details`}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
-                        currentTab === 'details'
-                          ? 'bg-border/50 text-foreground'
-                          : 'text-muted hover:bg-border/30 hover:text-foreground'
-                      )}
-                    >
-                      <DocIcon />
-                      <span>Details</span>
-                    </Link>
-                  </li>
-                  <li role="treeitem">
-                    <Link
                       to={`/documents/${project.id}/retro`}
                       className={cn(
                         "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
@@ -1395,6 +1381,20 @@ function ProjectsList({
                     >
                       <RetroIcon />
                       <span>Retro</span>
+                    </Link>
+                  </li>
+                  <li role="treeitem">
+                    <Link
+                      to={`/documents/${project.id}/details`}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
+                        currentTab === 'details'
+                          ? 'bg-border/50 text-foreground'
+                          : 'text-muted hover:bg-border/30 hover:text-foreground'
+                      )}
+                    >
+                      <DocIcon />
+                      <span>Details</span>
                     </Link>
                   </li>
                 </ul>

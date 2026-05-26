@@ -79,11 +79,6 @@ export const documentTabConfigs: Record<string, DocumentTabConfig[]> = {
       component: ProjectIssuesTab,
     },
     {
-      id: 'details',
-      label: 'Details',
-      component: ProjectDetailsTab,
-    },
-    {
       id: 'weeks',
       label: 'Weeks',
       component: ProjectWeeksTab,
@@ -92,6 +87,11 @@ export const documentTabConfigs: Record<string, DocumentTabConfig[]> = {
       id: 'retro',
       label: 'Retro',
       component: ProjectRetroTab,
+    },
+    {
+      id: 'details',
+      label: 'Details',
+      component: ProjectDetailsTab,
     },
   ],
 
