@@ -1,93 +1,73 @@
 import { describe, it, expect } from 'vitest';
 import {
-  runDeterministicChecks,
-  checksToFindings,
-  deterministicStatus,
-  type FleetCheck,
+  deterministicPieces,
+  statusFromPieces,
+  hasQuantity,
+  hasText,
+  type FleetCheckInput,
 } from './fleet-checks.js';
 
-function check(checks: FleetCheck[], id: string): FleetCheck {
-  const c = checks.find((x) => x.id === id);
-  if (!c) throw new Error(`check ${id} missing`);
-  return c;
+function pieces(input: Partial<FleetCheckInput> = {}) {
+  return deterministicPieces({ plan: null, targetDate: null, ...input });
+}
+function piece(input: Partial<FleetCheckInput>, id: string) {
+  const p = pieces(input).find((x) => x.id === id);
+  if (!p) throw new Error(`piece ${id} missing`);
+  return p;
 }
 
-describe('runDeterministicChecks', () => {
-  it('fails the plan check on empty plan text (AE1)', () => {
-    const checks = runDeterministicChecks({ plan: '', successCriteria: [] });
-    expect(check(checks, 'missing_plan').passed).toBe(false);
-    expect(deterministicStatus(checks)).toBe('no_plan');
+describe('hasQuantity', () => {
+  it('matches numbers, percentages, and currency', () => {
+    expect(hasQuantity('reduce by 20%')).toBe(true);
+    expect(hasQuantity('save $50,000')).toBe(true);
+    expect(hasQuantity('cut from 6 to 3 minutes')).toBe(true);
+  });
+  it('does not match numbers glued to letters', () => {
+    expect(hasQuantity('ship the v2 onboarding flow for the h1 cohort')).toBe(false);
+  });
+  it('is false with no quantity', () => {
+    expect(hasQuantity('make onboarding better')).toBe(false);
+  });
+});
+
+describe('deterministicPieces', () => {
+  it('by_how_much reflects a quantity in the plan', () => {
+    expect(piece({ plan: 'reduce churn by 20%' }, 'by_how_much').met).toBe(true);
+    expect(piece({ plan: 'make onboarding better' }, 'by_how_much').met).toBe(false);
   });
 
-  it('treats whitespace-only plan as missing', () => {
-    const checks = runDeterministicChecks({ plan: '   \n  ', successCriteria: ['x'] });
-    expect(check(checks, 'missing_plan').passed).toBe(false);
-    expect(deterministicStatus(checks)).toBe('no_plan');
+  it('by_when reflects whether a target date is set', () => {
+    expect(piece({ plan: 'x', targetDate: '2026-09-30T00:00:00.000Z' }, 'by_when').met).toBe(true);
+    expect(piece({ plan: 'x', targetDate: null }, 'by_when').met).toBe(false);
   });
 
-  it('flags missing measurable + timeframe on a vague plan (AE2)', () => {
-    const checks = runDeterministicChecks({
-      plan: 'make onboarding better',
-      successCriteria: ['Users are happier'],
-    });
-    expect(check(checks, 'missing_measurable_language').passed).toBe(false);
-    expect(check(checks, 'missing_timeframe').passed).toBe(false);
-    expect(deterministicStatus(checks)).toBe('needs_work');
+  it('every piece carries a hint for when it is missing', () => {
+    for (const p of pieces({ plan: 'x' })) expect(p.hint.length).toBeGreaterThan(0);
+  });
+});
 
-    const findings = checksToFindings(checks);
-    const ids = findings.map((f) => f.id);
-    expect(ids).toContain('missing_measurable_language');
-    expect(ids).toContain('missing_timeframe');
-    // every finding names a label + message
-    for (const f of findings) {
-      expect(f.label.length).toBeGreaterThan(0);
-      expect(f.message.length).toBeGreaterThan(0);
-    }
+describe('statusFromPieces', () => {
+  it('no plan → no_plan regardless of pieces', () => {
+    expect(statusFromPieces(pieces({ plan: '' }), false)).toBe('no_plan');
   });
 
-  it('passes measurable + timeframe on a strong, quantified plan', () => {
-    const checks = runDeterministicChecks({
-      plan: 'Cut new-user activation time from 6 minutes to under 3 minutes by end of Q3',
-      successCriteria: ['Median activation < 3 min'],
-    });
-    expect(check(checks, 'missing_measurable_language').passed).toBe(true);
-    expect(check(checks, 'missing_timeframe').passed).toBe(true);
+  it('all evaluated pieces met → looks_testable', () => {
+    const p = pieces({ plan: 'reduce churn by 20%', targetDate: '2026-09-30T00:00:00.000Z' });
+    expect(p.every((x) => x.met)).toBe(true);
+    expect(statusFromPieces(p, true)).toBe('looks_testable');
   });
 
-  it('passes measurable via percentage and timeframe via quarter', () => {
-    const checks = runDeterministicChecks({
-      plan: 'Reduce X by 20% by end of Q3',
-      successCriteria: ['conversion +20%'],
-    });
-    expect(check(checks, 'missing_measurable_language').passed).toBe(true);
-    expect(check(checks, 'missing_timeframe').passed).toBe(true);
-    expect(deterministicStatus(checks)).toBe('looks_testable');
+  it('a missing piece → needs_work', () => {
+    // quantity present, no target date
+    const p = pieces({ plan: 'reduce churn by 20%', targetDate: null });
+    expect(statusFromPieces(p, true)).toBe('needs_work');
   });
+});
 
-  it('returns needs_work when plan present but success criteria empty', () => {
-    const checks = runDeterministicChecks({
-      plan: 'Reduce checkout time by 30% within 4 weeks',
-      successCriteria: [],
-    });
-    expect(check(checks, 'missing_success_criteria').passed).toBe(false);
-    expect(deterministicStatus(checks)).toBe('needs_work');
-  });
-
-  it('does not treat numbers glued to letters as measurable', () => {
-    const checks = runDeterministicChecks({
-      plan: 'Ship the v2 onboarding flow for the h1 cohort',
-      successCriteria: ['done'],
-    });
-    expect(check(checks, 'missing_measurable_language').passed).toBe(false);
-  });
-
-  it('all four checks passing yields looks_testable', () => {
-    const checks = runDeterministicChecks({
-      plan: 'Increase signups by 15% within 2 months',
-      successCriteria: ['Signups +15%'],
-    });
-    expect(checks.every((c) => c.passed)).toBe(true);
-    expect(checksToFindings(checks)).toHaveLength(0);
-    expect(deterministicStatus(checks)).toBe('looks_testable');
+describe('hasText', () => {
+  it('treats whitespace-only as empty', () => {
+    expect(hasText('   \n ')).toBe(false);
+    expect(hasText('x')).toBe(true);
+    expect(hasText(null)).toBe(false);
   });
 });

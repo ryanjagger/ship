@@ -77,6 +77,7 @@ const updateDocumentSchema = z.object({
   owner_id: z.string().uuid().nullable().optional(),
   has_design_review: z.boolean().nullable().optional(),
   design_review_notes: z.string().max(2000).nullable().optional(),
+  target_date: z.string().datetime().nullable().optional(),
   // RACI fields for projects and programs (stored in properties)
   accountable_id: z.string().uuid().nullable().optional(), // A - Accountable (approver)
   consulted_ids: z.array(z.string().uuid()).optional(), // C - Consulted (provide input)
@@ -727,6 +728,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     // Design review fields for projects
     if (data.has_design_review !== undefined) topLevelProps.has_design_review = data.has_design_review;
     if (data.design_review_notes !== undefined) topLevelProps.design_review_notes = data.design_review_notes;
+    if (data.target_date !== undefined) topLevelProps.target_date = data.target_date;
     // For sprints, also store owner in assignee_ids array (sprints API reads from assignee_ids[0])
     if (data.owner_id !== undefined && existing.document_type === 'sprint') {
       topLevelProps.assignee_ids = data.owner_id ? [data.owner_id] : [];

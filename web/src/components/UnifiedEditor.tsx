@@ -78,6 +78,7 @@ interface ProjectDocument extends BaseDocument {
   sprint_count?: number;
   issue_count?: number;
   converted_from_id?: string | null;
+  target_date?: string | null;
 }
 
 // Sprint document

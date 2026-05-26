@@ -14,23 +14,27 @@ export type FleetRecommendation =
   | 'invalidated_recommended'
   | 'insufficient_evidence';
 
-// A single review finding — one per failed deterministic check or rubric criterion.
-export interface FleetFinding {
-  // Stable identifier for the check/criterion (e.g. 'missing_timeframe', 'quantifiable_target').
-  id: string;
-  // Human-readable criterion name (e.g. "Timeframe", "Quantifiable target").
+// The pieces of a testable bet: "what will change, for whom, by how much, by when".
+// `by_when` is satisfied by the project's Target Date (a structured field), not by
+// parsing the plan text. `what_changes`/`for_whom`/`by_how_much` are AI-judged when a
+// provider is configured; deterministic mode evaluates only what it can detect.
+export type FleetPieceId = 'what_changes' | 'by_how_much' | 'for_whom' | 'by_when';
+
+export interface FleetHypothesisPiece {
+  id: FleetPieceId;
+  // Short label shown when the piece is satisfied (e.g. "What will change").
   label: string;
-  // What is missing or why the criterion did not pass.
-  message: string;
+  met: boolean;
+  // Actionable hint shown when the piece is missing (e.g. "Set a Target Date").
+  hint: string;
 }
 
-// Plan-review sub-result (Project Details card).
+// Plan-review sub-result (Project Details card). A "good hypothesis" check: is the
+// plan a testable bet? No numeric score — just the status and which pieces are met.
 export interface FleetPlanReview {
   status: FleetStatus;
-  // Count of rubric criteria met (0–7) when a provider scored it; null in
-  // deterministic-only mode (no faked score).
-  score: number | null;
-  findings: FleetFinding[];
+  // The testable-bet pieces that were evaluated (4 with AI, fewer in deterministic mode).
+  pieces: FleetHypothesisPiece[];
   // Optional model-suggested rewrite of the plan as a testable bet.
   suggested_rewrite: string | null;
   // True when the AI provider contributed to this sub-result.

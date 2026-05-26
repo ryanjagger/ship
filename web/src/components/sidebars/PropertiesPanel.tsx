@@ -83,6 +83,7 @@ interface ProjectDocument extends BaseDocument {
   plan_approval?: ApprovalTracking | null;
   retro_approval?: ApprovalTracking | null;
   has_retro?: boolean;
+  target_date?: string | null;
 }
 
 // Sprint document properties

@@ -13,7 +13,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const noPlanReview: FleetReviewResponse = {
-  plan_review: { status: 'no_plan', score: null, findings: [], suggested_rewrite: null, ai_available: false },
+  plan_review: { status: 'no_plan', pieces: [], suggested_rewrite: null, ai_available: false },
   retro_recommendation: {
     recommendation: 'insufficient_evidence',
     explanation: 'No plan yet.',

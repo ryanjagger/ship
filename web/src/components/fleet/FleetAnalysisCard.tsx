@@ -43,6 +43,8 @@ const RECOMMENDATION_LABELS: Record<FleetRecommendation, string> = {
 
 const PLAN_HELPER_TEXT =
   'Use /plan to write the project plan as a testable bet: what will change, for whom, by how much, and by when.';
+const TESTABLE_BET_TEXT =
+  'A good hypothesis is a testable bet: what will change, for whom, by how much, and by when.';
 
 function formatRelative(iso?: string): string | null {
   if (!iso) return null;
@@ -176,29 +178,33 @@ function DetailsCard({
   refreshError?: boolean;
 }) {
   const pr = review.plan_review;
+  const missing = pr.pieces.filter((p) => !p.met);
+  const met = pr.pieces.filter((p) => p.met);
   return (
     <CardShell title="Fleet — Plan Review" freshness={formatRelative(pr.computed_at)} onRefresh={onRefresh} isRefreshing={isRefreshing} refreshError={refreshError}>
-      <div className="flex items-center gap-3">
-        <span className={cn('rounded-md px-2 py-1 text-xs font-medium', STATUS_CLASSES[pr.status])}>
-          {STATUS_LABELS[pr.status]}
-        </span>
-        <span className="text-sm font-semibold tabular-nums text-foreground">
-          {pr.score === null ? '—' : `${pr.score}/7`}
-        </span>
-      </div>
+      <span className={cn('inline-block rounded-md px-2 py-1 text-xs font-medium', STATUS_CLASSES[pr.status])}>
+        {STATUS_LABELS[pr.status]}
+      </span>
 
-      {pr.status === 'no_plan' && (
-        <p className="mt-3 text-xs text-muted">{PLAN_HELPER_TEXT}</p>
+      {pr.status === 'no_plan' && <p className="mt-3 text-xs text-muted">{PLAN_HELPER_TEXT}</p>}
+
+      {missing.length > 0 && (
+        <div className="mt-3">
+          <div className="text-xs font-medium text-muted">Missing for a testable bet:</div>
+          <ul className="mt-1 space-y-1">
+            {missing.map((p) => (
+              <li key={p.id} className="text-xs text-foreground">• {p.hint}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
-      {pr.findings.length > 0 && (
-        <ul className="mt-3 space-y-1.5">
-          {pr.findings.slice(0, 4).map((f) => (
-            <li key={f.id} className="text-xs text-foreground">
-              <span className="font-medium">{f.label}:</span> <span className="text-muted">{f.message}</span>
-            </li>
+      {met.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+          {met.map((p) => (
+            <span key={p.id} className="text-xs text-green-600">{p.label} ✓</span>
           ))}
-        </ul>
+        </div>
       )}
 
       {pr.suggested_rewrite && (
@@ -208,8 +214,12 @@ function DetailsCard({
         </div>
       )}
 
+      {pr.status !== 'no_plan' && (
+        <p className="mt-3 text-xs text-muted">{TESTABLE_BET_TEXT}</p>
+      )}
+
       {!pr.ai_available && pr.status !== 'no_plan' && (
-        <p className="mt-3 text-xs text-muted">AI scoring not configured — showing deterministic checks only.</p>
+        <p className="mt-1 text-xs text-muted">AI not configured — showing the basic checks only.</p>
       )}
     </CardShell>
   );

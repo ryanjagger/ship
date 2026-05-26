@@ -42,6 +42,8 @@ interface Project {
   sprint_count?: number;
   issue_count?: number;
   converted_from_id?: string | null;
+  // Target date (the "by when" of the hypothesis)
+  target_date?: string | null;
   // Approval tracking
   plan?: string | null;
   plan_approval?: ApprovalTracking | null;
@@ -222,6 +224,19 @@ export function ProjectSidebar({
           value={project.informed_ids || []}
           onChange={(informedIds) => onUpdate({ informed_ids: informedIds } as Partial<Project>)}
           placeholder="Select people..."
+        />
+      </PropertyRow>
+
+      {/* Target Date — the "by when" of the hypothesis (editable after creation) */}
+      <PropertyRow label="Target Date" tooltip="By when should this hypothesis be validated?">
+        <input
+          type="date"
+          value={project.target_date ? project.target_date.slice(0, 10) : ''}
+          onChange={(e) => {
+            const v = e.target.value;
+            onUpdate({ target_date: v ? new Date(`${v}T00:00:00.000Z`).toISOString() : null } as Partial<Project>);
+          }}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
         />
       </PropertyRow>
 

@@ -21,10 +21,7 @@ import { pool } from '../db/client.js';
 import { generateOpenAPIDocument } from '../openapi/registry.js';
 import '../openapi/schemas/index.js'; // ensure Fleet paths register
 
-const RUBRIC_IDS = [
-  'measurable_outcome', 'quantifiable_target', 'baseline', 'timeframe',
-  'scope', 'causal_claim', 'success_criteria_alignment',
-];
+const RUBRIC_IDS = ['what_changes', 'by_how_much', 'for_whom'];
 function planAi(metCount: number) {
   return {
     criteria: RUBRIC_IDS.map((id, i) => ({ id, met: i < metCount, note: `n ${id}` })),
@@ -127,15 +124,16 @@ describe('Fleet plan-review API', () => {
     expect(res.body.plan_review).toBeTruthy();
     expect(res.body.retro_recommendation).toBeTruthy();
     expect(res.body.ai_available).toBe(true);
-    expect(res.body.plan_review.score).toBe(6);
+    expect(Array.isArray(res.body.plan_review.pieces)).toBe(true);
+    expect(res.body.plan_review.pieces.length).toBeGreaterThan(0);
   });
 
-  it('AE4: with AI unavailable, GET still returns 200 with deterministic findings', async () => {
+  it('AE4: with AI unavailable, GET still returns 200 with deterministic pieces', async () => {
     isFleetAiAvailable.mockReturnValue(false);
     const res = await request(app).get(`/api/projects/${projectId}/fleet/plan-review`).set('Cookie', sessionCookie);
     expect(res.status).toBe(200);
     expect(res.body.ai_available).toBe(false);
-    expect(res.body.plan_review.score).toBeNull();
+    expect(res.body.plan_review.pieces.map((p: { id: string }) => p.id).sort()).toEqual(['by_how_much', 'by_when']);
     expect(evaluateStructured).not.toHaveBeenCalled();
   });
 

@@ -7,8 +7,12 @@ import type { FleetReviewResponse, FleetPlanReview, FleetRetroRecommendation } f
 function planReview(o: Partial<FleetPlanReview> = {}): FleetPlanReview {
   return {
     status: 'needs_work',
-    score: 3,
-    findings: [{ id: 'timeframe', label: 'Timeframe', message: 'No timeframe named.' }],
+    pieces: [
+      { id: 'what_changes', label: 'What will change', met: true, hint: 'Name the outcome that will change.' },
+      { id: 'by_how_much', label: 'By how much', met: false, hint: 'Add a target number (by how much).' },
+      { id: 'for_whom', label: 'For whom', met: true, hint: 'Say who this is for.' },
+      { id: 'by_when', label: 'By when', met: false, hint: 'Set a Target Date (by when).' },
+    ],
     suggested_rewrite: null,
     ai_available: true,
     ...o,
@@ -38,40 +42,58 @@ function renderCard(ui: React.ReactElement) {
 }
 
 describe('FleetAnalysisCard — details variant', () => {
-  it('no_plan → No Plan badge, /plan helper text, no numeric score', () => {
+  it('no_plan → No Plan badge + /plan helper text', () => {
     renderCard(
       <FleetAnalysisCard
         variant="details"
-        review={review({ plan: { status: 'no_plan', score: null, findings: [], ai_available: false } })}
+        review={review({ plan: { status: 'no_plan', pieces: [], ai_available: false } })}
       />
     );
     expect(screen.getByText('No Plan')).toBeInTheDocument();
     expect(screen.getByText(/Use \/plan to write the project plan/i)).toBeInTheDocument();
-    expect(screen.getByText('—')).toBeInTheDocument();
   });
 
-  it('needs_work + score 3 → badge, 3/7, findings listed', () => {
+  it('needs_work → badge, missing pieces as hints, met pieces with ✓', () => {
     renderCard(<FleetAnalysisCard variant="details" review={review()} />);
     expect(screen.getByText('Needs Work')).toBeInTheDocument();
-    expect(screen.getByText('3/7')).toBeInTheDocument();
-    expect(screen.getByText('Timeframe:')).toBeInTheDocument();
+    expect(screen.getByText('Missing for a testable bet:')).toBeInTheDocument();
+    expect(screen.getByText(/Add a target number/i)).toBeInTheDocument();
+    expect(screen.getByText(/Set a Target Date/i)).toBeInTheDocument();
+    expect(screen.getByText('What will change ✓')).toBeInTheDocument();
+    // no numeric score anywhere
+    expect(screen.queryByText(/\/\s*7/)).toBeNull();
   });
 
-  it('looks_testable + score 6 → badge + 6/7', () => {
-    renderCard(<FleetAnalysisCard variant="details" review={review({ plan: { status: 'looks_testable', score: 6 } })} />);
-    expect(screen.getByText('Looks Testable')).toBeInTheDocument();
-    expect(screen.getByText('6/7')).toBeInTheDocument();
-  });
-
-  it('AI unavailable → shows config note and "—" score', () => {
+  it('looks_testable → badge, all pieces met', () => {
     renderCard(
       <FleetAnalysisCard
         variant="details"
-        review={review({ plan: { status: 'needs_work', score: null, ai_available: false } })}
+        review={review({
+          plan: {
+            status: 'looks_testable',
+            pieces: [
+              { id: 'what_changes', label: 'What will change', met: true, hint: '' },
+              { id: 'by_how_much', label: 'By how much', met: true, hint: '' },
+              { id: 'for_whom', label: 'For whom', met: true, hint: '' },
+              { id: 'by_when', label: 'By when', met: true, hint: '' },
+            ],
+          },
+        })}
       />
     );
-    expect(screen.getByText(/AI scoring not configured/i)).toBeInTheDocument();
-    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.getByText('Looks Testable')).toBeInTheDocument();
+    expect(screen.getByText('By when ✓')).toBeInTheDocument();
+    expect(screen.queryByText('Missing for a testable bet:')).toBeNull();
+  });
+
+  it('AI unavailable → shows the basic-checks note', () => {
+    renderCard(
+      <FleetAnalysisCard
+        variant="details"
+        review={review({ plan: { status: 'needs_work', ai_available: false } })}
+      />
+    );
+    expect(screen.getByText(/AI not configured/i)).toBeInTheDocument();
   });
 
   it('suggested_rewrite renders when present', () => {

@@ -5,19 +5,19 @@
 import { z, registry } from '../registry.js';
 import { UuidSchema } from './common.js';
 
-const FleetFindingSchema = z.object({
-  id: z.string(),
+const FleetHypothesisPieceSchema = z.object({
+  id: z.enum(['what_changes', 'by_how_much', 'for_whom', 'by_when']),
   label: z.string(),
-  message: z.string(),
+  met: z.boolean(),
+  hint: z.string(),
 });
 
 export const FleetPlanReviewSchema = z
   .object({
     status: z.enum(['no_plan', 'needs_work', 'looks_testable']),
-    score: z.number().int().nullable().openapi({
-      description: 'Count of rubric criteria met (0–7) when AI-scored; null in deterministic-only mode',
+    pieces: z.array(FleetHypothesisPieceSchema).openapi({
+      description: 'Testable-bet pieces evaluated (what_changes/by_how_much/for_whom + by_when); 4 with AI, fewer in deterministic mode',
     }),
-    findings: z.array(FleetFindingSchema),
     suggested_rewrite: z.string().nullable(),
     ai_available: z.boolean(),
     computed_at: z.string().optional(),
