@@ -1,6 +1,6 @@
 ---
 date: 2026-05-25
-status: active
+status: completed
 type: feat
 origin: docs/brainstorms/fleetgraph-agentic-graph-requirements.md
 ---
