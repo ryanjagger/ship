@@ -195,8 +195,11 @@ const RETRO_SYSTEM_PROMPT = [
 // Escape angle brackets (and ampersand) so user-supplied content cannot break
 // out of the <tag> delimiters and inject instructions — e.g. a plan containing
 // "</plan>". Entity-encoding preserves meaningful characters like "<3 min".
-function esc(s: string | null | undefined): string {
-  return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function esc(s: unknown): string {
+  // Coerce to string before escaping: JSONB-sourced signal fields (e.g.
+  // monetary_impact_expected) can be numbers/booleans, and `.replace` on a
+  // non-string throws — which previously surfaced as a 500 on the retro path.
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function buildRetroUserContent(signals: FleetSignals): string {

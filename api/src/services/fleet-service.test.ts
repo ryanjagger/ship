@@ -114,6 +114,21 @@ describe('buildRetroRecommendation', () => {
     expect(mockEvaluate).not.toHaveBeenCalled();
   });
 
+  it('does not throw when monetary impact is a non-string (number from JSONB)', async () => {
+    // Regression: buildRetroUserContent runs unconditionally (to size-check) and
+    // esc() previously assumed a string; a JSONB-sourced number (monetary_impact_*)
+    // made `.replace` throw, surfacing as a 500 on the retro path for real projects.
+    mockAvailable.mockReturnValue(false);
+    const result = await buildRetroRecommendation(
+      signals({
+        monetaryImpactExpected: 50000 as unknown as string,
+        monetaryImpactActual: 30000 as unknown as string,
+      })
+    );
+    expect(result.recommendation).toBe('insufficient_evidence');
+    expect(result.ai_available).toBe(false);
+  });
+
   it('strong evidence + AI available → validated_recommended', async () => {
     mockAvailable.mockReturnValue(true);
     mockEvaluate.mockResolvedValueOnce({
