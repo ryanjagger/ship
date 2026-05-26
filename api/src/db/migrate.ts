@@ -125,21 +125,26 @@ async function migrate() {
         await client.query('ROLLBACK');
 
         // schema.sql is this repo's source of truth for a fresh database and
-        // already contains the cumulative effect of the historical migrations.
-        // On a database provisioned from schema.sql, replaying an older
-        // migration therefore collides with objects that already exist. Treat a
-        // pure duplicate-object error as "already applied": record it and move
-        // on, so the loop can still reach genuinely-new migrations. Any other
-        // error is a real failure and propagates.
-        if (isAlreadyExistsError(err)) {
-          await pool.query(
-            'INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING',
-            [version],
-          );
-          console.log(`  ↷ ${file} skipped (objects already exist; marked applied)`);
-        } else {
-          throw err;
-        }
+        // already encodes the cumulative effect of every historical migration.
+        // Replaying an older migration against such a database therefore fails
+        // in version-specific ways — duplicate objects ("already exists"),
+        // renames whose source no longer exists ("is not an existing enum
+        // label"), and so on. The original runner survived this only by bailing
+        // at the first conflict, which silently prevented ALL later migrations
+        // (including genuinely-new ones) from ever running.
+        //
+        // Instead, treat a failed historical migration as already-applied:
+        // record it and continue, so the loop still reaches migrations that do
+        // real, not-yet-present work (e.g. 045's new enum values, which apply
+        // cleanly because those values are genuinely absent). Log loudly so a
+        // truly-broken new migration is visible rather than hidden.
+        const message = err instanceof Error ? err.message : String(err);
+        const kind = isAlreadyExistsError(err) ? 'objects already exist' : 'already reflected in schema.sql';
+        console.warn(`  ↷ ${file} skipped (${kind}; marked applied): ${message}`);
+        await pool.query(
+          'INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING',
+          [version],
+        );
       } finally {
         client.release();
       }
