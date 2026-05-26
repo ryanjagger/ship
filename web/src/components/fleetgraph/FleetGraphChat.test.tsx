@@ -53,9 +53,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+function renderWithProviders(ui: React.ReactElement, queryClient?: QueryClient) {
+  const qc = queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
 /** Default fetch mock: available, CSRF token, empty conversation; chat overridable. */
@@ -217,6 +217,31 @@ describe('FleetGraphChat proposal card (R5)', () => {
       ).toBe(true)
     );
     await waitFor(() => expect(screen.getByText('Created.')).toBeInTheDocument());
+  });
+
+  it('invalidates project + issue caches after a confirmed write (so the Issues tab refreshes)', async () => {
+    mockFetch({
+      chat: () => sseResponse([frame({ type: 'paused', proposal: sampleProposal, threadId: 'c1' })]),
+      confirm: () => jsonResponse({ status: 'answer', answer: 'Created.', conversationId: 'c1' }),
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderWithProviders(
+      <FleetGraphChat open onClose={() => {}} entityId="e1" entityType="project" />,
+      qc
+    );
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'make an issue' } });
+    fireEvent.submit(input.closest('form')!);
+    fireEvent.click(await screen.findByRole('button', { name: /^confirm$/i }));
+
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) =>
+        JSON.stringify((c[0] as { queryKey: unknown[] }).queryKey)
+      );
+      expect(keys).toContain(JSON.stringify(['projects']));
+      expect(keys).toContain(JSON.stringify(['issues']));
+    });
   });
 
   it('focuses the card when it appears and declining posts approved=false', async () => {

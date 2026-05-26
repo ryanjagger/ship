@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiBaseUrl, ensureCsrfToken } from '@/lib/api';
 
 // ── Backend contract types (U9) — kept local; no shared package export. ──────
@@ -131,6 +131,7 @@ export function useFleetGraphChat(
   const [conversationId, setConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const lastMessageRef = useRef<string | null>(null);
+  const queryClient = useQueryClient();
 
   // ── Lifecycle / concurrency guards ─────────────────────────────────────────
   // `mountedRef` gates every post-await setState so nothing writes to a
@@ -399,6 +400,19 @@ export function useFleetGraphChat(
         if (data.answer) {
           setMessages((prev) => [...prev, { role: 'assistant', content: data.answer! }]);
         }
+        // An approved write committed server-side (issue created/patched, comment
+        // posted) but the rest of the app's TanStack caches don't know — without
+        // this, the project's Issues tab keeps showing its stale (pre-write) list
+        // until a hard refresh. Invalidate the surfaces an agent write can change:
+        // project subtree (issues/detail/fleet/counts), the global issues list,
+        // and the targeted document's comments.
+        if (approved) {
+          queryClient.invalidateQueries({ queryKey: ['projects'] });
+          queryClient.invalidateQueries({ queryKey: ['issues'] });
+          if (proposal.kind === 'post_comment' && proposal.targetId) {
+            queryClient.invalidateQueries({ queryKey: ['comments', proposal.targetId] });
+          }
+        }
         setStatus('idle');
         setError(null);
       } catch {
@@ -410,7 +424,7 @@ export function useFleetGraphChat(
         isRunningRef.current = false;
       }
     },
-    [pendingProposal]
+    [pendingProposal, queryClient]
   );
 
   return {
