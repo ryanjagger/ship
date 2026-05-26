@@ -354,11 +354,16 @@ export async function getReview(
   if (!planMiss && cache.plan_review) {
     planReview = { ...cache.plan_review.result, computed_at: cache.plan_review.computed_at };
   } else {
-    // R13: the plan-review compute path is the graph (runPlanReview), not a
-    // direct evaluateStructured call. diagnosis/recommendedNextAction from the
-    // graph are NOT part of FleetReviewResponse — dropped to keep the card
-    // contract identical (AE5).
-    if (allowAi && isFleetAiAvailable()) {
+    if (!hasText(signals.plan)) {
+      // No plan → nothing to review; never call the model. Restores the pre-U8
+      // early-return (runPlanReview/the graph would otherwise invoke the model on
+      // an empty plan). unavailablePlanReview yields status 'no_plan' here.
+      planReview = unavailablePlanReview(signals);
+    } else if (allowAi && isFleetAiAvailable()) {
+      // R13: the plan-review compute path is the graph (runPlanReview), not a
+      // direct evaluateStructured call. diagnosis/recommendedNextAction from the
+      // graph are NOT part of FleetReviewResponse — dropped to keep the card
+      // contract identical (AE5).
       try {
         const graphResult = await runPlanReview({ entityId: projectId, entityType: 'project', ctx });
         planReview = graphResult.planReview;

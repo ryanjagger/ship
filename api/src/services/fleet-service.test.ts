@@ -217,6 +217,22 @@ describe('getReview caching', () => {
     expect(findUpdateCall()).toBeFalsy();
   });
 
+  it('no plan → no_plan review without invoking the graph/model (issue 1)', async () => {
+    mockAvailable.mockReturnValue(true); // provider configured…
+    mockQuery
+      // project row with NO plan in properties
+      .mockResolvedValueOnce({ rows: [{ id: 'p1', title: 'P', content: { type: 'doc', content: [] }, properties: {} }] } as never)
+      .mockResolvedValueOnce({ rows: [] } as never) // issues
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never); // weeks
+    const r = await getReview('p1', CTX);
+    // …yet the graph/model is NOT invoked because there is nothing to review.
+    expect(mockRunPlanReview).not.toHaveBeenCalled();
+    expect(mockEvaluate).not.toHaveBeenCalled();
+    expect(r!.plan_review.status).toBe('no_plan');
+    expect(r!.plan_review.pieces).toHaveLength(0);
+    expect(r!.plan_review.ai_available).toBe(false);
+  });
+
   it('AE6/R13: unchanged plan → graph + retro evaluated once across two calls', async () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4)); // plan via graph
