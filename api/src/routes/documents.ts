@@ -22,7 +22,9 @@ async function canAccessDocument(
             (d.visibility = 'workspace' OR d.created_by = $2 OR
              (SELECT role FROM workspace_memberships WHERE workspace_id = $3 AND user_id = $2) = 'admin') as can_access
      FROM documents d
-     WHERE d.id = $1 AND d.workspace_id = $3 AND d.deleted_at IS NULL`,
+     WHERE d.id = $1 AND d.workspace_id = $3 AND d.deleted_at IS NULL
+       -- Hidden backing-store types are unreachable via the generic by-id route
+       AND d.document_type NOT IN ('conversation', 'insight')`,
     [docId, userId, workspaceId]
   );
 
@@ -127,6 +129,8 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
         AND archived_at IS NULL
         AND deleted_at IS NULL
         AND (visibility = 'workspace' OR created_by = $2 OR $3 = TRUE)
+        -- Hidden backing-store types are never exposed via the generic document UI
+        AND document_type NOT IN ('conversation', 'insight')
     `;
     const params: SqlParam[] = [workspaceId, userId, isAdmin];
 
@@ -196,6 +200,9 @@ router.get('/converted/list', authMiddleware, async (req: Request, res: Response
         AND d.archived_at IS NOT NULL
         AND (d.visibility = 'workspace' OR d.created_by = $2)
         AND (converted_doc.visibility = 'workspace' OR converted_doc.created_by = $2)
+        -- Hidden backing-store types are never exposed via the generic document UI
+        AND d.document_type NOT IN ('conversation', 'insight')
+        AND converted_doc.document_type NOT IN ('conversation', 'insight')
     `;
     const params: (string | null)[] = [workspaceId, userId];
 
@@ -263,7 +270,10 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
     if (doc.converted_to_id && doc.converted_to_id !== doc.id) {
       // Fetch the new document to determine its type for proper routing
       const newDocResult = await pool.query(
-        'SELECT id, document_type FROM documents WHERE id = $1 AND workspace_id = $2',
+        `SELECT id, document_type FROM documents
+         WHERE id = $1 AND workspace_id = $2
+           -- Never redirect to a hidden backing-store document
+           AND document_type NOT IN ('conversation', 'insight')`,
         [doc.converted_to_id, workspaceId]
       );
 
@@ -403,7 +413,9 @@ router.get('/:id/content', authMiddleware, async (req: Request, res: Response) =
               (d.visibility = 'workspace' OR d.created_by = $2 OR
                (SELECT role FROM workspace_memberships WHERE workspace_id = $3 AND user_id = $2) = 'admin') as can_access
        FROM documents d
-       WHERE d.id = $1 AND d.workspace_id = $3 AND d.archived_at IS NULL AND d.deleted_at IS NULL`,
+       WHERE d.id = $1 AND d.workspace_id = $3 AND d.archived_at IS NULL AND d.deleted_at IS NULL
+         -- Hidden backing-store types: never serve their transcript content via the generic route
+         AND d.document_type NOT IN ('conversation', 'insight')`,
       [id, userId, workspaceId]
     );
 
