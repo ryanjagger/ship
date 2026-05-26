@@ -86,6 +86,7 @@ export const projectKeys = {
   detail: (id: string) => [...projectKeys.details(), id] as const,
   issues: (id: string) => [...projectKeys.detail(id), 'issues'] as const,
   weeks: (id: string) => [...projectKeys.detail(id), 'weeks'] as const,
+  fleet: (id: string) => [...projectKeys.detail(id), 'fleet'] as const,
 };
 
 // Fetch projects
