@@ -428,8 +428,8 @@ router.get('/by-ticket/:number', authMiddleware, async (req: Request, res: Respo
 // GET /api/issues/similar?title=...&exclude=<id>
 // MUST be declared before the '/:id' routes below so it isn't captured as an id.
 router.get('/similar', authMiddleware, async (req: Request, res: Response) => {
+  if (!assertAuthed(req, res)) return;
   try {
-    if (!assertAuthed(req, res)) return;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
     const title = ((req.query.title as string) || '').trim();

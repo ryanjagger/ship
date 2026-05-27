@@ -49,6 +49,7 @@ export function IssueDedupHint({ title, excludeId }: IssueDedupHintProps) {
     fleetAvailable === true
   );
   const dedup = useDedupReview();
+  const { reset: resetDedup } = dedup;
   const [dismissed, setDismissed] = useState(false);
   // The title the current verdict was computed for — used to detect staleness.
   const [reviewedTitle, setReviewedTitle] = useState<string | null>(null);
@@ -61,10 +62,10 @@ export function IssueDedupHint({ title, excludeId }: IssueDedupHintProps) {
   // Drop a stale verdict once the title moves on from what it judged.
   useEffect(() => {
     if (reviewedTitle !== null && debouncedTitle !== reviewedTitle) {
-      dedup.reset();
+      resetDedup();
       setReviewedTitle(null);
     }
-  }, [debouncedTitle, reviewedTitle, dedup]);
+  }, [debouncedTitle, reviewedTitle, resetDedup]);
 
   const verdict = reviewedTitle === debouncedTitle ? dedup.data : undefined;
 
