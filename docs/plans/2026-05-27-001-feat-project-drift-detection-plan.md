@@ -83,6 +83,7 @@ Ship already stores everything needed to tell when an `active`/`planned` project
 - **Movement = issue state-change timestamps + creation:** last-movement = GREATEST of MAX(`created_at`,`started_at`,`completed_at`,`cancelled_at`,`reopened_at`) over associated issues. Content edits (`updated_at`) are intentionally excluded — collaborative autosave would make them too noisy to mean "progress".
 - **Thresholds as named constants (7d / 21d / +2)** colocated with `computeProjectDrift`, not workspace-configurable (origin scope).
 - **`drift` is `null` for ineligible projects; `{ isDrifting, signals }` for eligible ones** (empty `signals` when none fire). Web renders the badge only when `isDrifting`.
+- **Detection is deterministic and intentionally does NOT use FleetGraph.** `docs/fleetgraph/presearch.md` lists drift detection as a deferred FleetGraph phase, and the original trigger named "ask FleetGraph for root cause" as a human action. This plan re-homes *detection* outside the graph: deciding "no issue moved in 7 days" is a threshold check on existing data, so routing it through the LangGraph agent would add latency, cost, and non-reproducibility for no benefit. The graph-shaped half is *root-cause / explanation* ("why is this drifting, what should I do?"), which is genuine reasoning over project context — that lands with the deferred actions (see Scope Boundaries → the four human actions). The badge is the deterministic detector; the deferred "Ask Fleet about this drift" action is the seam where FleetGraph attaches on demand.
 
 ---
 
