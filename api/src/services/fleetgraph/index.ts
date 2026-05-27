@@ -113,6 +113,7 @@ export async function runPlanReview(
   // (fresh run) and put/UPDATE matches zero rows (no persistence). Single-shot.
   const config: RunnableConfig = {
     configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: process.env.ENVIRONMENT ?? 'development' },
   };
 
   const final = await graph.invoke(
@@ -187,7 +188,10 @@ export type ChatTurnResult =
   | { status: 'paused'; proposal: WriteProposal; threadId: string };
 
 function chatConfig(conversationDocId: string): RunnableConfig {
-  return { configurable: { thread_id: conversationDocId, checkpoint_ns: '' } };
+  return {
+    configurable: { thread_id: conversationDocId, checkpoint_ns: '' },
+    metadata: { environment: process.env.ENVIRONMENT ?? 'development' },
+  };
 }
 
 interface InterruptEntry {
