@@ -57,8 +57,44 @@ Is it a hybrid of both?
 [FleetGraph Agent Diagram](fleetgraph-graph.md)
 
 ## Use Cases
-For each, provide: role, trigger, what the agent detects or produces,
-and what the human decides.
+For each: role, trigger, what the agent detects or produces, and what the human decides.
+Status reflects what has actually shipped (this is a living document).
+
+1. **Project Drift Detection** — _shipped (detection + on-demand explanation)_
+   - **Role:** PM / Director
+   - **Trigger:** on-demand (computed on-read when a project list/detail is viewed). The scheduled sweep is deferred.
+   - **Detects:** project has stale plan, no movement on open issues, or rising incomplete work. (Standup/week-doc signals deferred — they're person-scoped.)
+   - **Human decides:** ask FleetGraph for root cause (via the drift badge → seeded chat). Acknowledge / snooze / create follow-up are deferred.
+2. **Blocked Work Escalation**
+   - **Role:** Engineer / Week owner
+   - **Trigger:** issue marked blocked, standup mentions blockers, or no movement after N days
+   - **Detects:** who owns the blocked item, what it depends on, whether related docs mention a decision or missing input
+   - **Human decides:** notify accountable person, draft comment, reassign, or create dependency issue
+3. **Plan vs Reality Reconciliation**
+   - **Role:** PM / Director
+   - **Trigger:** midweek and end-of-week runs
+   - **Detects:** planned issues not started, unplanned issues added, scope churn, completed work not reflected in retro
+   - **Human decides:** adjust week plan, accept scope change, ask for retro evidence
+4. **Resource / Ownership Risk**
+   - **Role:** Manager / Director
+   - **Trigger:** week creation, issue assignment, scheduled sweep
+   - **Detects:** week owner overloaded, person owns multiple risky items, issues assigned to pending/archived people, no accountable owner
+   - **Human decides:** rebalance, change owner, split scope
+5. **Contextual "What Should I Do Next?"**
+   - **Role:** any user
+   - **Trigger:** on-demand chat from issue/project/week/program page
+   - **Produces:** next action, risk summary, missing context, suggested update, related docs, likely owner
+   - **Human decides:** apply suggested edit, open linked docs, post comment, create issue
+6. **Standup Intelligence**
+   - **Role:** Week owner / Engineer
+   - **Trigger:** missing standup, stale standup, standup submitted
+   - **Detects:** silence, repeated blockers, mismatch between standup claims and issue movement
+   - **Human decides:** ask for update, accept generated summary, escalate blocker
+7. **Retro Assistant**
+   - **Role:** PM / Engineer
+   - **Trigger:** retro page or end-of-week proactive run
+   - **Produces:** "you said you would do X; evidence shows Y; mention Z"
+   - **Human decides:** accept suggested retro outline or revise
 
 ## Trigger Model
 Document your trigger model decision - poll, webhook, or hybrid. Explain the tradeoffs and
