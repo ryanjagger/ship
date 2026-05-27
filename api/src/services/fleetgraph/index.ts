@@ -30,6 +30,7 @@
 
 import crypto from 'crypto';
 import { Command } from '@langchain/langgraph';
+import { AIMessageChunk } from '@langchain/core/messages';
 import type { RunnableConfig } from '@langchain/core/runnables';
 import type {
   FleetPlanReview,
@@ -322,9 +323,13 @@ export async function* streamChatTurn(
     // With multiple stream modes, each chunk is [mode, payload].
     const [mode, payload] = chunk as [string, unknown];
     if (mode === 'messages') {
-      // payload is [messageChunk, metadata]; emit only non-empty string content.
-      const [msg] = payload as [{ content?: unknown }, unknown];
-      const text = typeof msg?.content === 'string' ? msg.content : '';
+      // payload is [messageChunk, metadata]; only AI message chunks carry prose
+      // tokens. HumanMessage (added by the scope node) is also streamed here and
+      // must be skipped — otherwise the user's question echoes into the assistant
+      // bubble before the real response arrives.
+      const [msg] = payload as [unknown, unknown];
+      if (!(msg instanceof AIMessageChunk)) continue;
+      const text = typeof (msg as AIMessageChunk).content === 'string' ? (msg as AIMessageChunk).content as string : '';
       if (text) yield { type: 'token', token: text };
     } else if (mode === 'values') {
       lastValues = payload as Record<string, unknown>;
