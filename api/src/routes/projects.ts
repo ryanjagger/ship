@@ -9,6 +9,8 @@ import { logDocumentChange, getLatestDocumentFieldHistory } from '../utils/docum
 import { broadcastToUser } from '../collaboration/index.js';
 import { getReview } from '../services/fleet-service.js';
 import { checkFleetRefreshRateLimit } from '../services/fleet-ai.js';
+import { computeProjectDrift } from '../services/drift/computeProjectDrift.js';
+import { driftIssueAggregates, driftPlanLastEditedAt } from '../services/drift/driftSql.js';
 
 type RouterType = ReturnType<typeof Router>;
 const router: RouterType = Router();
@@ -108,6 +110,13 @@ interface ProjectListRow {
   sprint_count: string | number;
   issue_count: string | number;
   inferred_status: InferredProjectStatus | string | null;
+  // Drift aggregate columns — present on the list and single-project queries,
+  // absent on synthesized create/patch rows (computeProjectDrift handles that).
+  last_movement_at?: string | null;
+  plan_last_edited_at?: string | null;
+  open_now?: string | number | null;
+  incomplete_now?: string | number | null;
+  incomplete_7d_ago?: string | number | null;
 }
 
 // /:id/issues route — issues belonging to a project
@@ -185,6 +194,23 @@ function extractProjectFromRow(row: ProjectListRow) {
   const confidence = props.confidence !== undefined ? props.confidence : null;
   const ease = props.ease !== undefined ? props.ease : null;
 
+  const inferredStatus = (row.inferred_status as InferredProjectStatus) || 'backlog';
+  // Drift is derived on-read. The aggregate columns are present on the list and
+  // single-project queries; on synthesized create/patch rows they are undefined,
+  // and computeProjectDrift returns null (those rows are also ineligible anyway).
+  const drift = computeProjectDrift(
+    {
+      inferredStatus,
+      lastMovementAt: row.last_movement_at ? new Date(row.last_movement_at) : null,
+      planText: props.plan ?? null,
+      planLastEditedAt: row.plan_last_edited_at ? new Date(row.plan_last_edited_at) : null,
+      openNow: Number(row.open_now),
+      incompleteNow: Number(row.incomplete_now),
+      incomplete7dAgo: Number(row.incomplete_7d_ago),
+    },
+    new Date()
+  );
+
   return {
     id: row.id,
     title: row.title,
@@ -215,7 +241,9 @@ function extractProjectFromRow(row: ProjectListRow) {
     is_complete: props.is_complete ?? null,
     missing_fields: props.missing_fields ?? [],
     // Inferred status (computed from sprint relationships)
-    inferred_status: row.inferred_status as InferredProjectStatus || 'backlog',
+    inferred_status: inferredStatus,
+    // Drift — derived on-read; null for ineligible projects
+    drift,
     // Conversion tracking
     converted_from_id: row.converted_from_id || null,
     // RACI fields
@@ -581,6 +609,17 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
           AND s.workspace_id = $1  -- match the previous correlated-subquery scope
           AND jsonb_array_length(COALESCE(s.properties->'assignee_ids', '[]'::jsonb)) > 0
         GROUP BY (s.properties->>'project_id')::uuid
+      ),
+      issue_drift AS (
+        SELECT da.related_id AS project_id,
+               ${driftIssueAggregates('i')}
+        FROM document_associations da
+        JOIN documents i ON i.id = da.document_id
+                        AND i.document_type = 'issue'
+                        AND i.archived_at IS NULL AND i.deleted_at IS NULL
+        JOIN visible_projects vp ON vp.id = da.related_id
+        WHERE da.relationship_type = 'project'
+        GROUP BY da.related_id
       )
       SELECT d.id, d.title, d.properties, prog_da.related_id AS program_id,
              d.archived_at, d.created_at, d.updated_at, d.converted_from_id,
@@ -592,13 +631,19 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
                WHEN d.archived_at IS NOT NULL THEN 'archived'
                WHEN d.properties->>'plan_validated' IS NOT NULL THEN 'completed'
                ELSE COALESCE(ss.allocation_status, 'backlog')
-             END AS inferred_status
+             END AS inferred_status,
+             id_cte.last_movement_at,
+             COALESCE(id_cte.open_now, 0) AS open_now,
+             COALESCE(id_cte.incomplete_now, 0) AS incomplete_now,
+             COALESCE(id_cte.incomplete_7d_ago, 0) AS incomplete_7d_ago,
+             ${driftPlanLastEditedAt('d')} AS plan_last_edited_at
       FROM visible_projects d
       LEFT JOIN users u ON u.id = d.owner_id
       LEFT JOIN document_associations prog_da
         ON prog_da.document_id = d.id AND prog_da.relationship_type = 'program'
       LEFT JOIN association_counts ac ON ac.project_id = d.id
       LEFT JOIN sprint_status ss ON ss.project_id = d.id
+      LEFT JOIN issue_drift id_cte ON id_cte.project_id = d.id
       ORDER BY ${orderByClause}
     `;
     const params: (string | boolean)[] = [workspaceId, userId];
@@ -670,10 +715,23 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
               (SELECT COUNT(*) FROM documents i
                JOIN document_associations da ON da.document_id = i.id AND da.related_id = d.id AND da.relationship_type = 'project'
                WHERE i.document_type = 'issue') as issue_count,
-              (${inferredStatusSubquery}) as inferred_status
+              (${inferredStatusSubquery}) as inferred_status,
+              idr.last_movement_at,
+              COALESCE(idr.open_now, 0) AS open_now,
+              COALESCE(idr.incomplete_now, 0) AS incomplete_now,
+              COALESCE(idr.incomplete_7d_ago, 0) AS incomplete_7d_ago,
+              ${driftPlanLastEditedAt('d')} AS plan_last_edited_at
        FROM documents d
        LEFT JOIN users u ON u.id = (d.properties->>'owner_id')::uuid
        LEFT JOIN document_associations prog_da ON prog_da.document_id = d.id AND prog_da.relationship_type = 'program'
+       LEFT JOIN LATERAL (
+         SELECT ${driftIssueAggregates('i')}
+         FROM document_associations da
+         JOIN documents i ON i.id = da.document_id
+                         AND i.document_type = 'issue'
+                         AND i.archived_at IS NULL AND i.deleted_at IS NULL
+         WHERE da.related_id = d.id AND da.relationship_type = 'project'
+       ) idr ON true
        WHERE d.id = $1 AND d.workspace_id = $2 AND d.document_type = 'project'
          AND ${VISIBILITY_FILTER_SQL('d', '$3', '$4')}`,
       [id, workspaceId, userId, isAdmin]
@@ -1055,10 +1113,23 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
               (SELECT COUNT(*) FROM documents i
                JOIN document_associations da ON da.document_id = i.id AND da.related_id = d.id AND da.relationship_type = 'project'
                WHERE i.document_type = 'issue') as issue_count,
-              (${updateInferredStatusSubquery}) as inferred_status
+              (${updateInferredStatusSubquery}) as inferred_status,
+              idr.last_movement_at,
+              COALESCE(idr.open_now, 0) AS open_now,
+              COALESCE(idr.incomplete_now, 0) AS incomplete_now,
+              COALESCE(idr.incomplete_7d_ago, 0) AS incomplete_7d_ago,
+              ${driftPlanLastEditedAt('d')} AS plan_last_edited_at
        FROM documents d
        LEFT JOIN users u ON u.id = (d.properties->>'owner_id')::uuid
        LEFT JOIN document_associations prog_da ON prog_da.document_id = d.id AND prog_da.relationship_type = 'program'
+       LEFT JOIN LATERAL (
+         SELECT ${driftIssueAggregates('i')}
+         FROM document_associations da
+         JOIN documents i ON i.id = da.document_id
+                         AND i.document_type = 'issue'
+                         AND i.archived_at IS NULL AND i.deleted_at IS NULL
+         WHERE da.related_id = d.id AND da.relationship_type = 'project'
+       ) idr ON true
        WHERE d.id = $1 AND d.document_type = 'project'`,
       [id]
     );
