@@ -37,6 +37,9 @@ import { ActionItemsModal } from '@/components/ActionItemsModal';
 import { AccountabilityBanner } from '@/components/AccountabilityBanner';
 import { ProjectContextSidebar } from '@/components/sidebars/ProjectContextSidebar';
 import { RealtimeStatusIndicator } from '@/components/RealtimeStatusIndicator';
+import { useFleetGraphAvailability } from '@/hooks/useFleetGraphChat';
+import { useFleetChat } from '@/contexts/FleetChatContext';
+import { useFleetChatEntity } from '@/hooks/useFleetChatEntity';
 
 type Mode = 'docs' | 'issues' | 'projects' | 'programs' | 'sprints' | 'team' | 'settings' | 'dashboard' | 'project-context';
 
@@ -370,8 +373,12 @@ export function AppLayout() {
             )}
           </div>
 
-          {/* Mode icons - ordered by hierarchy: Dashboard → Docs → Programs → Projects → Issues → Teams */}
+          {/* Mode icons - ordered by hierarchy: Ask Fleet (action) → Dashboard → Docs → Programs → Projects → Issues → Teams */}
           <div className="flex flex-1 flex-col items-center gap-1">
+            {/* Ask Fleet is an action (opens a drawer), not a navigation mode —
+                a divider separates it from the mode icons below. */}
+            <AskFleetRailButton />
+            <div className="my-1 h-px w-5 bg-border" aria-hidden="true" />
             <RailIcon
               icon={<DashboardIcon />}
               label="Dashboard"
@@ -603,6 +610,45 @@ export function AppLayout() {
     </div>
     </SelectionPersistenceProvider>
     </TooltipProvider>
+  );
+}
+
+/**
+ * AskFleetRailButton — persistent "Ask Fleet" entry point at the top of the rail.
+ *
+ * Enabled only when Fleet is configured AND the current page has a focal entity
+ * (Project or Week); greyed elsewhere with a tooltip explaining which condition
+ * failed. Opens the shared chat drawer (FleetChatProvider) seeded with that
+ * entity. Unlike the in-content launcher, this control never disappears.
+ */
+export function AskFleetRailButton() {
+  const { data: available } = useFleetGraphAvailability();
+  const entity = useFleetChatEntity();
+  const { open } = useFleetChat();
+
+  const enabled = available === true && entity !== null;
+
+  // Greyed-state copy distinguishes the two failure reasons. During the
+  // availability probe (available === undefined) we stay neutral ("Ask Fleet")
+  // rather than implying the provider is misconfigured.
+  const disabledLabel =
+    available === false
+      ? 'Fleet is not configured'
+      : available === undefined
+        ? undefined
+        : 'Open a project or week to ask Fleet';
+
+  return (
+    <RailIcon
+      icon={<img src="/ship.png" alt="" className="h-5 w-5 object-contain" />}
+      label="Ask Fleet"
+      active={false}
+      disabled={!enabled}
+      disabledLabel={disabledLabel}
+      onClick={() => {
+        if (entity) open(entity);
+      }}
+    />
   );
 }
 
