@@ -149,6 +149,28 @@ async function deleteProjectApi(id: string): Promise<void> {
   }
 }
 
+// Fetch a single enriched project (includes the on-read `drift` field, which the
+// generic document model does not carry).
+async function fetchProject(id: string): Promise<Project> {
+  const res = await apiGet(`/api/projects/${id}`);
+  if (!res.ok) {
+    const error = new Error('Failed to fetch project') as Error & { status: number };
+    error.status = res.status;
+    throw error;
+  }
+  return res.json();
+}
+
+// Hook to get a single project's enriched response (drift, inferred_status, etc.).
+export function useProjectQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: id ? projectKeys.detail(id) : projectKeys.details(),
+    queryFn: () => fetchProject(id as string),
+    enabled: !!id,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
 // Hook to get projects
 export function useProjectsQuery() {
   return useQuery({
