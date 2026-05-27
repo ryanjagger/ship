@@ -1,4 +1,11 @@
+# Fleet/FleetGraph AGENT
 
+> **Living document.** This evolves with our Fleet features — update it as each
+> capability ships (use cases, triggers, test cases, and architecture decisions),
+> rather than treating it as a one-time design doc. When a Fleet feature lands,
+> reflect what actually shipped here.
+
+## Agent Responsibility
 What does this agent monitor proactively?
     - Proactively, we're watching a Project's 'plan' field. Ship's philosophy states that a plan is a hypothesis about what value it will deliver. Because of the overall value that this hypothesis can add to a retro, the agent judges the quality of the plan and provides tips to improve it. (In this iteration the proactive output is the cached plan-review on the Project Details card; scheduled/no-user-present sweeps are deferred.)
 
@@ -45,3 +52,27 @@ Is it a hybrid of both?
       service-level FleetContext (no user present) whose visibility is bounded to workspace scope —
       with proactive findings persisted as the deferred `insight` documents rather than written back
       to entities, so the no-write-without-confirmation rule still holds.
+
+## Agent Diagram
+[FleetGraph Agent Diagram](fleetgraph-graph.md)
+
+## Use Cases
+For each, provide: role, trigger, what the agent detects or produces,
+and what the human decides.
+
+## Trigger Model
+Document your trigger model decision - poll, webhook, or hybrid. Explain the tradeoffs and
+defend your choice in terms of cost, reliability, and detection latency.
+
+## Test Cases
+For each use case above, provide: the Ship state that should trigger the agent, what the agent
+should detect or produce, and the LangSmith trace link from a run against that state.
+
+| # | Ship State | Expected Output | Trace Link |
+|----|-----------|----------------|------------|
+| 1  |           |                |            |
+| 2  |           |                |            |
+| 3  |           |                |            |
+
+# Architecture Decisions
+Document your key architecture decisions and the tradeoffs you considered. Cover: framework choice, node design rationale, state management approach, and deployment model.
