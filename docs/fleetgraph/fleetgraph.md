@@ -80,11 +80,12 @@ Status reflects what has actually shipped (this is a living document).
    - **Trigger:** week creation, issue assignment, scheduled sweep
    - **Detects:** week owner overloaded, person owns multiple risky items, issues assigned to pending/archived people, no accountable owner
    - **Human decides:** rebalance, change owner, split scope
-5. **Contextual "What Should I Do Next?"**
+5. **Contextual "What Should I Do Next?"** — _shipped (issue entity type + seeded chat)_
    - **Role:** any user
-   - **Trigger:** on-demand chat from issue/project/week/program page
-   - **Produces:** next action, risk summary, missing context, suggested update, related docs, likely owner
-   - **Human decides:** apply suggested edit, open linked docs, post comment, create issue
+   - **Trigger:** on-demand chat from issue/project/week/program page. Issues show a "What should I do next?" button (seeded prompt); projects and weeks show "Ask Fleet".
+   - **Produces:** next action, blockers/risks, missing context, suggested state/priority/assignee updates. Grounded in the issue's state, priority, assignee, parent project, sibling issues, and recent comments/status changes.
+   - **Human decides:** apply suggested edit, open linked docs, post comment, create issue — all via the existing propose_*/confirm HITL flow.
+   - **Entity types now supported:** `project`, `week`, `issue`. Programs deferred.
 6. **Standup Intelligence**
    - **Role:** Week owner / Engineer
    - **Trigger:** missing standup, stale standup, standup submitted
