@@ -164,7 +164,7 @@ async function fetchProject(id: string): Promise<Project> {
 // Hook to get a single project's enriched response (drift, inferred_status, etc.).
 export function useProjectQuery(id: string | undefined) {
   return useQuery({
-    queryKey: id ? projectKeys.detail(id) : projectKeys.details(),
+    queryKey: projectKeys.detail(id ?? ''),
     queryFn: () => fetchProject(id as string),
     enabled: !!id,
     staleTime: 1000 * 60 * 5, // 5 minutes

@@ -1113,26 +1113,17 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
               (SELECT COUNT(*) FROM documents i
                JOIN document_associations da ON da.document_id = i.id AND da.related_id = d.id AND da.relationship_type = 'project'
                WHERE i.document_type = 'issue') as issue_count,
-              (${updateInferredStatusSubquery}) as inferred_status,
-              idr.last_movement_at,
-              COALESCE(idr.open_now, 0) AS open_now,
-              COALESCE(idr.incomplete_now, 0) AS incomplete_now,
-              COALESCE(idr.incomplete_7d_ago, 0) AS incomplete_7d_ago,
-              ${driftPlanLastEditedAt('d')} AS plan_last_edited_at
+              (${updateInferredStatusSubquery}) as inferred_status
        FROM documents d
        LEFT JOIN users u ON u.id = (d.properties->>'owner_id')::uuid
        LEFT JOIN document_associations prog_da ON prog_da.document_id = d.id AND prog_da.relationship_type = 'program'
-       LEFT JOIN LATERAL (
-         SELECT ${driftIssueAggregates('i')}
-         FROM document_associations da
-         JOIN documents i ON i.id = da.document_id
-                         AND i.document_type = 'issue'
-                         AND i.archived_at IS NULL AND i.deleted_at IS NULL
-         WHERE da.related_id = d.id AND da.relationship_type = 'project'
-       ) idr ON true
        WHERE d.id = $1 AND d.document_type = 'project'`,
       [id]
     );
+    // Note: the PATCH response intentionally omits drift aggregate columns —
+    // the client discards the response's drift and refetches the list/detail,
+    // so computing it here would be wasted work. extractProjectFromRow yields
+    // drift: null for this row (missing columns), which is never surfaced.
 
     const updatedRow = result.rows[0];
     if (!updatedRow) {
