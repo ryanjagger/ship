@@ -12,6 +12,7 @@ import { Combobox } from '@/components/ui/Combobox';
 import { useToast } from '@/components/ui/Toast';
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from '@/components/ui/ContextMenu';
 import { FilterTabs } from '@/components/FilterTabs';
+import { DriftBadge } from '@/components/DriftBadge';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/date-utils';
 import { ArchiveIcon } from '@/components/icons/ArchiveIcon';
@@ -498,6 +499,7 @@ function ProjectRowContent({ project, visibleColumns, programNameById }: Project
                 Incomplete
               </span>
             )}
+            <DriftBadge drift={project.drift} />
           </div>
         </td>
       )}
