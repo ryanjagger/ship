@@ -606,19 +606,38 @@ export function AppLayout() {
   );
 }
 
-function RailIcon({ icon, label, active, onClick, showBadge }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showBadge?: boolean }) {
+export function RailIcon({ icon, label, active, onClick, showBadge, disabled, disabledLabel }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showBadge?: boolean; disabled?: boolean; disabledLabel?: string }) {
+  // When disabled, the tooltip must still explain *why* — so we use
+  // `aria-disabled` rather than the native `disabled` attribute (a natively
+  // disabled <button> suppresses pointer events in Firefox/Safari, which would
+  // stop the Radix tooltip from ever firing). The button stays hover- and
+  // keyboard-reachable; we guard onClick instead.
+  const effectiveLabel = disabled ? (disabledLabel ?? label) : label;
   return (
-    <Tooltip content={label} side="right">
+    <Tooltip content={effectiveLabel} side="right">
       <button
-        onClick={onClick}
+        type="button"
+        onClick={(e) => {
+          if (disabled) {
+            e.preventDefault();
+            return;
+          }
+          onClick();
+        }}
+        aria-disabled={disabled || undefined}
         className={cn(
           'relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
-          active ? 'bg-border text-foreground' : 'text-muted hover:bg-border/50 hover:text-foreground'
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          disabled
+            ? 'cursor-not-allowed text-muted opacity-40'
+            : active
+              ? 'bg-border text-foreground'
+              : 'text-muted hover:bg-border/50 hover:text-foreground'
         )}
-        aria-label={label}
+        aria-label={effectiveLabel}
       >
         {icon}
-        {showBadge && (
+        {showBadge && !disabled && (
           <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-orange-500" />
         )}
       </button>
