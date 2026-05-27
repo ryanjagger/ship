@@ -1,0 +1,101 @@
+/**
+ * FleetGraph shared graph state (U7).
+ *
+ * One `Annotation`-based state object serves BOTH entry inputs:
+ *   - proactive plan-review: { mode:'plan_review', entityId, entityType }
+ *   - on-demand chat:        { mode:'chat', entityId, entityType, message, history }
+ *
+ * Annotation is used here (not zod) per the plan: zero zod coupling in graph
+ * state — zod is reserved for tool/output schemas (U4/U6). LangGraph reducers
+ * decide how each channel merges when a node returns a partial update.
+ *
+ * ── REDUCER CHOICES (and why) ───────────────────────────────────────────────
+ *
+ *  - `messages`: APPEND (concat). The chat tool-loop accumulates Human / AI /
+ *    Tool messages across model turns. We use LangGraph's `messagesStateReducer`
+ *    so message-id de-duplication / replacement works like MessagesAnnotation.
+ *
+ *  - `fetched`: REPLACE (last-write-wins). U5's fetch node returns a COMPLETE
+ *    consolidated snapshot (`FetchNodeOutput`) — every key is a full picture, not
+ *    an increment. Even if U7 later fanned the fetch out into per-slice nodes,
+ *    each slice is independent (per-key replace, no cross-key conflict), so a
+ *    whole-object replace is still correct. Documented in nodes/fetch.ts.
+ *
+ *  - `analysis`: REPLACE. The reasoning node emits at most one analysis object
+ *    per run; a later node never partially updates it.
+ *
+ *  - `proposal`: REPLACE. At most one pending write proposal is in flight per
+ *    turn (the U3 checkpointer is latest-tuple-only and U9 enforces one in-flight
+ *    turn per conversation). The reasoning node sets it; policy reads it.
+ *
+ *  - Scalar scope channels (`mode`, `entityId`, `entityType`, `ctx`,
+ *    `conversationDocId`, `answer`, `executed`, `degraded`): REPLACE — seeded
+ *    once at scope and overwritten if a node revises them.
+ */
+
+import { Annotation, messagesStateReducer } from '@langchain/langgraph';
+import type { BaseMessage } from '@langchain/core/messages';
+import type { FleetContext } from './tools/read.js';
+import type { FleetEntityType } from './tools/read.js';
+import type { FetchNodeOutput } from './nodes/fetch.js';
+import type { WriteProposal, ExecuteResult } from './tools/write.js';
+
+export type FleetMode = 'plan_review' | 'chat';
+
+/** The structured analysis the reasoning node produces (mode-shaped). */
+export interface FleetAnalysis {
+  /** Plain-text answer / insight (chat answer or proactive summary). */
+  text: string;
+  /**
+   * For proactive plan_review: the structured plan-review payload the entry
+   * point lifts into a FleetPlanReview-shaped result. Opaque to the graph.
+   */
+  planReview?: unknown;
+  /** True when the model contributed (vs. a neutral-degraded path). */
+  aiAvailable: boolean;
+}
+
+/**
+ * Replace reducer factory: last write wins, defaulting to the existing value
+ * when an update is omitted (LangGraph passes `undefined` for unchanged keys).
+ */
+function replace<T>(): (current: T, update: T | undefined) => T {
+  return (current, update) => (update === undefined ? current : update);
+}
+
+export const FleetGraphState = Annotation.Root({
+  // ── scope (seeded once from the entry input) ──
+  mode: Annotation<FleetMode>({ reducer: replace<FleetMode>(), default: () => 'chat' }),
+  entityId: Annotation<string>({ reducer: replace<string>(), default: () => '' }),
+  entityType: Annotation<FleetEntityType>({ reducer: replace<FleetEntityType>(), default: () => 'project' }),
+  ctx: Annotation<FleetContext | null>({ reducer: replace<FleetContext | null>(), default: () => null }),
+  conversationDocId: Annotation<string | null>({ reducer: replace<string | null>(), default: () => null }),
+
+  // ── chat input ──
+  message: Annotation<string>({ reducer: replace<string>(), default: () => '' }),
+  // The running message thread for the chat tool-loop (append/merge).
+  messages: Annotation<BaseMessage[]>({ reducer: messagesStateReducer, default: () => [] }),
+
+  // ── fetched context (REPLACE — complete snapshot from U5) ──
+  fetched: Annotation<FetchNodeOutput | null>({ reducer: replace<FetchNodeOutput | null>(), default: () => null }),
+
+  // ── reasoning output ──
+  analysis: Annotation<FleetAnalysis | null>({ reducer: replace<FleetAnalysis | null>(), default: () => null }),
+
+  // ── proposed write (chat only; policy routes on this) ──
+  proposal: Annotation<WriteProposal | null>({ reducer: replace<WriteProposal | null>(), default: () => null }),
+
+  // ── terminal outputs ──
+  answer: Annotation<string>({ reducer: replace<string>(), default: () => '' }),
+  /** Set by the action node AFTER interrupt+execute (resume path). */
+  executed: Annotation<ExecuteResult | null>({ reducer: replace<ExecuteResult | null>(), default: () => null }),
+  /** True when the action node ran but the proposal was declined. */
+  declined: Annotation<boolean>({ reducer: replace<boolean>(), default: () => false }),
+  /** True when a model error / unavailability degraded the run to neutral. */
+  degraded: Annotation<boolean>({ reducer: replace<boolean>(), default: () => false }),
+});
+
+/** The fully-typed graph state. */
+export type FleetGraphStateType = typeof FleetGraphState.State;
+/** A partial update a node may return. */
+export type FleetGraphUpdate = Partial<FleetGraphStateType>;

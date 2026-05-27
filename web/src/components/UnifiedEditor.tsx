@@ -16,6 +16,7 @@ import { DocumentTypeSelector, getMissingRequiredFields } from '@/components/sid
 import type { DocumentType as SelectableDocumentType } from '@/components/sidebars/DocumentTypeSelector';
 import { useAuth } from '@/hooks/useAuth';
 import { PlanQualityBanner, RetroQualityBanner } from '@/components/PlanQualityBanner';
+import { FleetGraphChatLauncher } from '@/components/fleetgraph/FleetGraphChatLauncher';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { Person } from '@/components/PersonCombobox';
 import type { BelongsTo } from '@ship/shared';
@@ -77,6 +78,7 @@ interface ProjectDocument extends BaseDocument {
   sprint_count?: number;
   issue_count?: number;
   converted_from_id?: string | null;
+  target_date?: string | null;
 }
 
 // Sprint document
@@ -427,6 +429,14 @@ export function UnifiedEditor({
     }
     if (document.document_type === 'weekly_retro') {
       return <RetroQualityBanner documentId={document.id} editorContent={editorContent} planContent={null} onAnalysisChange={handleRetroAnalysisChange} />;
+    }
+    if (document.document_type === 'project') {
+      return undefined;
+    }
+    // A "Week" is document_type='sprint'; the chat backend maps week→sprint, so
+    // we pass entityType='week' here. (U10)
+    if (document.document_type === 'sprint') {
+      return <FleetGraphChatLauncher entityId={document.id} entityType="week" />;
     }
     return undefined;
   }, [document.id, document.document_type, editorContent, handlePlanAnalysisChange, handleRetroAnalysisChange]);

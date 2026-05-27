@@ -141,6 +141,29 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
+  # FleetGraph chat SSE stream (U9) - MUST precede the broader "/api/*" behavior
+  # so this more-specific path wins. SSE requires compression OFF (CloudFront must
+  # not buffer/transform the event-stream) and no caching. Mirrors the
+  # /collaboration/* and /events streaming behaviors (compress=false, ttl=0,
+  # all-viewer headers via the api origin-request policy). See
+  # docs/solutions/websocket-cloudfront-configuration.md.
+  dynamic "ordered_cache_behavior" {
+    for_each = var.eb_environment_cname != "" ? [1] : []
+    content {
+      path_pattern           = "/api/fleetgraph/chat"
+      target_origin_id       = "EB-API"
+      viewer_protocol_policy = "redirect-to-https"
+      allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+      cached_methods         = ["GET", "HEAD"]
+      compress               = false
+
+      # Use policies instead of forwarded_values; api_no_cache enforces ttl=0 and
+      # the api origin-request policy forwards all viewer headers/cookies/query.
+      cache_policy_id          = aws_cloudfront_cache_policy.api_no_cache.id
+      origin_request_policy_id = aws_cloudfront_origin_request_policy.api.id
+    }
+  }
+
   # API routes - forward to EB (only when EB is configured)
   # Uses origin request policy instead of legacy forwarded_values to avoid body size limits
   dynamic "ordered_cache_behavior" {
