@@ -13,6 +13,7 @@ import {
 } from '../utils/document-crud.js';
 import { broadcastToUser } from '../collaboration/index.js';
 import { createIssueCore, patchIssueCore, runIssueSideEffects } from '../services/issues-service.js';
+import { findSimilarIssues } from '../services/issue-dedup.js';
 
 type RouterType = ReturnType<typeof Router>;
 const router: RouterType = Router();
@@ -414,6 +415,36 @@ router.get('/by-ticket/:number', authMiddleware, async (req: Request, res: Respo
     });
   } catch (err) {
     console.error('Get issue by ticket error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Find similar open issues by title (Fleet "dedup-on-create", stage 1).
+// The issue editor calls this as the title is typed to surface possible
+// duplicates before another near-identical issue is filed. This is the cheap,
+// deterministic pg_trgm pass; the reasoned verdict over these candidates is
+// stage 2 (POST /api/fleetgraph/dedup-review). Retrieval lives in
+// services/issue-dedup.ts so both stages judge the EXACT same candidate set.
+// GET /api/issues/similar?title=...&exclude=<id>
+// MUST be declared before the '/:id' routes below so it isn't captured as an id.
+router.get('/similar', authMiddleware, async (req: Request, res: Response) => {
+  if (!assertAuthed(req, res)) return;
+  try {
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
+    const title = ((req.query.title as string) || '').trim();
+    const excludeId = (req.query.exclude as string) || null;
+
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const candidates = await findSimilarIssues({
+      ctx: { workspaceId, userId, isAdmin },
+      title,
+      excludeId,
+    });
+
+    res.json({ candidates });
+  } catch (err) {
+    console.error('Find similar issues error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

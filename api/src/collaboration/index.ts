@@ -49,22 +49,46 @@ setInterval(() => {
   });
 }, 30_000);
 
-// Check if IP is rate limited for new connections
-function isConnectionRateLimited(ip: string): boolean {
+// Loopback clients are exempt from the connection rate limit. A connection whose
+// real TCP peer is ::1 / 127.0.0.1 is always the local machine (dev, tests,
+// same-host tooling), never a remote DoS source — and local dev legitimately
+// opens many sockets in a minute: React StrictMode double-mounts each editor, HMR
+// re-establishes connections, and navigating between documents (e.g. clicking
+// through the dedup hint's candidate links) opens a fresh /collaboration socket
+// per doc. Tripping the limit there starts a self-perpetuating reconnect storm.
+//
+// SECURITY: the exemption is decided by the real socket peer (peerIp =
+// request.socket.remoteAddress), NEVER by the rate-limit bucket key — that key is
+// derived from the client-controlled X-Forwarded-For header, so exempting on it
+// would let a remote attacker disable the cap entirely with a spoofed
+// `X-Forwarded-For: 127.0.0.1`. Production clients arrive via CloudFront, whose
+// edge sets the real peer address, so a genuine remote peer is never loopback.
+function isLoopbackIp(ip: string): boolean {
+  return ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1';
+}
+
+// Check if a connection is rate limited. `bucketKey` is the per-IP sliding-window
+// key (the X-Forwarded-For-derived client IP); `peerIp` is the real TCP peer used
+// ONLY for the loopback exemption (see isLoopbackIp). Keep these distinct.
+export function isConnectionRateLimited(bucketKey: string, peerIp: string): boolean {
+  if (isLoopbackIp(peerIp)) return false;
   const now = Date.now();
-  const attempts = connectionAttempts.get(ip) || [];
+  const attempts = connectionAttempts.get(bucketKey) || [];
   const recentAttempts = attempts.filter(t => now - t < RATE_LIMIT.CONNECTION_WINDOW_MS);
   return recentAttempts.length >= RATE_LIMIT.MAX_CONNECTIONS_PER_IP;
 }
 
-// Record a connection attempt from an IP
-function recordConnectionAttempt(ip: string): void {
+// Record a connection attempt under `bucketKey`. Loopback peers are outside the
+// limiter entirely (isConnectionRateLimited exempts them), so we don't accumulate
+// timestamps for them — avoids unbounded growth of the ::1 bucket in dev.
+export function recordConnectionAttempt(bucketKey: string, peerIp: string): void {
+  if (isLoopbackIp(peerIp)) return;
   const now = Date.now();
-  const attempts = connectionAttempts.get(ip) || [];
+  const attempts = connectionAttempts.get(bucketKey) || [];
   attempts.push(now);
   // Keep only recent attempts to limit memory usage
   const recentAttempts = attempts.filter(t => now - t < RATE_LIMIT.CONNECTION_WINDOW_MS);
-  connectionAttempts.set(ip, recentAttempts);
+  connectionAttempts.set(bucketKey, recentAttempts);
 }
 
 // Check if a WebSocket connection is rate limited for messages
@@ -665,19 +689,22 @@ export function setupCollaboration(server: Server) {
 
     // Handle /events WebSocket for real-time notifications
     if (url.pathname === '/events') {
-      // Rate limit check
+      // Rate limit check. bucketKey is the (spoofable) X-Forwarded-For client IP
+      // used for the per-IP window; peerIp is the real socket peer used ONLY for
+      // the loopback exemption (never trust XFF for that — see isConnectionRateLimited).
+      const peerIp = request.socket.remoteAddress || '';
       const clientIp = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-                       request.socket.remoteAddress ||
+                       peerIp ||
                        'unknown';
 
-      if (isConnectionRateLimited(clientIp)) {
+      if (isConnectionRateLimited(clientIp, peerIp)) {
         const recentCount = (connectionAttempts.get(clientIp) || []).length;
         console.warn(`[Collaboration] 429 rate-limit /events ip=${clientIp} attempts=${recentCount}/${RATE_LIMIT.MAX_CONNECTIONS_PER_IP} window=${RATE_LIMIT.CONNECTION_WINDOW_MS}ms`);
         socket.write('HTTP/1.1 429 Too Many Requests\r\nRetry-After: 60\r\n\r\n');
         socket.destroy();
         return;
       }
-      recordConnectionAttempt(clientIp);
+      recordConnectionAttempt(clientIp, peerIp);
 
       // Validate session
       const sessionData = await validateWebSocketSession(request);
@@ -699,19 +726,22 @@ export function setupCollaboration(server: Server) {
       return;
     }
 
-    // Rate limit check: prevent connection floods from single IP
+    // Rate limit check: prevent connection floods from single IP. bucketKey is the
+    // (spoofable) X-Forwarded-For client IP; peerIp is the real socket peer used
+    // ONLY for the loopback exemption (see isConnectionRateLimited).
+    const peerIp = request.socket.remoteAddress || '';
     const clientIp = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-                     request.socket.remoteAddress ||
+                     peerIp ||
                      'unknown';
 
-    if (isConnectionRateLimited(clientIp)) {
+    if (isConnectionRateLimited(clientIp, peerIp)) {
       const recentCount = (connectionAttempts.get(clientIp) || []).length;
       console.warn(`[Collaboration] 429 rate-limit ${url.pathname} ip=${clientIp} attempts=${recentCount}/${RATE_LIMIT.MAX_CONNECTIONS_PER_IP} window=${RATE_LIMIT.CONNECTION_WINDOW_MS}ms`);
       socket.write('HTTP/1.1 429 Too Many Requests\r\nRetry-After: 60\r\n\r\n');
       socket.destroy();
       return;
     }
-    recordConnectionAttempt(clientIp);
+    recordConnectionAttempt(clientIp, peerIp);
 
     // CRITICAL: Validate session before allowing WebSocket connection
     const sessionData = await validateWebSocketSession(request);

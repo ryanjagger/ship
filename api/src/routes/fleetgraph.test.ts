@@ -38,6 +38,18 @@ vi.mock('../services/fleetgraph/model.js', async (importOriginal) => {
   };
 });
 
+// Mock the structured fleet-ai path (used by dedup + plan-review reasoning) so the
+// dedup verdict is deterministic + keyless. `dedupAi.next` is mutated per-test.
+const { dedupAi } = vi.hoisted(() => ({
+  dedupAi: {
+    next: () => ({ summary: '', duplicates: [] as Array<{ index: number; confidence: string; reason: string }>, recommendation: '' }),
+  },
+}));
+vi.mock('../services/fleet-ai.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/fleet-ai.js')>();
+  return { ...actual, evaluateStructured: async () => dedupAi.next() };
+});
+
 import { createApp } from '../app.js';
 import { pool } from '../db/client.js';
 import { generateOpenAPIDocument } from '../openapi/registry.js';
@@ -308,6 +320,56 @@ describe('FleetGraph chat API', () => {
       .set('x-csrf-token', csrfToken)
       .send({ conversationId: crypto.randomUUID(), approved: true });
     expect(confirmRes.status).toBe(503);
+  });
+
+  // ── dedup-review (stage-2, graph-backed) ──
+  function dedup(body: object, cookie = sessionCookie, csrf = csrfToken) {
+    return request(app).post('/api/fleetgraph/dedup-review').set('Cookie', cookie).set('x-csrf-token', csrf).send(body);
+  }
+
+  async function seedIssue(title: string, ticket: number): Promise<string> {
+    const r = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, ticket_number, created_by, visibility, properties)
+       VALUES ($1,'issue',$2,$3,$4,'workspace','{"state":"todo"}'::jsonb) RETURNING id`,
+      [workspaceId, title, ticket, userId]
+    );
+    return r.rows[0]!.id;
+  }
+
+  it('returns a graph-backed duplicate verdict mapping the model index to a candidate', async () => {
+    modelState.available = true;
+    const dupId = await seedIssue('Login button unresponsive on mobile', 8101);
+    const draftId = await seedIssue('Untitled', 8102);
+    dedupAi.next = () => ({
+      summary: 'Looks like the same login bug.',
+      duplicates: [{ index: 1, confidence: 'high', reason: 'Same login button bug.' }],
+      recommendation: 'Open #8101 instead.',
+    });
+
+    const res = await dedup({ title: 'Login button unresponsive on phones', excludeId: draftId });
+    expect(res.status).toBe(200);
+    expect(res.body.ai_available).toBe(true);
+    expect(res.body.candidates.some((c: { id: string }) => c.id === dupId)).toBe(true);
+    expect(res.body.matches).toHaveLength(1);
+    expect(res.body.matches[0].candidate.id).toBe(dupId);
+    expect(res.body.matches[0].confidence).toBe('high');
+    expect(res.body.recommendation).toContain('#8101');
+  });
+
+  it('rejects an invalid body (400) and a non-visible draft issue (404)', async () => {
+    modelState.available = true;
+    const bad = await dedup({ title: 'something' }); // missing excludeId
+    expect(bad.status).toBe(400);
+
+    const notFound = await dedup({ title: 'whatever title here', excludeId: crypto.randomUUID() });
+    expect(notFound.status).toBe(404);
+  });
+
+  it('reports 503 for dedup-review when no AI provider is configured', async () => {
+    modelState.available = false;
+    const draftId = await seedIssue('Untitled', 8103);
+    const res = await dedup({ title: 'Some draft title', excludeId: draftId });
+    expect(res.status).toBe(503);
   });
 
   // ── R18: availability probe drives the client launcher's hide/show ──

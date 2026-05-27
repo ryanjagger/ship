@@ -35,11 +35,15 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import type {
   FleetPlanReview,
   FleetHypothesisPiece,
+  FleetDedupReview,
+  FleetDedupMatch,
 } from '@ship/shared';
 import { hasText } from '../fleet-checks.js';
 import { pool as defaultPool } from '../../db/client.js';
 import { ConversationDocCheckpointSaver } from './checkpointer.js';
 import { RUBRIC, BY_WHEN_HINT } from './plan-review-config.js';
+import { findSimilarIssues } from '../issue-dedup.js';
+import type { DedupReviewAi } from './dedup-config.js';
 import { getCompiledGraph, compileGraph } from './graph.js';
 import type { FleetContext, FleetEntityType } from './tools/read.js';
 import type { WriteProposal } from './tools/write.js';
@@ -167,6 +171,86 @@ export async function runPlanReview(
     ai_available: false,
   };
   return { planReview, diagnosis: null, recommendedNextAction: null, available: false };
+}
+
+// ── dedup (on-demand, graph-backed duplicate verdict) ────────────────────────
+
+export interface RunDedupReviewArgs {
+  /** The in-progress issue title the author is typing. */
+  draftTitle: string;
+  /** The draft issue's id — excluded from candidates AND the graph entityId. */
+  excludeId: string;
+  ctx: FleetContext;
+}
+
+/**
+ * Two-stage dedup verdict. Stage 1 retrieves pg_trgm candidates (cheap, no
+ * model). Stage 2 runs the SAME compiled graph in `dedup` mode
+ * (scope→fetch→reason(structured)→output) so the model judges which candidates
+ * are TRUE duplicates and why. Short-circuits WITHOUT a model call when there
+ * are no candidates. Like runPlanReview it uses a transient random thread_id
+ * (no conversation, never pauses) and never throws — a degraded model yields a
+ * verdict-less result (candidates only).
+ */
+export async function runDedupReview(
+  args: RunDedupReviewArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<FleetDedupReview> {
+  // Stage 1: cheap, visibility-scoped pg_trgm candidate retrieval.
+  const candidates = await findSimilarIssues({
+    ctx: args.ctx,
+    title: args.draftTitle,
+    excludeId: args.excludeId,
+  });
+
+  // Nothing similar ⇒ nothing to judge. Short-circuit before any model call.
+  if (candidates.length === 0) {
+    return { candidates: [], matches: [], summary: null, recommendation: null, ai_available: false };
+  }
+
+  // Stage 2: judge through the graph. Transient thread_id (no persistence).
+  const config: RunnableConfig = {
+    configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV },
+  };
+  const final = await graph.invoke(
+    {
+      mode: 'dedup',
+      entityId: args.excludeId,
+      entityType: 'issue',
+      ctx: args.ctx,
+      draftTitle: args.draftTitle,
+      candidates,
+    },
+    config
+  );
+
+  const analysis = final.analysis as FleetAnalysis | null;
+  const ai = (analysis?.dedupReview as DedupReviewAi | undefined) ?? undefined;
+
+  // Model unavailable / degraded → return the candidates with no verdict so the
+  // client can still show the (stage-1) possible-duplicate list.
+  if (!ai || !analysis?.aiAvailable) {
+    return { candidates, matches: [], summary: null, recommendation: null, ai_available: false };
+  }
+
+  // Map the model's 1-based candidate indexes back to candidates; drop any
+  // out-of-range index defensively (a hallucinated index references nothing).
+  const matches: FleetDedupMatch[] = ai.duplicates
+    .map((d): FleetDedupMatch | null => {
+      const candidate = candidates[d.index - 1];
+      if (!candidate) return null;
+      return { candidate, confidence: d.confidence, reason: d.reason };
+    })
+    .filter((m): m is FleetDedupMatch => m !== null);
+
+  return {
+    candidates,
+    matches,
+    summary: ai.summary.trim() || null,
+    recommendation: ai.recommendation.trim() || null,
+    ai_available: true,
+  };
 }
 
 // ── chat ───────────────────────────────────────────────────────────────────
