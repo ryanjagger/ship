@@ -171,11 +171,20 @@ export function FleetGraphChat({
   // auto-send it once as the first turn. The drawer remounts per entity (key),
   // so seededRef resets for each new entity. Resume (initialConversationId)
   // takes precedence — a seeded turn would clobber the re-surfaced history.
+  //
+  // Deferred one macrotask (and cancelled on cleanup) so it fires AFTER React's
+  // mount→cleanup→remount churn settles. Firing synchronously on mount races the
+  // chat hook's unmount cleanup, which aborts the in-flight fetch and surfaces a
+  // spurious "Could not reach Fleet chat" on the very first open (Strict Mode in
+  // dev; any fast remount in prod). The clearTimeout makes a phantom cleanup
+  // cancel the pending send rather than abort a live request.
   useEffect(() => {
-    if (open && seedPrompt && !initialConversationId && !seededRef.current) {
+    if (!open || !seedPrompt || initialConversationId || seededRef.current) return;
+    const timer = setTimeout(() => {
       seededRef.current = true;
       void send(seedPrompt);
-    }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [open, seedPrompt, initialConversationId, send]);
 
   // On open: load prior turns + any pending proposal (re-surface flow).

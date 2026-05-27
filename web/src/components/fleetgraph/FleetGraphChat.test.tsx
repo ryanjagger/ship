@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -595,5 +596,67 @@ describe('FleetGraphChat lifecycle + concurrency', () => {
       release?.();
     });
     await waitFor(() => expect(screen.getByText('done')).toBeInTheDocument());
+  });
+});
+
+describe('FleetGraphChat seed prompt (drift hand-off)', () => {
+  it('auto-sends the seed prompt exactly once and does not error under StrictMode double-mount', async () => {
+    const calls = mockFetch({
+      chat: () => sseResponse([frame({ type: 'final', answer: 'Likely cause: no owner.', threadId: 'c1' })]),
+    });
+
+    // StrictMode double-invokes effects in dev; a synchronous seed-send would be
+    // aborted by the hook's phantom unmount cleanup and surface "Could not reach
+    // Fleet chat". The deferred (setTimeout) send must survive that churn.
+    renderWithProviders(
+      <StrictMode>
+        <FleetGraphChat
+          open
+          onClose={() => {}}
+          entityId="e1"
+          entityType="project"
+          seedPrompt="This project is flagged as drifting (no plan). What's the root cause?"
+        />
+      </StrictMode>
+    );
+
+    // Seed appears as the user turn, and the answer streams back with no error.
+    expect(await screen.findByText(/flagged as drifting \(no plan\)/)).toBeInTheDocument();
+    expect(await screen.findByText('Likely cause: no owner.')).toBeInTheDocument();
+    expect(screen.queryByText(/could not reach fleet chat/i)).toBeNull();
+
+    // Exactly one chat POST despite the double-mount + the seededRef guard.
+    const chatPosts = calls.filter(
+      (c) => c.url.includes('/fleetgraph/chat') && !c.url.includes('/confirm') && c.method === 'POST'
+    );
+    expect(chatPosts).toHaveLength(1);
+    expect((chatPosts[0].body as { message?: string }).message).toContain('root cause');
+  });
+
+  it('does not auto-send when resuming a conversation (initialConversationId set)', async () => {
+    const calls = mockFetch({
+      conversation: () =>
+        jsonResponse({ id: 'c1', entityId: 'e1', entityType: 'project', transcript: [], pendingProposal: null }),
+    });
+
+    renderWithProviders(
+      <FleetGraphChat
+        open
+        onClose={() => {}}
+        entityId="e1"
+        entityType="project"
+        seedPrompt="Why drifting?"
+        initialConversationId="c1"
+      />
+    );
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes('/fleetgraph/conversations/'))).toBe(true)
+    );
+    // Resume path took precedence — no seeded chat POST.
+    const chatPosts = calls.filter(
+      (c) => c.url.includes('/fleetgraph/chat') && !c.url.includes('/confirm') && c.method === 'POST'
+    );
+    expect(chatPosts).toHaveLength(0);
   });
 });
