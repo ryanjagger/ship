@@ -39,15 +39,17 @@ import type { FleetContext } from '../../fleet-service.js';
 export type { FleetContext };
 
 /** Entity types the chat can be scoped to. `week` resolves to a `sprint` doc. */
-export type FleetEntityType = 'project' | 'week';
+export type FleetEntityType = 'project' | 'week' | 'issue';
 
 /**
  * Map a chat entityType to its backing document_type. There is NO `week`
  * document type — a "Week" is `document_type='sprint'` (with related
  * weekly_plan / weekly_retro docs).
  */
-export function resolveDocumentType(entityType: FleetEntityType): 'project' | 'sprint' {
-  return entityType === 'week' ? 'sprint' : 'project';
+export function resolveDocumentType(entityType: FleetEntityType): 'project' | 'sprint' | 'issue' {
+  if (entityType === 'week') return 'sprint';
+  if (entityType === 'issue') return 'issue';
+  return 'project';
 }
 
 // ---------------------------------------------------------------------------
@@ -77,17 +79,25 @@ function toIso(v: unknown): string | null {
 export interface FocalEntity {
   id: string;
   entityType: FleetEntityType;
-  documentType: 'project' | 'sprint';
+  documentType: 'project' | 'sprint' | 'issue';
   /** Escaped. */
   title: string;
   /** Escaped plain-text rendering of documents.content. */
   body: string;
   /** Selected structured properties (plan/status are escaped; flags are not). */
   properties: {
+    /** Project/week: plan text. */
     plan: string | null;
+    /** Project/week: status. */
     status: string | null;
     targetDate: string | null;
     planValidated: boolean | null;
+    /** Issue: workflow state (todo/in_progress/done/cancelled). */
+    state: string | null;
+    /** Issue: priority (low/medium/high/critical). */
+    priority: string | null;
+    /** Issue: assignee person document id (not content-derived; no escaping needed). */
+    assigneeId: string | null;
   };
 }
 
@@ -166,6 +176,24 @@ export async function fetchFocal(
   if (!row) return null;
 
   const props = row.properties ?? {};
+  if (docType === 'issue') {
+    return {
+      id: row.id,
+      entityType,
+      documentType: 'issue',
+      title: escapeContent(row.title),
+      body: escapeContent(extractText(row.content).trim()),
+      properties: {
+        plan: null,
+        status: null,
+        targetDate: null,
+        planValidated: null,
+        state: escapeContent((props.state as string | undefined) ?? null) || null,
+        priority: escapeContent((props.priority as string | undefined) ?? null) || null,
+        assigneeId: (props.assignee_id as string | undefined) ?? null,
+      },
+    };
+  }
   return {
     id: row.id,
     entityType,
@@ -177,6 +205,9 @@ export async function fetchFocal(
       status: escapeContent((props.status as string | undefined) ?? null) || null,
       targetDate: (props.target_date as string | undefined) ?? null,
       planValidated: (props.plan_validated as boolean | undefined) ?? null,
+      state: null,
+      priority: null,
+      assigneeId: null,
     },
   };
 }
@@ -210,6 +241,60 @@ export async function fetchAssociations(
   }
 
   const docType = resolveDocumentType(entityType);
+
+  // For an issue: fetch its parent project/sprint as ancestors, then sibling issues.
+  if (docType === 'issue') {
+    const parentsResult = await pool.query<{ id: string; title: string; document_type: string; relation: string }>(
+      `SELECT p.id, p.title, p.document_type::text AS document_type, da.relationship_type::text AS relation
+         FROM document_associations da
+         JOIN documents p ON p.id = da.related_id
+         WHERE da.document_id = $1
+           AND da.relationship_type IN ('project', 'sprint', 'program', 'parent')
+           AND p.workspace_id = $2
+           AND p.archived_at IS NULL AND p.deleted_at IS NULL
+           AND p.visibility = 'workspace'`,
+      [entityId, ctx.workspaceId]
+    );
+
+    // Find the parent project id to pull sibling issues.
+    const parentProjectRow = parentsResult.rows.find((r) => r.document_type === 'project');
+    let siblingIssues: AssociatedEntity[] = [];
+    if (parentProjectRow) {
+      const siblingsResult = await pool.query<{ id: string; title: string; status: string | null }>(
+        `SELECT d.id, d.title, d.properties->>'state' AS status
+           FROM documents d
+           JOIN document_associations da ON da.document_id = d.id
+             AND da.related_id = $1 AND da.relationship_type = 'project'
+           WHERE d.workspace_id = $2 AND d.document_type = 'issue'
+             AND d.id != $3
+             AND d.archived_at IS NULL AND d.deleted_at IS NULL
+             AND d.visibility = 'workspace'
+           ORDER BY d.created_at ASC
+           LIMIT 20`,
+        [parentProjectRow.id, ctx.workspaceId, entityId]
+      );
+      siblingIssues = siblingsResult.rows.map((r) => ({
+        id: r.id,
+        documentType: 'issue',
+        title: escapeContent(r.title),
+        relation: 'project',
+        status: escapeContent(r.status) || null,
+      }));
+    }
+
+    return {
+      ancestors: parentsResult.rows.map((r) => ({
+        id: r.id,
+        documentType: r.document_type,
+        title: escapeContent(r.title),
+        relation: r.relation,
+        status: null,
+      })),
+      issues: siblingIssues,
+      weeks: [],
+    };
+  }
+
   // For a project the issues/weeks link via relationship_type='project';
   // for a week (sprint) issues link via relationship_type='sprint'.
   const childRelation = docType === 'project' ? 'project' : 'sprint';
@@ -339,10 +424,11 @@ export async function fetchRecentActivity(
   const docType = resolveDocumentType(entityType);
 
   // Resolve the set of sprint ids whose standups are relevant.
+  // Issues have no associated standups — skip the lookup for them.
   let sprintIds: string[];
   if (docType === 'sprint') {
     sprintIds = [entityId];
-  } else {
+  } else if (docType === 'project') {
     const sprintsResult = await pool.query<{ id: string }>(
       `SELECT d.id FROM documents d
          JOIN document_associations da ON da.document_id = d.id
@@ -352,6 +438,8 @@ export async function fetchRecentActivity(
       [entityId, ctx.workspaceId]
     );
     sprintIds = sprintsResult.rows.map((r) => r.id);
+  } else {
+    sprintIds = [];
   }
 
   // Standups across those sprints (single batched query via = ANY).

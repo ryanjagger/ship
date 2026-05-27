@@ -23,9 +23,13 @@ import {
 interface FleetGraphChatLauncherProps {
   entityId: string;
   entityType: FleetGraphEntityType;
+  /** Optional seed prompt auto-sent as the first turn. Shown as button label when set. */
+  seedPrompt?: string;
+  /** Override the button label. Defaults to "Ask Fleet" or the seedPrompt when set. */
+  label?: string;
 }
 
-export function FleetGraphChatLauncher({ entityId, entityType }: FleetGraphChatLauncherProps) {
+export function FleetGraphChatLauncher({ entityId, entityType, seedPrompt, label }: FleetGraphChatLauncherProps) {
   const { data: available } = useFleetGraphAvailability();
   const { open } = useFleetChat();
 
@@ -33,16 +37,18 @@ export function FleetGraphChatLauncher({ entityId, entityType }: FleetGraphChatL
   // loading) also stays hidden until we know the feature is present.
   if (available !== true) return null;
 
+  const buttonLabel = label ?? (seedPrompt ? seedPrompt : 'Ask Fleet');
+
   return (
     <button
       type="button"
-      onClick={() => open({ entityId, entityType })}
+      onClick={() => open({ entityId, entityType, seedPrompt })}
       className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-border/30"
     >
       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.8L3 20l1.3-3.9A7.96 7.96 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
-      Ask Fleet
+      {buttonLabel}
     </button>
   );
 }

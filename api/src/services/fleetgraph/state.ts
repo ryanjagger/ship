@@ -39,8 +39,9 @@ import type { FleetContext } from './tools/read.js';
 import type { FleetEntityType } from './tools/read.js';
 import type { FetchNodeOutput } from './nodes/fetch.js';
 import type { WriteProposal, ExecuteResult } from './tools/write.js';
+import type { FleetDedupCandidate } from '@ship/shared';
 
-export type FleetMode = 'plan_review' | 'chat';
+export type FleetMode = 'plan_review' | 'chat' | 'dedup';
 
 /** The structured analysis the reasoning node produces (mode-shaped). */
 export interface FleetAnalysis {
@@ -51,6 +52,11 @@ export interface FleetAnalysis {
    * point lifts into a FleetPlanReview-shaped result. Opaque to the graph.
    */
   planReview?: unknown;
+  /**
+   * For dedup: the structured duplicate verdict the entry point lifts into a
+   * FleetDedupReview-shaped result. Opaque to the graph.
+   */
+  dedupReview?: unknown;
   /** True when the model contributed (vs. a neutral-degraded path). */
   aiAvailable: boolean;
 }
@@ -75,6 +81,12 @@ export const FleetGraphState = Annotation.Root({
   message: Annotation<string>({ reducer: replace<string>(), default: () => '' }),
   // The running message thread for the chat tool-loop (append/merge).
   messages: Annotation<BaseMessage[]>({ reducer: messagesStateReducer, default: () => [] }),
+
+  // ── dedup input (seeded once by the entry point) ──
+  // The in-progress issue title the author is typing, and the stage-1 pg_trgm
+  // candidates the reason node judges for true duplication. Both REPLACE.
+  draftTitle: Annotation<string>({ reducer: replace<string>(), default: () => '' }),
+  candidates: Annotation<FleetDedupCandidate[]>({ reducer: replace<FleetDedupCandidate[]>(), default: () => [] }),
 
   // ── fetched context (REPLACE — complete snapshot from U5) ──
   fetched: Annotation<FetchNodeOutput | null>({ reducer: replace<FetchNodeOutput | null>(), default: () => null }),

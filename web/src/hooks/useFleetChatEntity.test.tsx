@@ -32,7 +32,13 @@ describe('useFleetChatEntity', () => {
     expect(result.current.entity).toEqual({ entityId: 's1', entityType: 'week' });
   });
 
-  it.each(['wiki', 'issue', 'program', 'weekly_plan', 'weekly_retro', 'person'] as const)(
+  it('maps an issue document to an issue entity', () => {
+    const { result } = renderHarness();
+    act(() => result.current.setCurrentDocument('i1', 'issue'));
+    expect(result.current.entity).toEqual({ entityId: 'i1', entityType: 'issue' });
+  });
+
+  it.each(['wiki', 'program', 'weekly_plan', 'weekly_retro', 'person'] as const)(
     'returns null for %s documents',
     (type) => {
       const { result } = renderHarness();

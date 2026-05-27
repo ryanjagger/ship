@@ -14,7 +14,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { pool } from '../../db/client.js';
 import { ConversationDocCheckpointSaver } from './checkpointer.js';
 import { compileGraph } from './graph.js';
-import { runPlanReview, runChatTurn, resumeChatTurn } from './index.js';
+import { runPlanReview, runChatTurn, resumeChatTurn, runDedupReview } from './index.js';
 import { PLAN_SYSTEM_PROMPT } from './nodes/reason.js';
 import type { FleetContext } from './tools/read.js';
 import type { WriteProposal, ExecuteResult } from './tools/write.js';
@@ -205,6 +205,111 @@ describe('proactive plan-review (R1, R2)', () => {
     expect(result.available).toBe(false);
     expect(result.planReview.ai_available).toBe(false);
     // graph did not throw; checkpoint not orphaned (no row for transient thread).
+  });
+});
+
+// ── dedup-on-create (stage-2, graph-backed verdict) ──────────────────────────
+
+describe('dedup review (graph dedup mode)', () => {
+  let dupId: string;
+  let draftId: string;
+
+  beforeEach(async () => {
+    fleetAiEval.mockReset();
+    // A candidate open issue + the draft issue being edited. Distinct, high-
+    // overlap titles so pg_trgm surfaces the candidate (similarity > 0.3).
+    const dup = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, ticket_number, properties, visibility)
+       VALUES ($1,'issue','Login button unresponsive on mobile',9101,'{"state":"todo"}'::jsonb,'workspace')
+       RETURNING id`,
+      [workspaceId]
+    );
+    dupId = dup.rows[0]!.id;
+    const draft = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, ticket_number, properties, visibility)
+       VALUES ($1,'issue','Untitled',9102,'{"state":"backlog"}'::jsonb,'workspace')
+       RETURNING id`,
+      [workspaceId]
+    );
+    draftId = draft.rows[0]!.id;
+  });
+
+  it('retrieves pg_trgm candidates and maps the model verdict back to them', async () => {
+    const capture: { system?: string; user?: string } = {};
+    fleetAiEval.mockImplementation(async (req: { system: string; user: string }) => {
+      capture.system = req.system;
+      capture.user = req.user;
+      return {
+        summary: 'One existing issue looks like the same bug.',
+        duplicates: [{ index: 1, confidence: 'high', reason: 'Same login button bug, different wording.' }],
+        recommendation: 'Open #9101 instead of filing a new issue.',
+      };
+    });
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+
+    const review = await runDedupReview(
+      { draftTitle: 'Login button unresponsive on phones', excludeId: draftId, ctx },
+      graph
+    );
+
+    expect(review.ai_available).toBe(true);
+    // Stage-1 retrieval surfaced the candidate.
+    expect(review.candidates.some((c) => c.id === dupId)).toBe(true);
+    // The model's 1-based index mapped back to the right candidate.
+    expect(review.matches).toHaveLength(1);
+    expect(review.matches[0]!.candidate.id).toBe(dupId);
+    expect(review.matches[0]!.candidate.display_id).toBe('#9101');
+    expect(review.matches[0]!.confidence).toBe('high');
+    expect(review.summary).toContain('same bug');
+    expect(review.recommendation).toContain('#9101');
+    // The prompt carried the draft + the candidate, inside data-boundary tags.
+    expect(capture.user).toContain('<draft>');
+    expect(capture.user).toContain('Login button unresponsive on phones');
+    expect(capture.user).toContain('Login button unresponsive on mobile');
+  });
+
+  it('short-circuits without a model call when there are no similar issues', async () => {
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+
+    const review = await runDedupReview(
+      { draftTitle: 'Quarterly budget spreadsheet reconciliation', excludeId: draftId, ctx },
+      graph
+    );
+
+    expect(review.candidates).toEqual([]);
+    expect(review.matches).toEqual([]);
+    expect(review.ai_available).toBe(false);
+    expect(fleetAiEval).not.toHaveBeenCalled();
+  });
+
+  it('drops out-of-range indexes the model may hallucinate', async () => {
+    fleetAiEval.mockResolvedValue({
+      summary: 'Maybe a duplicate.',
+      duplicates: [
+        { index: 1, confidence: 'medium', reason: 'Plausible match.' },
+        { index: 99, confidence: 'high', reason: 'References a candidate that does not exist.' },
+      ],
+      recommendation: 'Review #9101.',
+    });
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+
+    const review = await runDedupReview(
+      { draftTitle: 'Login button unresponsive on phones', excludeId: draftId, ctx },
+      graph
+    );
+
+    // Only the in-range index survives; the bogus index 99 is dropped.
+    expect(review.matches).toHaveLength(1);
+    expect(review.matches[0]!.candidate.id).toBe(dupId);
   });
 });
 

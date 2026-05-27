@@ -46,7 +46,7 @@ import { z } from 'zod';
 import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 import { getVisibilityContext, isWorkspaceAdmin } from '../middleware/visibility.js';
 import { isFleetGraphAvailable } from '../services/fleetgraph/model.js';
-import { streamChatTurn, resumeChatTurn, type ChatStreamEvent } from '../services/fleetgraph/index.js';
+import { streamChatTurn, resumeChatTurn, runDedupReview, type ChatStreamEvent } from '../services/fleetgraph/index.js';
 import { fetchFocal, type FleetEntityType } from '../services/fleetgraph/tools/read.js';
 import {
   createConversation,
@@ -62,7 +62,7 @@ import { getCompiledGraph } from '../services/fleetgraph/graph.js';
 
 const router = Router();
 
-const entityTypeSchema = z.enum(['project', 'week']);
+const entityTypeSchema = z.enum(['project', 'week', 'issue']);
 
 const chatTurnSchema = z.object({
   message: z.string().min(1).max(4000),
@@ -75,6 +75,13 @@ const chatTurnSchema = z.object({
 const confirmSchema = z.object({
   conversationId: z.string().uuid(),
   approved: z.boolean(),
+});
+
+const dedupRequestSchema = z.object({
+  /** The in-progress issue title being typed. */
+  title: z.string().min(1).max(500),
+  /** The draft issue's id (excluded from candidates; the graph entityId). */
+  excludeId: z.string().uuid(),
 });
 
 /** Provider gate (R18): chat is unavailable when no AI provider is configured. */
@@ -319,6 +326,51 @@ router.post('/chat/confirm', authMiddleware, async (req: Request, res: Response)
     res.json({ status: 'answer', answer: result.answer, conversationId, executed: result.executed });
   } catch (err) {
     console.error('FleetGraph confirm error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /dedup-review — graph-backed duplicate verdict (stage 2) ────────────
+// The issue editor calls this on demand (button click), NOT per keystroke: it
+// runs the FleetGraph `dedup` mode (an LLM judgement), which is rate-limited and
+// gated on a configured provider. Stage 1 (the cheap per-keystroke typeahead) is
+// GET /api/issues/similar — both judge the SAME pg_trgm candidate set.
+router.post('/dedup-review', authMiddleware, async (req: Request, res: Response) => {
+  if (!assertAuthed(req, res)) return;
+  if (!assertProviderAvailable(res)) return;
+
+  const parsed = dedupRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid dedup request', details: parsed.error.flatten() });
+    return;
+  }
+  const { title, excludeId } = parsed.data;
+  const userId = req.userId;
+  const workspaceId = req.workspaceId;
+
+  try {
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const ctx = { workspaceId, userId, isAdmin };
+
+    // Authorize the draft issue (no leak): a non-visible / nonexistent issue is a
+    // 404 — same posture as the chat route. This also bounds the candidate read
+    // to a user who can legitimately see the issue they're editing.
+    const focal = await fetchFocal(excludeId, 'issue' as FleetEntityType, ctx);
+    if (!focal) {
+      res.status(404).json({ error: 'Issue not found' });
+      return;
+    }
+
+    // Rate-limit the model call (shared limiter with chat — both spend a turn).
+    if (!checkFleetChatRateLimit(userId)) {
+      res.status(429).json({ error: 'Too many Fleet requests. Please try again later.' });
+      return;
+    }
+
+    const review = await runDedupReview({ draftTitle: title, excludeId, ctx });
+    res.json(review);
+  } catch (err) {
+    console.error('FleetGraph dedup-review error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -23,7 +23,7 @@ import { apiGet, apiPost, apiBaseUrl, ensureCsrfToken } from '@/lib/api';
 
 // ── Backend contract types (U9) — kept local; no shared package export. ──────
 
-export type FleetGraphEntityType = 'project' | 'week';
+export type FleetGraphEntityType = 'project' | 'week' | 'issue';
 
 export type WriteProposalKind = 'create_issue' | 'patch_issue' | 'post_comment';
 

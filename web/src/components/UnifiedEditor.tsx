@@ -17,6 +17,7 @@ import type { DocumentType as SelectableDocumentType } from '@/components/sideba
 import { useAuth } from '@/hooks/useAuth';
 import { PlanQualityBanner, RetroQualityBanner } from '@/components/PlanQualityBanner';
 import { FleetGraphChatLauncher } from '@/components/fleetgraph/FleetGraphChatLauncher';
+import { IssueDedupHint } from '@/components/fleet/IssueDedupHint';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { Person } from '@/components/PersonCombobox';
 import type { BelongsTo } from '@ship/shared';
@@ -438,6 +439,16 @@ export function UnifiedEditor({
     if (document.document_type === 'sprint') {
       return <FleetGraphChatLauncher entityId={document.id} entityType="week" />;
     }
+    if (document.document_type === 'issue') {
+      return (
+        <FleetGraphChatLauncher
+          entityId={document.id}
+          entityType="issue"
+          seedPrompt="What should I do next?"
+          label="What should I do next?"
+        />
+      );
+    }
     return undefined;
   }, [document.id, document.document_type, editorContent, handlePlanAnalysisChange, handleRetroAnalysisChange]);
 
@@ -467,6 +478,11 @@ export function UnifiedEditor({
       documentType={document.document_type}
       onPlanChange={document.document_type === 'sprint' || document.document_type === 'project' ? handlePlanChange : undefined}
       contentBanner={qualityBanner}
+      belowTitle={
+        document.document_type === 'issue'
+          ? (liveTitle) => <IssueDedupHint title={liveTitle} excludeId={document.id} />
+          : undefined
+      }
       onContentChange={isWeeklyDoc ? setEditorContent : undefined}
       aiScoringAnalysis={isWeeklyDoc ? aiScoringAnalysis : undefined}
       titleSuffix={titleSuffix}
