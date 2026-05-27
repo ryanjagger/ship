@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPatch, apiDelete } from '@/lib/api';
-import { computeICEScore } from '@ship/shared';
+import { computeICEScore, type Drift } from '@ship/shared';
 
 // Inferred project status based on sprint relationships
 export type InferredProjectStatus = 'active' | 'planned' | 'completed' | 'backlog' | 'archived';
@@ -34,6 +34,8 @@ export interface Project {
   issue_count: number;
   // Inferred status from sprint relationships
   inferred_status: InferredProjectStatus;
+  // Drift — derived on-read; null for ineligible (non active/planned) projects
+  drift: Drift | null;
   // Timestamps
   archived_at: string | null;
   created_at: string;
@@ -147,6 +149,28 @@ async function deleteProjectApi(id: string): Promise<void> {
   }
 }
 
+// Fetch a single enriched project (includes the on-read `drift` field, which the
+// generic document model does not carry).
+async function fetchProject(id: string): Promise<Project> {
+  const res = await apiGet(`/api/projects/${id}`);
+  if (!res.ok) {
+    const error = new Error('Failed to fetch project') as Error & { status: number };
+    error.status = res.status;
+    throw error;
+  }
+  return res.json();
+}
+
+// Hook to get a single project's enriched response (drift, inferred_status, etc.).
+export function useProjectQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: projectKeys.detail(id ?? ''),
+    queryFn: () => fetchProject(id as string),
+    enabled: !!id,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
 // Hook to get projects
 export function useProjectsQuery() {
   return useQuery({
@@ -185,6 +209,7 @@ export function useCreateProject() {
         sprint_count: 0,
         issue_count: 0,
         inferred_status: 'backlog',
+        drift: null, // backlog projects are ineligible for drift
         archived_at: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

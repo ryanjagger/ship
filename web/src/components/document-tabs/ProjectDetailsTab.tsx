@@ -9,7 +9,10 @@ import { useProgramsQuery } from '@/hooks/useProgramsQuery';
 import { apiPatch, apiDelete, apiPost } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { issueKeys } from '@/hooks/useIssuesQuery';
-import { projectKeys } from '@/hooks/useProjectsQuery';
+import { projectKeys, useProjectQuery } from '@/hooks/useProjectsQuery';
+import { DriftBadge, buildDriftPrompt } from '@/components/DriftBadge';
+import { useFleetChat } from '@/contexts/FleetChatContext';
+import { useFleetGraphAvailability } from '@/hooks/useFleetGraphChat';
 import type { DocumentTabProps } from '@/lib/document-tabs';
 import { computeICEScore } from '@ship/shared';
 
@@ -36,6 +39,17 @@ export default function ProjectDetailsTab({ documentId, document }: DocumentTabP
     name: m.name,
     email: m.email || '',
   })), [teamMembersData]);
+
+  // Fetch the enriched project response for drift (the generic document model
+  // does not carry it). Badge stays hidden while pending — no separate loading UI.
+  const { data: enrichedProject } = useProjectQuery(documentId);
+  const { open: openFleetChat } = useFleetChat();
+  const { data: fleetAvailable } = useFleetGraphAvailability();
+  const drift = enrichedProject?.drift ?? null;
+  const askFleetAboutDrift =
+    fleetAvailable && drift?.isDrifting
+      ? () => openFleetChat({ entityId: documentId, entityType: 'project', seedPrompt: buildDriftPrompt(drift) })
+      : undefined;
 
   // Fetch programs for sidebar
   const { data: programsData = [] } = useProgramsQuery();
@@ -244,6 +258,7 @@ export default function ProjectDetailsTab({ documentId, document }: DocumentTabP
       backLabel="projects"
       onDelete={handleDelete}
       showTypeSelector={true}
+      headerBadge={<DriftBadge drift={drift} onAskFleet={askFleetAboutDrift} />}
     />
   );
 }
