@@ -1,4 +1,5 @@
 import { cn, getContrastTextColor } from '@/lib/cn';
+import { FleetReviewContainer } from '@/components/fleet/FleetReviewContainer';
 import { EmojiPickerPopover } from '@/components/EmojiPicker';
 import { PersonCombobox, Person } from '@/components/PersonCombobox';
 import { MultiPersonCombobox } from '@/components/MultiPersonCombobox';
@@ -130,6 +131,9 @@ export function ProjectSidebar({
           <p className="mt-1 text-xs text-blue-300/70 text-center">Restore the original issue</p>
         </div>
       )}
+
+      {/* Fleet Plan Review */}
+      <FleetReviewContainer projectId={project.id} variant="details" />
 
       {/* ICE Score Display */}
       <div className="rounded-lg border border-border bg-accent/10 p-3">
