@@ -60,21 +60,27 @@ function formatRelative(iso?: string): string | null {
   return `${d}d ago`;
 }
 
-function RefreshButton({ onRefresh, isRefreshing }: { onRefresh?: () => void; isRefreshing?: boolean }) {
+function RefreshButton({
+  onRefresh,
+  isRefreshing,
+  freshness,
+}: {
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  freshness?: string | null;
+}) {
   if (!onRefresh) return null;
   if (isRefreshing) {
     return (
-      <span className="flex items-center gap-1.5 text-xs text-muted" aria-live="polite">
-        <svg className="h-3.5 w-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        Analyzing…
-      </span>
+      <svg className="h-3.5 w-3.5 animate-spin text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Analyzing…" role="status">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
     );
   }
+  const tooltipContent = freshness ? `Last analyzed ${freshness} — click to refresh` : 'Refresh Fleet analysis';
   return (
-    <Tooltip content="Refresh Fleet analysis" side="top">
+    <Tooltip content={tooltipContent} side="top">
       <button
         type="button"
         aria-label="Refresh Fleet analysis"
@@ -106,12 +112,9 @@ function CardShell({
 }) {
   return (
     <div className="rounded-lg border border-border bg-background p-4 text-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted">{title}</span>
-        <div className="flex items-center gap-2">
-          {freshness && <span className="text-xs text-muted">Last analyzed {freshness}</span>}
-          <RefreshButton onRefresh={onRefresh} isRefreshing={isRefreshing} />
-        </div>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted leading-tight">{title}</span>
+        <RefreshButton onRefresh={onRefresh} isRefreshing={isRefreshing} freshness={freshness} />
       </div>
       {refreshError && (
         <p className="mb-2 text-xs text-yellow-600">Refresh failed — try again in a moment.</p>
