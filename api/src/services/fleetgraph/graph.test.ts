@@ -241,7 +241,10 @@ describe('chat turn (R4, R5)', () => {
   it('a proposed write PAUSES at the action node with the proposal as the interrupt payload', async () => {
     const counter = { n: 0 };
     const proposalArgs = { title: 'Follow up on admin flow', state: 'todo' as const };
-    const expectedProposal = buildCreateIssueProposal(proposalArgs);
+    // The reason node defaults the association to the focal project (the agent is
+    // scoped to one), so the surfaced proposal carries belongs_to even though the
+    // model omitted it. The expected proposal must reflect that same default.
+    const expectedProposal = buildCreateIssueProposal(proposalArgs, { id: projectId, type: 'project' });
 
     const executed: WriteProposal[] = [];
     const fakeExecute = async (_c: FleetContext, p: WriteProposal): Promise<ExecuteResult> => {
@@ -279,7 +282,11 @@ describe('chat turn (R4, R5)', () => {
     if (paused.status === 'paused') {
       expect(paused.proposal.kind).toBe('create_issue');
       expect(paused.proposal.contentHash).toBe(expectedProposal.contentHash);
-      expect(paused.proposal.args).toEqual(proposalArgs);
+      expect(paused.proposal.args).toEqual(expectedProposal.args);
+      // The new issue is associated with the focal project, not orphaned.
+      expect((paused.proposal.args as { belongs_to?: unknown }).belongs_to).toEqual([
+        { id: projectId, type: 'project' },
+      ]);
     }
     // The mutation has NOT fired while paused.
     expect(executed).toHaveLength(0);
@@ -346,7 +353,8 @@ describe('chat turn (R4, R5)', () => {
     // by counting invocations across pause→resume.
     const counter = { n: 0 };
     const originalArgs = { title: 'Original safe title' };
-    const original = buildCreateIssueProposal(originalArgs);
+    // Surfaced proposal carries the focal-project default association (see PAUSES test).
+    const original = buildCreateIssueProposal(originalArgs, { id: projectId, type: 'project' });
 
     const executed: WriteProposal[] = [];
     const fakeExecute = async (_c: FleetContext, p: WriteProposal): Promise<ExecuteResult> => {
@@ -387,7 +395,7 @@ describe('chat turn (R4, R5)', () => {
     expect(counter.n).toBe(1);
     expect(executed).toHaveLength(1);
     expect(executed[0]!.contentHash).toBe(original.contentHash);
-    expect(executed[0]!.args).toEqual(originalArgs);
+    expect(executed[0]!.args).toEqual(original.args);
   });
 
   it('a chat model error degrades to a neutral answer without crashing', async () => {
