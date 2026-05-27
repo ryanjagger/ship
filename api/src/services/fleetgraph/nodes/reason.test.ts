@@ -12,7 +12,7 @@ function fetched(overrides: Partial<FetchNodeOutput> = {}): FetchNodeOutput {
       documentType: 'project',
       title: 'P1',
       body: '',
-      properties: { plan: null, status: null, targetDate: null, planValidated: null },
+      properties: { plan: null, status: null, targetDate: null, planValidated: null, state: null, priority: null, assigneeId: null },
     },
     associations: { ancestors: [], issues: [], weeks: [] },
     people: [

@@ -1,13 +1,13 @@
 /**
  * useFleetChatEntity — derives the focal Fleet chat entity from the open document.
  *
- * Fleet chat is context-scoped: it answers about a Project or a Week. This hook
- * maps the currently-open document to a chat entity, or null when the current
+ * Fleet chat is context-scoped: it answers about a Project, Week, or Issue. This
+ * hook maps the currently-open document to a chat entity, or null when the current
  * view has nothing Fleet can talk about (the nav button greys in that case).
  *
  * Mapping mirrors the in-content launcher (UnifiedEditor): project→'project',
- * sprint→'week'. weekly_plan / weekly_retro are NOT mapped in this iteration
- * (deferred), so the button greys on those pages too.
+ * sprint→'week', issue→'issue'. weekly_plan / weekly_retro are NOT mapped in this
+ * iteration (deferred), so the button greys on those pages too.
  */
 
 import { useCurrentDocument } from '@/contexts/CurrentDocumentContext';
@@ -21,6 +21,9 @@ export function useFleetChatEntity(): FleetChatEntity | null {
   }
   if (currentDocumentType === 'sprint') {
     return { entityId: currentDocumentId, entityType: 'week' };
+  }
+  if (currentDocumentType === 'issue') {
+    return { entityId: currentDocumentId, entityType: 'issue' };
   }
   return null;
 }

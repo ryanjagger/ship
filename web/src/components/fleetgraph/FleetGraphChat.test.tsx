@@ -60,12 +60,34 @@ function renderWithProviders(ui: React.ReactElement, queryClient?: QueryClient) 
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
+/**
+ * Mirrors App.tsx: renders FleetGraphChat when the context says it's open.
+ * Without this, clicking the launcher sets context state but nothing mounts the drawer.
+ */
+function FleetChatConsumer() {
+  const { isOpen, entity, close } = useFleetChat();
+  if (!isOpen || !entity) return null;
+  return (
+    <FleetGraphChat
+      key={`${entity.entityType}:${entity.entityId}`}
+      open={isOpen}
+      onClose={close}
+      entityId={entity.entityId}
+      entityType={entity.entityType}
+      seedPrompt={entity.seedPrompt}
+    />
+  );
+}
+
 /** Render under the FleetChatProvider, which owns the single shared drawer. */
 function renderWithChatProvider(ui: React.ReactElement, queryClient?: QueryClient) {
   const qc = queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <FleetChatProvider>{ui}</FleetChatProvider>
+      <FleetChatProvider>
+        {ui}
+        <FleetChatConsumer />
+      </FleetChatProvider>
     </QueryClientProvider>
   );
 }

@@ -273,7 +273,7 @@ export function FleetGraphChat({
       >
         {isEmpty && (
           <p className="text-sm text-muted">
-            Ask about this {entityType === 'week' ? 'week' : 'project'} — Fleet can read its
+            Ask about this {entityType === 'week' ? 'week' : entityType === 'issue' ? 'issue' : 'project'} — Fleet can read its
             context and propose changes for you to confirm.
           </p>
         )}

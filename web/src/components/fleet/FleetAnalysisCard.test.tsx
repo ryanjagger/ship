@@ -1,8 +1,16 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { FleetAnalysisCard } from './FleetAnalysisCard';
-import { TooltipProvider } from '@/components/ui/Tooltip';
 import type { FleetReviewResponse, FleetPlanReview, FleetRetroRecommendation } from '@ship/shared';
+
+// Radix Tooltip portals never open in jsdom without real pointer events.
+// Render content inline so tooltip-content tests can assert visible text.
+vi.mock('@/components/ui/Tooltip', () => ({
+  Tooltip: ({ content, children }: { content: React.ReactNode; children: React.ReactNode }) => (
+    <div><span data-testid="tooltip-content">{content}</span>{children}</div>
+  ),
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
 
 function planReview(o: Partial<FleetPlanReview> = {}): FleetPlanReview {
   return {
@@ -38,7 +46,7 @@ function review(o: { plan?: Partial<FleetPlanReview>; retro?: Partial<FleetRetro
 }
 
 function renderCard(ui: React.ReactElement) {
-  return render(<TooltipProvider>{ui}</TooltipProvider>);
+  return render(ui);
 }
 
 describe('FleetAnalysisCard — details variant', () => {
@@ -105,7 +113,11 @@ describe('FleetAnalysisCard — details variant', () => {
 
   it('shows a freshness label when computed_at is present', () => {
     const ts = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(); // 3h ago
-    renderCard(<FleetAnalysisCard variant="details" review={review({ plan: { computed_at: ts } })} />);
+    // onRefresh required — RefreshButton returns null without it.
+    // Freshness is in the refresh button's Tooltip content (mocked inline above).
+    renderCard(
+      <FleetAnalysisCard variant="details" review={review({ plan: { computed_at: ts } })} onRefresh={vi.fn()} />
+    );
     expect(screen.getByText(/Last analyzed 3h ago/i)).toBeInTheDocument();
   });
 });
