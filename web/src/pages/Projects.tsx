@@ -25,6 +25,7 @@ import { ConversionDialog } from '@/components/dialogs/ConversionDialog';
 // All available columns with metadata
 const ALL_COLUMNS: ColumnDefinition[] = [
   { key: 'title', label: 'Title', hideable: false }, // Cannot hide title
+  { key: 'drift', label: 'Drift', hideable: true },
   { key: 'impact', label: 'I', hideable: true },
   { key: 'confidence', label: 'C', hideable: true },
   { key: 'ease', label: 'E', hideable: true },
@@ -499,8 +500,13 @@ function ProjectRowContent({ project, visibleColumns, programNameById }: Project
                 Incomplete
               </span>
             )}
-            <DriftBadge drift={project.drift} />
           </div>
+        </td>
+      )}
+      {/* Drift */}
+      {visibleColumns.has('drift') && (
+        <td className="px-4 py-3 text-sm" role="gridcell">
+          <DriftBadge drift={project.drift} />
         </td>
       )}
       {/* Impact */}
