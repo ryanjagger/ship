@@ -438,6 +438,16 @@ export function UnifiedEditor({
     if (document.document_type === 'sprint') {
       return <FleetGraphChatLauncher entityId={document.id} entityType="week" />;
     }
+    if (document.document_type === 'issue') {
+      return (
+        <FleetGraphChatLauncher
+          entityId={document.id}
+          entityType="issue"
+          seedPrompt="What should I do next?"
+          label="What should I do next?"
+        />
+      );
+    }
     return undefined;
   }, [document.id, document.document_type, editorContent, handlePlanAnalysisChange, handleRetroAnalysisChange]);
 

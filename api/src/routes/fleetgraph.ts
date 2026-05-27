@@ -62,7 +62,7 @@ import { getCompiledGraph } from '../services/fleetgraph/graph.js';
 
 const router = Router();
 
-const entityTypeSchema = z.enum(['project', 'week']);
+const entityTypeSchema = z.enum(['project', 'week', 'issue']);
 
 const chatTurnSchema = z.object({
   message: z.string().min(1).max(4000),
