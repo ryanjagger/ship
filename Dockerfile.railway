@@ -3,6 +3,12 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# Nginx serves the built SPA and proxies API/WebSocket traffic to Node.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nginx \
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -f /etc/nginx/sites-enabled/default
+
 # Pin pnpm to the repo's packageManager field.
 RUN npm install -g pnpm@10.27.0
 
@@ -20,8 +26,9 @@ RUN pnpm build:shared \
  && pnpm --filter @ship/api build \
  && pnpm --filter @ship/web build
 
-EXPOSE 3000
+RUN chmod +x scripts/railway-entrypoint.sh
+
+EXPOSE 8080
 
 # Railway injects PORT, DATABASE_URL, SESSION_SECRET, CORS_ORIGIN, NODE_ENV.
-WORKDIR /app/api
-CMD ["sh", "-c", "node dist/db/migrate.js && node dist/index.js"]
+CMD ["./scripts/railway-entrypoint.sh"]
