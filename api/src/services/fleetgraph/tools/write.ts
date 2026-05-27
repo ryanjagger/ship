@@ -123,6 +123,14 @@ export type CreateIssueArgs = z.infer<typeof createIssueArgsSchema>;
 export type PatchIssueArgs = z.infer<typeof patchIssueArgsSchema>;
 export type PostCommentArgs = z.infer<typeof postCommentArgsSchema>;
 
+/**
+ * The focal entity a chat turn is scoped to, expressed as a `belongs_to` entry.
+ * A new issue created while scoped to a project/week defaults to belonging to it
+ * (see `buildCreateIssueProposal`). `type` is the focal's backing document_type
+ * (`project` or `sprint`), both of which are valid `belongs_to` relationship types.
+ */
+export type FocalAssociation = { id: string; type: z.infer<typeof belongsToTypeEnum> };
+
 // ---------------------------------------------------------------------------
 // Proposal shape (the object U7 serializes into interrupt(proposal))
 // ---------------------------------------------------------------------------
@@ -194,8 +202,17 @@ function makeProposal(kind: WriteProposalKind, args: object, summary: string, ta
  * are malformed/out-of-scope (uuid, enum, length) — the boundary that prevents
  * injected content from smuggling a write.
  */
-export function buildCreateIssueProposal(rawArgs: unknown): WriteProposal {
+export function buildCreateIssueProposal(rawArgs: unknown, focalDefault?: FocalAssociation): WriteProposal {
   const args = createIssueArgsSchema.parse(rawArgs);
+  // Default the association to the focal entity when the model did not supply
+  // one. An issue created while the agent is scoped to a project/week belongs to
+  // that entity unless the model explicitly associated it elsewhere — without
+  // this, the new issue is orphaned and never renders under the project. The
+  // default is baked into `args` BEFORE the contentHash so the surfaced proposal,
+  // the approved hash, and the executed write all agree (parity invariant).
+  if (focalDefault && (!args.belongs_to || args.belongs_to.length === 0)) {
+    args.belongs_to = [{ id: focalDefault.id, type: focalDefault.type }];
+  }
   return makeProposal('create_issue', args, `Create issue: "${args.title}"`, null);
 }
 

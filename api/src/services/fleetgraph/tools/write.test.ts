@@ -247,6 +247,45 @@ describe('FleetGraph write tools (U6)', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Focal default: a new issue belongs to the scoped project/week by default
+  // -------------------------------------------------------------------------
+  describe('create_issue focal default association', () => {
+    it('defaults belongs_to to the focal entity when the model omits it', () => {
+      const focal = crypto.randomUUID()
+      const proposal = buildCreateIssueProposal({ title: 'AI Issue 1', priority: 'high' }, { id: focal, type: 'project' })
+      expect((proposal.args as any).belongs_to).toEqual([{ id: focal, type: 'project' }])
+    })
+
+    it('maps a focal week to a sprint association', () => {
+      const focal = crypto.randomUUID()
+      const proposal = buildCreateIssueProposal({ title: 'Sprint work' }, { id: focal, type: 'sprint' })
+      expect((proposal.args as any).belongs_to).toEqual([{ id: focal, type: 'sprint' }])
+    })
+
+    it('does NOT override an explicit model-supplied association', () => {
+      const focal = crypto.randomUUID()
+      const elsewhere = crypto.randomUUID()
+      const proposal = buildCreateIssueProposal(
+        { title: 'Linked elsewhere', belongs_to: [{ id: elsewhere, type: 'parent' }] },
+        { id: focal, type: 'project' }
+      )
+      expect((proposal.args as any).belongs_to).toEqual([{ id: elsewhere, type: 'parent' }])
+    })
+
+    it('leaves belongs_to empty when there is no focal default', () => {
+      const proposal = buildCreateIssueProposal({ title: 'No focal' })
+      expect((proposal.args as any).belongs_to).toBeUndefined()
+    })
+
+    it('bakes the focal default into the contentHash (parity: surfaced == executed)', () => {
+      const focal = crypto.randomUUID()
+      const withDefault = buildCreateIssueProposal({ title: 'Same' }, { id: focal, type: 'project' })
+      const withExplicit = buildCreateIssueProposal({ title: 'Same', belongs_to: [{ id: focal, type: 'project' }] })
+      expect(withDefault.contentHash).toBe(withExplicit.contentHash)
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // Proposal integrity: executor refuses tampered args
   // -------------------------------------------------------------------------
   describe('proposal integrity', () => {

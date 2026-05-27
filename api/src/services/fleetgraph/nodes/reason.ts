@@ -50,6 +50,7 @@ import {
   buildPatchIssueProposal,
   buildPostCommentProposal,
   type WriteProposal,
+  type FocalAssociation,
 } from '../tools/write.js';
 import { basePlanReviewSchema, buildPlanSystemPrompt } from '../plan-review-config.js';
 import type { FetchNodeOutput } from './fetch.js';
@@ -171,10 +172,10 @@ function extractAssistantText(content: unknown): string {
 }
 
 /** Run the matching U6 proposal builder for a propose_* tool name (validates). */
-function buildProposalFor(toolName: string, rawArgs: unknown): WriteProposal {
+function buildProposalFor(toolName: string, rawArgs: unknown, focalDefault?: FocalAssociation): WriteProposal {
   switch (toolName) {
     case 'propose_create_issue':
-      return buildCreateIssueProposal(rawArgs);
+      return buildCreateIssueProposal(rawArgs, focalDefault);
     case 'propose_update_issue':
       return buildPatchIssueProposal(rawArgs);
     case 'propose_post_comment':
@@ -294,9 +295,15 @@ async function reasonChat(
     // mutation. We run the builder directly (same code the tool wrapper calls)
     // so the fully-resolved WriteProposal is what we surface + execute (parity
     // invariant: displayed args == executed args).
+    // A new issue created while scoped to this project/week defaults to belonging
+    // to the focal entity (its document_type — `project` or `sprint` — is a valid
+    // belongs_to relationship type) unless the model associated it elsewhere.
+    const focalDefault: FocalAssociation | undefined = fetched.focal
+      ? { id: fetched.focal.id, type: fetched.focal.documentType }
+      : undefined;
     let proposal: WriteProposal;
     try {
-      proposal = buildProposalFor(writeCall.name, writeCall.args);
+      proposal = buildProposalFor(writeCall.name, writeCall.args, focalDefault);
     } catch (err) {
       // A malformed/out-of-scope arg was rejected by the strict zod schema. The
       // model's write attempt is reported back, no proposal surfaced.
