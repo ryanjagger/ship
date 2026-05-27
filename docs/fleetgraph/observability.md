@@ -17,6 +17,26 @@ Tracing activates only when `LANGSMITH_TRACING=true` **and** a key is present. W
 the key absent or tracing off, Fleet runs exactly as before — instrumentation is a
 no-op. Nothing about tracing can break a Fleet run (best-effort by design).
 
+## Environment metadata on every trace
+
+Every trace carries `metadata.environment` so you can filter and sort runs by
+deployment tier in the LangSmith UI:
+
+| `ENVIRONMENT` value | Where it comes from | LangSmith metadata value |
+|---|---|---|
+| unset | local dev (`.env.local` only sets `LANGSMITH_*`) | `development` (fallback) |
+| `shadow` | terraform EB module (`terraform/modules/elastic-beanstalk/main.tf`) | `shadow` |
+| `prod` | `api/.ebextensions/01-env.config` | `prod` |
+
+**To filter in LangSmith:** open the project → Runs → Metadata filter → key `environment` → value `prod` (or `shadow`, `development`).
+
+The field is set via `RunnableConfig.metadata` in `chatConfig()` in
+`api/src/services/fleetgraph/index.ts`. `streamChatTurn` spreads `chatConfig()`
+(`{ ...chatConfig(...), signal }`), so metadata propagates automatically to that
+path too. Any future refactor of that spread must preserve the `metadata` field.
+
+---
+
 ## What gets traced — two paths
 
 Fleet has two AI tiers, instrumented differently because they use different clients:
