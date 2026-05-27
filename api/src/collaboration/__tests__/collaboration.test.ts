@@ -3,7 +3,7 @@ import * as Y from 'yjs'
 import * as awarenessProtocol from 'y-protocols/awareness'
 import { WebSocket } from 'ws'
 import { pool } from '../../db/client.js'
-import { handleCollaborationMessage, canAccessDocumentForCollab } from '../index.js'
+import { handleCollaborationMessage, canAccessDocumentForCollab, isConnectionRateLimited, recordConnectionAttempt } from '../index.js'
 import crypto from 'crypto'
 
 /**
@@ -492,6 +492,26 @@ describe('Collaboration Server', () => {
     it('should have reasonable message rate limit (50 per second)', () => {
       expect(RATE_LIMIT.MAX_MESSAGES_PER_SECOND).toBe(50)
       expect(RATE_LIMIT.MESSAGE_WINDOW_MS).toBe(1_000)
+    })
+
+    it('rate-limits a remote IP after the connection cap is exceeded', () => {
+      const remoteIp = `203.0.113.${Math.floor(Math.random() * 200)}` // TEST-NET, unique-ish per run
+      for (let i = 0; i < RATE_LIMIT.MAX_CONNECTIONS_PER_IP; i++) {
+        expect(isConnectionRateLimited(remoteIp)).toBe(false)
+        recordConnectionAttempt(remoteIp)
+      }
+      // The (cap+1)-th attempt is now over the limit.
+      expect(isConnectionRateLimited(remoteIp)).toBe(true)
+    })
+
+    it('NEVER rate-limits loopback (dev: StrictMode + HMR + navigation open many sockets)', () => {
+      for (const loopback of ['::1', '127.0.0.1', '::ffff:127.0.0.1']) {
+        // Far exceed the cap; loopback is exempt so it must stay allowed.
+        for (let i = 0; i < RATE_LIMIT.MAX_CONNECTIONS_PER_IP * 2; i++) {
+          recordConnectionAttempt(loopback)
+        }
+        expect(isConnectionRateLimited(loopback)).toBe(false)
+      }
     })
 
     it('should use sliding window for rate limiting', () => {

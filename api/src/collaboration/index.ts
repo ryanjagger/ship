@@ -49,8 +49,22 @@ setInterval(() => {
   });
 }, 30_000);
 
+// Loopback clients are exempt from the connection rate limit. A connection from
+// ::1 / 127.0.0.1 is always the local machine (dev, tests, same-host tooling),
+// never a remote DoS source — and local dev legitimately opens many sockets in a
+// minute: React StrictMode double-mounts each editor, HMR re-establishes
+// connections, and navigating between documents (e.g. clicking through the dedup
+// hint's candidate links) opens a fresh /collaboration socket per doc. Tripping
+// the limit there starts a self-perpetuating reconnect storm (every retry 429s).
+// Production clients arrive via CloudFront with real client IPs, so this exemption
+// cannot weaken the prod DoS protection.
+function isLoopbackIp(ip: string): boolean {
+  return ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1';
+}
+
 // Check if IP is rate limited for new connections
-function isConnectionRateLimited(ip: string): boolean {
+export function isConnectionRateLimited(ip: string): boolean {
+  if (isLoopbackIp(ip)) return false;
   const now = Date.now();
   const attempts = connectionAttempts.get(ip) || [];
   const recentAttempts = attempts.filter(t => now - t < RATE_LIMIT.CONNECTION_WINDOW_MS);
@@ -58,7 +72,7 @@ function isConnectionRateLimited(ip: string): boolean {
 }
 
 // Record a connection attempt from an IP
-function recordConnectionAttempt(ip: string): void {
+export function recordConnectionAttempt(ip: string): void {
   const now = Date.now();
   const attempts = connectionAttempts.get(ip) || [];
   attempts.push(now);

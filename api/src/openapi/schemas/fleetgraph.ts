@@ -138,6 +138,75 @@ registry.registerPath({
   },
 });
 
+// ── dedup-review (stage-2, graph-backed duplicate verdict) ───────────────────
+
+const FleetDedupCandidateSchema = z
+  .object({
+    id: UuidSchema,
+    title: z.string(),
+    ticket_number: z.number().int(),
+    display_id: z.string(),
+    state: z.string(),
+    priority: z.string(),
+    assignee_name: z.string().nullable(),
+    project_title: z.string().nullable(),
+    updated_at: z.string(),
+    score: z.number().openapi({ description: 'pg_trgm similarity score (0–1)' }),
+  })
+  .openapi('FleetDedupCandidate');
+
+const FleetDedupMatchSchema = z
+  .object({
+    candidate: FleetDedupCandidateSchema,
+    confidence: z.enum(['high', 'medium', 'low']),
+    reason: z.string(),
+  })
+  .openapi('FleetDedupMatch');
+
+const FleetDedupReviewSchema = z
+  .object({
+    candidates: z.array(FleetDedupCandidateSchema),
+    matches: z.array(FleetDedupMatchSchema),
+    summary: z.string().nullable(),
+    recommendation: z.string().nullable(),
+    ai_available: z.boolean(),
+  })
+  .openapi('FleetDedupReview');
+
+registry.register('FleetDedupReview', FleetDedupReviewSchema);
+
+const FleetDedupRequestSchema = z
+  .object({
+    title: z.string().min(1).max(500).openapi({ description: 'The in-progress issue title being typed', example: 'Fix login button not responding' }),
+    excludeId: UuidSchema.openapi({ description: 'The draft issue id (excluded from candidates; the graph entityId)' }),
+  })
+  .openapi('FleetDedupRequest');
+
+registry.register('FleetDedupRequest', FleetDedupRequestSchema);
+
+registry.registerPath({
+  method: 'post',
+  path: '/fleetgraph/dedup-review',
+  tags: ['Fleet'],
+  summary: 'Reason over similar issues for true duplicates (stage 2)',
+  description:
+    "Runs FleetGraph `dedup` mode: retrieves pg_trgm candidate open issues (the same set as GET /api/issues/similar), then has the model judge which are TRUE duplicates of the draft title (vs merely similar), with per-match confidence + reasons and a recommendation. On-demand (button click), not per keystroke — requires a configured AI provider and is rate-limited per user. Short-circuits with an empty verdict (no model call) when there are no candidates.",
+  request: {
+    body: { content: { 'application/json': { schema: FleetDedupRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Duplicate verdict (candidates + judged matches)',
+      content: { 'application/json': { schema: FleetDedupReviewSchema } },
+    },
+    400: { description: 'Invalid request' },
+    401: { description: 'Unauthenticated' },
+    404: { description: 'Draft issue not found / not visible' },
+    429: { description: 'Fleet rate limit exceeded' },
+    503: { description: 'No AI provider configured' },
+  },
+});
+
 registry.registerPath({
   method: 'get',
   path: '/fleetgraph/conversations/{id}',

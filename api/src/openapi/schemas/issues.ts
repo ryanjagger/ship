@@ -240,6 +240,29 @@ export const IncompleteChildrenWarningSchema = z.object({
 
 registry.register('IncompleteChildrenWarning', IncompleteChildrenWarningSchema);
 
+// ============== Similar Issues (Fleet dedup-on-create) ==============
+
+export const SimilarIssueSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  ticket_number: z.number().int(),
+  display_id: z.string(),
+  state: IssueStateSchema,
+  priority: IssuePrioritySchema,
+  assignee_name: z.string().nullable(),
+  project_title: z.string().nullable().openapi({ description: 'Parent project title, when the issue belongs to one' }),
+  updated_at: z.string(),
+  score: z.number().openapi({ description: 'pg_trgm similarity score (0–1)' }),
+}).openapi('SimilarIssue');
+
+registry.register('SimilarIssue', SimilarIssueSchema);
+
+export const SimilarIssuesResultSchema = z.object({
+  candidates: z.array(SimilarIssueSchema),
+}).openapi('SimilarIssuesResult');
+
+registry.register('SimilarIssuesResult', SimilarIssuesResultSchema);
+
 // ============== Register Issue Endpoints ==============
 
 registry.registerPath({
@@ -272,6 +295,36 @@ registry.registerPath({
       content: {
         'application/json': {
           schema: z.array(IssueListItemSchema),
+        },
+      },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/issues/similar',
+  tags: ['Issues'],
+  summary: 'Find similar open issues',
+  description:
+    "Fleet dedup-on-create: returns open issues whose titles are similar (pg_trgm) to the provided title, scoped to the workspace and the requesting user's visibility. The issue editor calls this as a title is typed to surface possible duplicates. Returns an empty list for titles shorter than 4 characters.",
+  request: {
+    query: z.object({
+      title: z.string().openapi({
+        description: 'The (in-progress) issue title to match against',
+        example: 'Fix login button not responding',
+      }),
+      exclude: UuidSchema.optional().openapi({
+        description: 'Issue ID to exclude from results (the issue currently being edited)',
+      }),
+    }),
+  },
+  responses: {
+    200: {
+      description: 'Open issues ranked by title similarity (up to 5)',
+      content: {
+        'application/json': {
+          schema: SimilarIssuesResultSchema,
         },
       },
     },

@@ -55,6 +55,57 @@ export interface FleetRetroRecommendation {
   computed_at?: string;
 }
 
+// ── Dedup-on-create (Fleet duplicate-issue check) ──────────────────────────
+//
+// Two-stage feature. Stage 1 (cheap, per-keystroke): pg_trgm title similarity
+// surfaces candidate open issues (GET /api/issues/similar). Stage 2 (on-demand,
+// graph-backed): the FleetGraph `dedup` mode reasons over the draft title + the
+// candidates and returns a verdict — which candidates are *true* duplicates vs
+// merely similar, why, and what the author should do
+// (POST /api/fleetgraph/dedup-review).
+
+// A candidate open issue considered for duplication (stage-1 retrieval shape).
+export interface FleetDedupCandidate {
+  id: string;
+  title: string;
+  ticket_number: number;
+  display_id: string;
+  state: string;
+  priority: string;
+  assignee_name: string | null;
+  // Parent project title, when the issue belongs to one (helps weight "same
+  // project ⇒ more likely a true duplicate").
+  project_title: string | null;
+  updated_at: string;
+  // pg_trgm similarity score (0–1) against the draft title.
+  score: number;
+}
+
+// One candidate the model judged a likely duplicate, with its reasoning.
+export interface FleetDedupMatch {
+  // The candidate issue judged to be a likely duplicate.
+  candidate: FleetDedupCandidate;
+  confidence: 'high' | 'medium' | 'low';
+  // One-sentence reason this is (or isn't quite) the same issue.
+  reason: string;
+}
+
+// Full response for POST /api/fleetgraph/dedup-review. When no candidates exist
+// the verdict short-circuits (no model call): matches=[], summary=null.
+export interface FleetDedupReview {
+  // All open issues considered (the stage-1 candidates), so the client can show
+  // context even when the model flags none as duplicates.
+  candidates: FleetDedupCandidate[];
+  // The subset the model judged likely duplicates, ranked, with reasons.
+  matches: FleetDedupMatch[];
+  // One-line overall verdict, or null when there was nothing to judge / degraded.
+  summary: string | null;
+  // What the author should do (e.g. "Open #42 instead of filing this").
+  recommendation: string | null;
+  // True when the model contributed (vs. unavailable / degraded / no candidates).
+  ai_available: boolean;
+}
+
 // Full response for GET /api/projects/:id/fleet/plan-review.
 export interface FleetReviewResponse {
   plan_review: FleetPlanReview;

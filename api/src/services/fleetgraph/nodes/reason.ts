@@ -53,6 +53,12 @@ import {
   type FocalAssociation,
 } from '../tools/write.js';
 import { basePlanReviewSchema, buildPlanSystemPrompt } from '../plan-review-config.js';
+import {
+  dedupReviewSchema,
+  DEDUP_SYSTEM_PROMPT,
+  buildDedupUserContent,
+  type DedupReviewAi,
+} from '../dedup-config.js';
 import type { FetchNodeOutput } from './fetch.js';
 import type { FleetGraphStateType, FleetGraphUpdate, FleetAnalysis } from '../state.js';
 
@@ -240,6 +246,16 @@ export function makeReasonNode(deps: ReasonNodeDeps = {}) {
     const available = deps.availableOverride ?? isFleetGraphAvailable();
     const fetched = state.fetched;
 
+    // DEDUP judges the draft title against the seeded candidates — it does NOT
+    // depend on the focal entity's deep context (the candidates carry their own
+    // state/project), so it is handled before the focal guard below.
+    if (state.mode === 'dedup') {
+      if (!available) {
+        return neutralDegrade('Duplicate check is not configured for this workspace.');
+      }
+      return reasonDedup(state, deps);
+    }
+
     // A denied / missing focal entity never reaches the model.
     if (!fetched || fetched.fetchDenied || !fetched.focal) {
       return {
@@ -283,6 +299,35 @@ async function reasonProactive(
   const analysis: FleetAnalysis = {
     text: ai.diagnosis,
     planReview: ai,
+    aiAvailable: true,
+  };
+  return { analysis };
+}
+
+/**
+ * DEDUP: structured call via fleet-ai.ts's `evaluateStructured` (the SAME SDK
+ * path plan-review uses, preserving the zod-v3/v4 Anthropic workaround). The
+ * model judges which seeded candidates are true duplicates of the draft title.
+ * Like the proactive tier it never throws — a blip degrades to neutral.
+ */
+async function reasonDedup(
+  state: FleetGraphStateType,
+  _deps: ReasonNodeDeps
+): Promise<FleetGraphUpdate> {
+  const ai = await evaluateStructuredViaFleetAi<DedupReviewAi>({
+    system: DEDUP_SYSTEM_PROMPT,
+    user: buildDedupUserContent(state.draftTitle, state.candidates),
+    schema: dedupReviewSchema,
+    schemaName: 'fleet_dedup_review',
+  });
+
+  if (isFleetAiError(ai)) {
+    return neutralDegrade('Duplicate check is temporarily unavailable.');
+  }
+
+  const analysis: FleetAnalysis = {
+    text: ai.summary,
+    dedupReview: ai,
     aiAvailable: true,
   };
   return { analysis };
