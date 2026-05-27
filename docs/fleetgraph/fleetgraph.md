@@ -90,11 +90,11 @@ Status reflects what has actually shipped (this is a living document).
    - **Trigger:** missing standup, stale standup, standup submitted
    - **Detects:** silence, repeated blockers, mismatch between standup claims and issue movement
    - **Human decides:** ask for update, accept generated summary, escalate blocker
-7. **Retro Assistant**
+7. **Retro Assistant** — _shipped (retro-page analysis; advisory)_
    - **Role:** PM / Engineer
-   - **Trigger:** retro page or end-of-week proactive run
-   - **Produces:** "you said you would do X; evidence shows Y; mention Z"
-   - **Human decides:** accept suggested retro outline or revise
+   - **Trigger:** retro page load. (End-of-week proactive sweep is deferred — same missing scheduler as everything else.)
+   - **Produces:** two surfaces. Weekly retro → a completeness score + per-plan-item coverage/evidence feedback (`analyzeRetro`, `RetroQualityBanner`). Project retro → a `validated` / `invalidated` / `insufficient_evidence` recommendation with `evidence_found`, `evidence_missing`, and a suggested conclusion (`buildRetroRecommendation`, `RetroPanel`).
+   - **Human decides:** advisory only — accept or revise; the human still sets `plan_validated` (the agent never auto-applies it).
 
 ## Trigger Model
 Document your trigger model decision - poll, webhook, or hybrid. Explain the tradeoffs and
