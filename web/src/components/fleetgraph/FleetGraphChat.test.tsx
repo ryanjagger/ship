@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FleetGraphChatLauncher } from './FleetGraphChatLauncher';
 import { FleetGraphChat } from './FleetGraphChat';
+import { FleetChatProvider, useFleetChat } from '@/contexts/FleetChatContext';
 import type { WriteProposal } from '@/hooks/useFleetGraphChat';
 
 // ── SSE helpers ──────────────────────────────────────────────────────────────
@@ -58,6 +59,16 @@ function renderWithProviders(ui: React.ReactElement, queryClient?: QueryClient) 
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
+/** Render under the FleetChatProvider, which owns the single shared drawer. */
+function renderWithChatProvider(ui: React.ReactElement, queryClient?: QueryClient) {
+  const qc = queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <FleetChatProvider>{ui}</FleetChatProvider>
+    </QueryClientProvider>
+  );
+}
+
 /** Default fetch mock: available, CSRF token, empty conversation; chat overridable. */
 function mockFetch(handlers: {
   available?: boolean;
@@ -95,9 +106,9 @@ function mockFetch(handlers: {
 }
 
 describe('FleetGraphChatLauncher (R10 + availability)', () => {
-  it('renders the launcher when available and opens a seeded session', async () => {
+  it('renders the launcher when available and opens the shared drawer seeded for the entity', async () => {
     mockFetch({ available: true });
-    renderWithProviders(<FleetGraphChatLauncher entityId="e1" entityType="project" />);
+    renderWithChatProvider(<FleetGraphChatLauncher entityId="e1" entityType="project" />);
 
     const button = await screen.findByRole('button', { name: /ask fleet/i });
     fireEvent.click(button);
@@ -109,21 +120,64 @@ describe('FleetGraphChatLauncher (R10 + availability)', () => {
 
   it('renders on a Week page with week-scoped copy', async () => {
     mockFetch({ available: true });
-    renderWithProviders(<FleetGraphChatLauncher entityId="w1" entityType="week" />);
+    renderWithChatProvider(<FleetGraphChatLauncher entityId="w1" entityType="week" />);
     fireEvent.click(await screen.findByRole('button', { name: /ask fleet/i }));
     expect(await screen.findByText(/ask about this week/i)).toBeInTheDocument();
   });
 
+  it('opens exactly one shared drawer (no duplicate dialog)', async () => {
+    mockFetch({ available: true });
+    renderWithChatProvider(<FleetGraphChatLauncher entityId="e1" entityType="project" />);
+    fireEvent.click(await screen.findByRole('button', { name: /ask fleet/i }));
+    await screen.findByRole('dialog', { name: /fleet chat/i });
+    expect(screen.getAllByRole('dialog', { name: /fleet chat/i })).toHaveLength(1);
+  });
+
   it('is HIDDEN (not a dead disabled control) when unavailable', async () => {
     mockFetch({ available: false });
-    const { container } = renderWithProviders(
+    const { container } = renderWithChatProvider(
       <FleetGraphChatLauncher entityId="e1" entityType="project" />
     );
     // Give the availability query a tick to settle, then assert nothing renders.
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /ask fleet/i })).toBeNull();
     });
+    // The provider adds no DOM of its own; with no entity, no drawer renders.
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('FleetChatProvider drawer (entity isolation)', () => {
+  // Harness that drives the provider directly, simulating two triggers (nav
+  // button + launcher) opening the shared drawer for different entities.
+  function ChatTriggers() {
+    const { open } = useFleetChat();
+    return (
+      <>
+        <button onClick={() => open({ entityId: 'A', entityType: 'project' })}>open A</button>
+        <button onClick={() => open({ entityId: 'B', entityType: 'week' })}>open B</button>
+      </>
+    );
+  }
+
+  it('does not leak conversation state when the entity swaps while open', async () => {
+    mockFetch({ available: true });
+    renderWithChatProvider(<ChatTriggers />);
+
+    // Open for entity A and send a turn so a user bubble persists.
+    fireEvent.click(screen.getByRole('button', { name: 'open A' }));
+    await screen.findByText(/ask about this project/i);
+    const input = screen.getByRole('textbox', { name: /message/i });
+    fireEvent.change(input, { target: { value: 'msgA' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(await screen.findByText('msgA')).toBeInTheDocument();
+
+    // Swap to entity B WITHOUT closing first. The key-based remount must give a
+    // fresh drawer — A's transcript must not bleed into B.
+    fireEvent.click(screen.getByRole('button', { name: 'open B' }));
+
+    expect(await screen.findByText(/ask about this week/i)).toBeInTheDocument();
+    expect(screen.queryByText('msgA')).toBeNull();
   });
 });
 
