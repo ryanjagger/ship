@@ -27,6 +27,12 @@ interface FleetGraphChatProps {
   entityType: FleetGraphEntityType;
   /** Conversation to resume on open (re-surfaces history + pending proposal). */
   initialConversationId?: string | null;
+  /**
+   * Opening prompt auto-sent as the first turn on a fresh open. Used by the
+   * drift badge's "Ask Fleet about this drift" hand-off. Ignored when resuming
+   * (initialConversationId set). Only fires once per mount.
+   */
+  seedPrompt?: string;
 }
 
 // ── Structured proposal card field mapping (by kind) ─────────────────────────
@@ -149,6 +155,7 @@ export function FleetGraphChat({
   entityId,
   entityType,
   initialConversationId,
+  seedPrompt,
 }: FleetGraphChatProps) {
   const chat = useFleetGraphChat(entityId, entityType);
   const { messages, status, error, pendingProposal, send, resolveProposal, loadConversation, retry } = chat;
@@ -156,8 +163,20 @@ export function FleetGraphChat({
   const drawerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const seededRef = useRef(false);
 
   const busy = status === 'loading' || status === 'streaming';
+
+  // On a fresh open with a seed prompt (and not resuming a conversation),
+  // auto-send it once as the first turn. The drawer remounts per entity (key),
+  // so seededRef resets for each new entity. Resume (initialConversationId)
+  // takes precedence — a seeded turn would clobber the re-surfaced history.
+  useEffect(() => {
+    if (open && seedPrompt && !initialConversationId && !seededRef.current) {
+      seededRef.current = true;
+      void send(seedPrompt);
+    }
+  }, [open, seedPrompt, initialConversationId, send]);
 
   // On open: load prior turns + any pending proposal (re-surface flow).
   useEffect(() => {

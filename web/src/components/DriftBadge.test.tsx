@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { Drift } from '@ship/shared';
-import { DriftBadge } from './DriftBadge';
+import { DriftBadge, buildDriftPrompt } from './DriftBadge';
 
 describe('DriftBadge', () => {
   it('renders severity and exposes all reasons via the accessible name', () => {
@@ -34,10 +34,37 @@ describe('DriftBadge', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('is a non-interactive span (no focus stop, no button role)', () => {
+  it('is a non-interactive span (no focus stop, no button role) without onAskFleet', () => {
     render(<DriftBadge drift={{ isDrifting: true, signals: [{ type: 'idle', reason: 'idle 8 days' }] }} />);
     const badge = screen.getByRole('status');
     expect(badge.tagName).toBe('SPAN');
     expect(badge).not.toHaveAttribute('tabindex');
+  });
+
+  it('renders a focusable button and fires onAskFleet on click when interactive', () => {
+    const onAskFleet = vi.fn();
+    render(
+      <DriftBadge
+        drift={{ isDrifting: true, signals: [{ type: 'idle', reason: 'idle 8 days' }] }}
+        onAskFleet={onAskFleet}
+      />
+    );
+    const badge = screen.getByRole('button');
+    expect(badge).toHaveAccessibleName(/Ask Fleet about this drift/i);
+    fireEvent.click(badge);
+    expect(onAskFleet).toHaveBeenCalledOnce();
+  });
+
+  it('buildDriftPrompt summarizes the fired reasons into a root-cause question', () => {
+    const prompt = buildDriftPrompt({
+      isDrifting: true,
+      signals: [
+        { type: 'idle', reason: 'idle 9 days' },
+        { type: 'stale_plan', reason: 'no plan' },
+      ],
+    });
+    expect(prompt).toContain('idle 9 days');
+    expect(prompt).toContain('no plan');
+    expect(prompt.toLowerCase()).toContain('root cause');
   });
 });

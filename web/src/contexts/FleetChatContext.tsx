@@ -30,6 +30,11 @@ import type { FleetGraphEntityType } from '@/hooks/useFleetGraphChat';
 export interface FleetChatEntity {
   entityId: string;
   entityType: FleetGraphEntityType;
+  /**
+   * Optional opening prompt auto-sent as the first user turn on a fresh open
+   * (e.g. "Ask Fleet about this drift"). Ignored when resuming a conversation.
+   */
+  seedPrompt?: string;
 }
 
 interface FleetChatContextValue {
@@ -74,6 +79,7 @@ export function FleetChatProvider({ children }: { children: ReactNode }) {
           onClose={close}
           entityId={entity.entityId}
           entityType={entity.entityType}
+          seedPrompt={entity.seedPrompt}
         />
       )}
     </FleetChatContext.Provider>

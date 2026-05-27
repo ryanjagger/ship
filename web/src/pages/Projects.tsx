@@ -12,7 +12,9 @@ import { Combobox } from '@/components/ui/Combobox';
 import { useToast } from '@/components/ui/Toast';
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from '@/components/ui/ContextMenu';
 import { FilterTabs } from '@/components/FilterTabs';
-import { DriftBadge } from '@/components/DriftBadge';
+import { DriftBadge, buildDriftPrompt } from '@/components/DriftBadge';
+import { useFleetChat } from '@/contexts/FleetChatContext';
+import { useFleetGraphAvailability } from '@/hooks/useFleetGraphChat';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/date-utils';
 import { ArchiveIcon } from '@/components/icons/ArchiveIcon';
@@ -481,6 +483,17 @@ interface ProjectRowContentProps {
 }
 
 function ProjectRowContent({ project, visibleColumns, programNameById }: ProjectRowContentProps) {
+  const { open: openFleetChat } = useFleetChat();
+  const { data: fleetAvailable } = useFleetGraphAvailability();
+  const askFleetAboutDrift =
+    fleetAvailable && project.drift?.isDrifting
+      ? () =>
+          openFleetChat({
+            entityId: project.id,
+            entityType: 'project',
+            seedPrompt: buildDriftPrompt(project.drift!),
+          })
+      : undefined;
   return (
     <>
       {/* Title with color dot */}
@@ -506,7 +519,7 @@ function ProjectRowContent({ project, visibleColumns, programNameById }: Project
       {/* Drift */}
       {visibleColumns.has('drift') && (
         <td className="px-4 py-3 text-sm" role="gridcell">
-          <DriftBadge drift={project.drift} />
+          <DriftBadge drift={project.drift} onAskFleet={askFleetAboutDrift} />
         </td>
       )}
       {/* Impact */}
