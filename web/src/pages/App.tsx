@@ -37,6 +37,9 @@ import { ActionItemsModal } from '@/components/ActionItemsModal';
 import { AccountabilityBanner } from '@/components/AccountabilityBanner';
 import { ProjectContextSidebar } from '@/components/sidebars/ProjectContextSidebar';
 import { RealtimeStatusIndicator } from '@/components/RealtimeStatusIndicator';
+import { useFleetGraphAvailability } from '@/hooks/useFleetGraphChat';
+import { useFleetChat } from '@/contexts/FleetChatContext';
+import { useFleetChatEntity } from '@/hooks/useFleetChatEntity';
 
 type Mode = 'docs' | 'issues' | 'projects' | 'programs' | 'sprints' | 'team' | 'settings' | 'dashboard' | 'project-context';
 
@@ -370,8 +373,12 @@ export function AppLayout() {
             )}
           </div>
 
-          {/* Mode icons - ordered by hierarchy: Dashboard → Docs → Programs → Projects → Issues → Teams */}
+          {/* Mode icons - ordered by hierarchy: Ask Fleet (action) → Dashboard → Docs → Programs → Projects → Issues → Teams */}
           <div className="flex flex-1 flex-col items-center gap-1">
+            {/* Ask Fleet is an action (opens a drawer), not a navigation mode —
+                a divider separates it from the mode icons below. */}
+            <AskFleetRailButton />
+            <div className="my-1 h-px w-5 bg-border" aria-hidden="true" />
             <RailIcon
               icon={<DashboardIcon />}
               label="Dashboard"
@@ -606,19 +613,77 @@ export function AppLayout() {
   );
 }
 
-function RailIcon({ icon, label, active, onClick, showBadge }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showBadge?: boolean }) {
+/**
+ * AskFleetRailButton — persistent "Ask Fleet" entry point at the top of the rail.
+ *
+ * Enabled only when Fleet is configured AND the current page has a focal entity
+ * (Project or Week); greyed elsewhere with a tooltip explaining which condition
+ * failed. Opens the shared chat drawer (FleetChatProvider) seeded with that
+ * entity. Unlike the in-content launcher, this control never disappears.
+ */
+export function AskFleetRailButton() {
+  const { data: available } = useFleetGraphAvailability();
+  const entity = useFleetChatEntity();
+  const { open } = useFleetChat();
+
+  const enabled = available === true && entity !== null;
+
+  // Greyed-state copy distinguishes the two failure reasons. During the
+  // availability probe (available === undefined) we stay neutral ("Ask Fleet")
+  // rather than implying the provider is misconfigured.
+  const disabledLabel =
+    available === false
+      ? 'Fleet is not configured'
+      : available === undefined
+        ? undefined
+        : 'Open a project or week to ask Fleet';
+
   return (
-    <Tooltip content={label} side="right">
+    <RailIcon
+      icon={<img src="/ship.png" alt="" className="h-5 w-5 object-contain" />}
+      label="Ask Fleet"
+      active={false}
+      disabled={!enabled}
+      disabledLabel={disabledLabel}
+      onClick={() => {
+        if (entity) open(entity);
+      }}
+    />
+  );
+}
+
+export function RailIcon({ icon, label, active, onClick, showBadge, disabled, disabledLabel }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showBadge?: boolean; disabled?: boolean; disabledLabel?: string }) {
+  // When disabled, the tooltip must still explain *why* — so we use
+  // `aria-disabled` rather than the native `disabled` attribute (a natively
+  // disabled <button> suppresses pointer events in Firefox/Safari, which would
+  // stop the Radix tooltip from ever firing). The button stays hover- and
+  // keyboard-reachable; we guard onClick instead.
+  const effectiveLabel = disabled ? (disabledLabel ?? label) : label;
+  return (
+    <Tooltip content={effectiveLabel} side="right">
       <button
-        onClick={onClick}
+        type="button"
+        onClick={(e) => {
+          if (disabled) {
+            e.preventDefault();
+            return;
+          }
+          onClick();
+        }}
+        aria-disabled={disabled || undefined}
         className={cn(
           'relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
-          active ? 'bg-border text-foreground' : 'text-muted hover:bg-border/50 hover:text-foreground'
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          disabled
+            ? 'cursor-not-allowed text-muted opacity-40'
+            : active
+              ? 'bg-border text-foreground'
+              : 'text-muted hover:bg-border/50 hover:text-foreground'
         )}
-        aria-label={label}
+        aria-label={effectiveLabel}
       >
         {icon}
-        {showBadge && (
+        {showBadge && !disabled && (
           <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-orange-500" />
         )}
       </button>
