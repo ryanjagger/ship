@@ -62,22 +62,26 @@ function formatRelative(iso?: string): string | null {
 
 function RefreshButton({ onRefresh, isRefreshing }: { onRefresh?: () => void; isRefreshing?: boolean }) {
   if (!onRefresh) return null;
+  if (isRefreshing) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-muted" aria-live="polite">
+        <svg className="h-3.5 w-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        Analyzing…
+      </span>
+    );
+  }
   return (
     <Tooltip content="Refresh Fleet analysis" side="top">
       <button
         type="button"
         aria-label="Refresh Fleet analysis"
         onClick={onRefresh}
-        disabled={isRefreshing}
-        className="text-muted hover:text-foreground transition-colors disabled:opacity-50"
+        className="text-muted hover:text-foreground transition-colors"
       >
-        <svg
-          className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
+        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
         </svg>
       </button>
@@ -112,7 +116,9 @@ function CardShell({
       {refreshError && (
         <p className="mb-2 text-xs text-yellow-600">Refresh failed — try again in a moment.</p>
       )}
-      {children}
+      <div className={cn('transition-opacity', isRefreshing && 'opacity-40 pointer-events-none select-none')}>
+        {children}
+      </div>
     </div>
   );
 }
