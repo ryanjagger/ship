@@ -12,7 +12,6 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
 import {
   useFleetGraphChat,
@@ -194,17 +193,7 @@ export function FleetGraphChat({
     }
   }, [open, initialConversationId, loadConversation]);
 
-  // Scroll-lock the body while the drawer is open.
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  // Escape to close + focus trap within the drawer.
+  // Escape to close + focus trap within the panel.
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
@@ -254,134 +243,123 @@ export function FleetGraphChat({
 
   const isEmpty = messages.length === 0 && !pendingProposal && status === 'idle';
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop — click to close. */}
-      <button
-        type="button"
-        aria-label="Close chat"
-        className="absolute inset-0 bg-black/30"
-        onClick={onClose}
-      />
-
-      <div
-        ref={drawerRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Fleet chat"
-        className="relative flex h-full w-full max-w-md flex-col border-l border-border bg-background shadow-xl"
-      >
-        <header className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold text-foreground">Fleet chat</h2>
-          <button
-            type="button"
-            aria-label="Close chat"
-            onClick={onClose}
-            className="text-muted hover:text-foreground"
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </header>
-
-        {/* Transcript — aria-live so streamed tokens are announced. */}
-        <div
-          aria-live="polite"
-          aria-busy={busy}
-          className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
+  return (
+    <div
+      ref={drawerRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Fleet chat"
+      className="flex h-72 flex-shrink-0 flex-col border-t border-border bg-background"
+    >
+      <header className="flex items-center justify-between border-b border-border px-4 py-2">
+        <h2 className="text-sm font-semibold text-foreground">Fleet chat</h2>
+        <button
+          type="button"
+          aria-label="Close chat"
+          onClick={onClose}
+          className="text-muted hover:text-foreground"
         >
-          {isEmpty && (
-            <p className="text-sm text-muted">
-              Ask about this {entityType === 'week' ? 'week' : 'project'} — Fleet can read its
-              context and propose changes for you to confirm.
-            </p>
-          )}
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
 
-          {messages.map((m, i) => (
+      {/* Transcript — aria-live so streamed tokens are announced. */}
+      <div
+        aria-live="polite"
+        aria-busy={busy}
+        className="flex-1 space-y-3 overflow-y-auto px-4 py-3"
+      >
+        {isEmpty && (
+          <p className="text-sm text-muted">
+            Ask about this {entityType === 'week' ? 'week' : 'project'} — Fleet can read its
+            context and propose changes for you to confirm.
+          </p>
+        )}
+
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}
+          >
             <div
-              key={i}
-              className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}
+              data-role={m.role}
+              className={cn(
+                'max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm',
+                m.role === 'user'
+                  ? 'bg-accent text-white'
+                  : 'border border-border bg-border/20 text-foreground'
+              )}
             >
-              <div
-                data-role={m.role}
-                className={cn(
-                  'max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm',
-                  m.role === 'user'
-                    ? 'bg-accent text-white'
-                    : 'border border-border bg-border/20 text-foreground'
-                )}
-              >
-                {m.content || (status === 'streaming' ? '…' : '')}
-              </div>
+              {m.content || (status === 'streaming' ? '…' : '')}
             </div>
-          ))}
+          </div>
+        ))}
 
-          {pendingProposal && (
-            <ProposalCard
-              proposal={pendingProposal}
-              onConfirm={() => void resolveProposal(true)}
-              onDecline={() => void resolveProposal(false)}
-              disabled={status === 'loading'}
-            />
-          )}
+        {pendingProposal && (
+          <ProposalCard
+            proposal={pendingProposal}
+            onConfirm={() => void resolveProposal(true)}
+            onDecline={() => void resolveProposal(false)}
+            disabled={status === 'loading'}
+          />
+        )}
 
-          {status === 'loading' && !pendingProposal && (
-            <div className="flex items-center gap-2 text-xs text-muted" role="status">
-              <svg className="h-4 w-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Thinking…
-            </div>
-          )}
+        {status === 'loading' && !pendingProposal && (
+          <div className="flex items-center gap-2 text-xs text-muted" role="status">
+            <svg className="h-4 w-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Thinking…
+          </div>
+        )}
 
-          {status === 'error' && error && (
-            <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-700">
-              <p>{error}</p>
-              <button
-                type="button"
-                onClick={() => void retry()}
-                className="mt-1 font-medium underline hover:no-underline"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          <div ref={transcriptEndRef} />
-        </div>
-
-        {/* Composer — input disabled while a turn is in flight. */}
-        <form onSubmit={handleSubmit} className="border-t border-border p-3">
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit(e);
-                }
-              }}
-              disabled={busy}
-              rows={2}
-              placeholder="Ask Fleet…"
-              aria-label="Message"
-              className="flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
-            />
+        {status === 'error' && error && (
+          <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-700">
+            <p>{error}</p>
             <button
-              type="submit"
-              disabled={busy || input.trim().length === 0}
-              className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              type="button"
+              onClick={() => void retry()}
+              className="mt-1 font-medium underline hover:no-underline"
             >
-              Send
+              Retry
             </button>
           </div>
-        </form>
+        )}
+
+        <div ref={transcriptEndRef} />
       </div>
-    </div>,
-    document.body
+
+      {/* Composer — input disabled while a turn is in flight. */}
+      <form onSubmit={handleSubmit} className="border-t border-border p-3">
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit(e);
+              }
+            }}
+            disabled={busy}
+            rows={2}
+            placeholder="Ask Fleet…"
+            aria-label="Message"
+            className="flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={busy || input.trim().length === 0}
+            className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            Send
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

@@ -40,10 +40,12 @@ import { RealtimeStatusIndicator } from '@/components/RealtimeStatusIndicator';
 import { useFleetGraphAvailability } from '@/hooks/useFleetGraphChat';
 import { useFleetChat } from '@/contexts/FleetChatContext';
 import { useFleetChatEntity } from '@/hooks/useFleetChatEntity';
+import { FleetGraphChat } from '@/components/fleetgraph/FleetGraphChat';
 
 type Mode = 'docs' | 'issues' | 'projects' | 'programs' | 'sprints' | 'team' | 'settings' | 'dashboard' | 'project-context';
 
 export function AppLayout() {
+  const { isOpen: fleetChatOpen, entity: fleetEntity, close: closeFleetChat } = useFleetChat();
   const { user, logout, isSuperAdmin, impersonating, endImpersonation } = useAuth();
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const location = useLocation();
@@ -566,12 +568,26 @@ export function AppLayout() {
           </div>
         </aside>
 
-        {/* Main content */}
-        <main id="main-content" className="flex flex-1 flex-col overflow-hidden" role="main" tabIndex={-1}>
-          <ErrorBoundary>
-            <Outlet />
-          </ErrorBoundary>
-        </main>
+        {/* Main content column: editor above, Fleet chat panel below */}
+        <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+          <main id="main-content" className="flex flex-1 flex-col overflow-hidden min-w-0" role="main" tabIndex={-1}>
+            <ErrorBoundary>
+              <Outlet />
+            </ErrorBoundary>
+          </main>
+
+          {/* Fleet chat bottom panel — sits between left and right sidebars */}
+          {fleetChatOpen && fleetEntity && (
+            <FleetGraphChat
+              key={`${fleetEntity.entityType}:${fleetEntity.entityId}`}
+              open={fleetChatOpen}
+              onClose={closeFleetChat}
+              entityId={fleetEntity.entityId}
+              entityType={fleetEntity.entityType}
+              seedPrompt={fleetEntity.seedPrompt}
+            />
+          )}
+        </div>
 
         {/* Properties sidebar landmark - always present for proper accessibility structure */}
         {/* Portal content from Editor will be rendered here via React Portal */}

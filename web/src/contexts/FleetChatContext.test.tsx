@@ -1,10 +1,11 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { FleetChatProvider, useFleetChat } from './FleetChatContext';
+import { FleetGraphChat } from '@/components/fleetgraph/FleetGraphChat';
 
-// Mock the drawer so these tests stay focused on the provider's state machine
-// (no QueryClient / fetch / portal needed). The mock surfaces the props it
-// receives so we can assert what the provider drives.
+// Mock the panel so these tests stay focused on the provider's state machine
+// (no QueryClient / fetch needed). The mock surfaces the props it receives so
+// we can assert what the consumer drives.
 vi.mock('@/components/fleetgraph/FleetGraphChat', () => ({
   FleetGraphChat: (props: { open: boolean; entityId: string; entityType: string }) => (
     <div
@@ -15,7 +16,10 @@ vi.mock('@/components/fleetgraph/FleetGraphChat', () => ({
   ),
 }));
 
-/** Test harness exposing the provider's actions and current state. */
+/**
+ * Test harness — mirrors how AppLayout consumes the context and renders the
+ * panel inline (the provider is state-only; the panel is rendered by the consumer).
+ */
 function Harness() {
   const { isOpen, entity, open, close } = useFleetChat();
   return (
@@ -25,6 +29,16 @@ function Harness() {
       <button onClick={() => open({ entityId: 'A', entityType: 'project' })}>open A</button>
       <button onClick={() => open({ entityId: 'B', entityType: 'week' })}>open B</button>
       <button onClick={close}>close</button>
+      {/* Consumer renders the panel (matching AppLayout's pattern) */}
+      {isOpen && entity && (
+        <FleetGraphChat
+          key={`${entity.entityType}:${entity.entityId}`}
+          open={isOpen}
+          onClose={close}
+          entityId={entity.entityId}
+          entityType={entity.entityType}
+        />
+      )}
     </div>
   );
 }
@@ -38,7 +52,7 @@ function renderHarness() {
 }
 
 describe('FleetChatProvider', () => {
-  it('open(entity) sets isOpen and renders the drawer scoped to that entity', () => {
+  it('open(entity) sets isOpen and renders the panel scoped to that entity', () => {
     renderHarness();
     expect(screen.getByTestId('is-open')).toHaveTextContent('false');
     expect(screen.queryByTestId('drawer')).toBeNull();
@@ -52,7 +66,7 @@ describe('FleetChatProvider', () => {
     expect(drawer).toHaveAttribute('data-entity', 'project:A');
   });
 
-  it('close() clears the entity and unmounts the drawer (no argument-less re-open)', () => {
+  it('close() clears the entity and unmounts the panel (no argument-less re-open)', () => {
     renderHarness();
     fireEvent.click(screen.getByRole('button', { name: 'open A' }));
     expect(screen.getByTestId('drawer')).toBeInTheDocument();
