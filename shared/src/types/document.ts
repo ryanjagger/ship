@@ -138,6 +138,23 @@ export interface PlanHistoryEntry {
   author_name?: string;
 }
 
+// Project drift detection — derived state, computed on-read (never stored).
+// A project response carries `drift: Drift | null`; null means the project is
+// ineligible (not active/planned) or was not evaluated.
+export type DriftSignalType = 'idle' | 'stale_plan' | 'rising_incomplete_work';
+
+export interface DriftSignal {
+  type: DriftSignalType;
+  // Human-readable reason, e.g. "idle 9 days", "plan stale 24 days", "no plan",
+  // "incomplete work +2 in 7d".
+  reason: string;
+}
+
+export interface Drift {
+  isDrifting: boolean;
+  signals: DriftSignal[];
+}
+
 // Approval tracking state for accountability workflows
 export type ApprovalState = null | 'approved' | 'changed_since_approved' | 'changes_requested';
 
