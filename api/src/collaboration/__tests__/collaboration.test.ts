@@ -460,11 +460,25 @@ describe('Collaboration Server', () => {
       // The guard rejects BOTH hidden fleetgraph doc types ('conversation' and
       // 'insight') by document_type, so a Yjs persist can never clobber their
       // fleetgraph_* engine state — not just the conversation type.
+      //
+      // The properties shape must satisfy the documents_insight_properties_shape
+      // CHECK constraint (migration 046): subject_id, kind, and a valid state
+      // are required on insight rows. created_by is NULL — insights are
+      // system-authored.
       const insightResult = await pool.query(
-        `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by)
-         VALUES ($1, 'insight', 'Untitled', 'workspace', $2)
+        `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by, properties)
+         VALUES ($1, 'insight', 'Project drift: test', 'workspace', NULL, $2::jsonb)
          RETURNING id`,
-        [testWorkspaceId, testUserId]
+        [
+          testWorkspaceId,
+          JSON.stringify({
+            fleetgraph_insight: {
+              state: 'open',
+              kind: 'project_drift',
+              subject_id: testWorkspaceId, // any UUID satisfies the CHECK
+            },
+          }),
+        ]
       )
       const insightDocId = insightResult.rows[0].id
 
