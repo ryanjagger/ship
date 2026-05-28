@@ -162,8 +162,8 @@ describe('T39: parallel resolveInsight calls are idempotent', () => {
     const insightId = seed.insight!.id;
 
     const [a, b] = await Promise.all([
-      resolveInsight(insightId, { reason: 'test-a' }),
-      resolveInsight(insightId, { reason: 'test-b' }),
+      resolveInsight({ insightId, workspaceId, reason: 'test-a' }),
+      resolveInsight({ insightId, workspaceId, reason: 'test-b' }),
     ]);
 
     // Exactly one of the two transitioned the state.
@@ -192,7 +192,7 @@ describe('T40: createOrRefreshInsight racing resolveInsight reaches deterministi
 
     // Race: resolve the open row while a new detection comes in.
     const [_resolveResult, _detectResult] = await Promise.all([
-      resolveInsight(insightId),
+      resolveInsight({ insightId, workspaceId }),
       createOrRefreshInsight(baseArgs({ inputHash: 'h-new' })),
     ]);
 
@@ -340,7 +340,7 @@ describe('T43: different kinds for the same subject coexist OPEN (lock keys diff
     // history rows don't conflict with new live rows.
     await deleteAllInsightsForSubject();
     const seed = await createOrRefreshInsight(baseArgs({ inputHash: 'h-seed' }));
-    await resolveInsight(seed.insight!.id);
+    await resolveInsight({ insightId: seed.insight!.id, workspaceId });
     const refresh = await createOrRefreshInsight(baseArgs({ inputHash: 'h-new' }));
     expect(refresh.didCreate).toBe(true);
 

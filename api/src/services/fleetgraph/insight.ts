@@ -229,17 +229,24 @@ export async function createOrRefreshInsight(
     if (existing.rows.length === 0) {
       // ── No-row branch: INSERT a fresh OPEN row. ─────────────────────────
       // First, FOR SHARE the subject inside the transaction to assert it
-      // exists and is not soft-deleted/archived. On miss, ROLLBACK and
-      // return `didCreate=false` (the sweep will re-evaluate next tick).
+      // exists in THIS workspace and is not soft-deleted/archived. The
+      // workspace_id check is load-bearing: without it, a caller passing a
+      // foreign-workspace subjectId would silently create a cross-tenant
+      // insight (row in workspace A pointing at a subject in workspace B).
+      // The read-path JOIN on `s.workspace_id = i.workspace_id` would hide
+      // it from list queries, but the row itself and any cross-tenant
+      // subject metadata leaked back via getInsightInternal would still be
+      // a contract violation. On miss (no row, or row in another
+      // workspace), ROLLBACK and return `didCreate=false`.
       const subject = await client.query<{
         title: string;
         document_type: DocumentType;
       }>(
         `SELECT title, document_type
            FROM documents
-          WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NULL
+          WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL AND archived_at IS NULL
           FOR SHARE`,
-        [args.subjectId]
+        [args.subjectId, args.workspaceId]
       );
       if (subject.rows.length === 0) {
         await client.query('ROLLBACK');
@@ -394,7 +401,17 @@ export async function createOrRefreshInsight(
 
 // ─── resolveInsight ─────────────────────────────────────────────────────
 
-export interface ResolveInsightOptions {
+export interface ResolveInsightArgs {
+  insightId: string;
+  /**
+   * Workspace scoping — load-bearing for cross-tenant safety. The CTE's
+   * locked SELECT scopes by `workspace_id = $2`, so a caller passing an
+   * `insightId` from a foreign workspace gets a no-row result (priorState:
+   * null, didResolve: false). Without this, any caller anywhere with an
+   * insight UUID could resolve insights in workspaces they don't belong
+   * to. Callers MUST derive this from a validated session.
+   */
+  workspaceId: string;
   /** Optional human-readable reason; persisted as `properties.fleetgraph_insight.resolved_reason`. */
   reason?: string;
   /**
@@ -402,6 +419,9 @@ export interface ResolveInsightOptions {
    * current state matches. Used by user-initiated resolves to fail loudly
    * on race ("the row I'm resolving must still be in this state"). The
    * sweep's auto-resolve path omits it — it accepts any non-resolved state.
+   * When provided and the row is in any state other than the expected one
+   * — INCLUDING 'resolved' (the most common race outcome) — the function
+   * throws `InsightStateRaceError`.
    */
   expectedState?: InsightStatus;
 }
@@ -409,7 +429,7 @@ export interface ResolveInsightOptions {
 export interface ResolveInsightResult {
   /**
    * The state BEFORE this call (per the CTE's pre-update capture). `null`
-   * when the id didn't match any insight row at all.
+   * when the id didn't match any insight row in the given workspace.
    */
   priorState: InsightStatus | null;
   /** True when this call actually transitioned the row to `resolved`. */
@@ -428,21 +448,23 @@ export interface ResolveInsightResult {
  * the underlying drift condition clears, prior user state hints (snooze/
  * dismiss) become irrelevant.
  *
- * When `expectedState` is provided, the UPDATE additionally requires the
- * pre-update state to match. On mismatch, the function throws
- * `InsightStateRaceError` so user-initiated resolves can show "someone
- * else changed this insight; please refresh."
+ * Workspace-scoped: the CTE locks rows by `(id, workspace_id)` so a caller
+ * passing a foreign-workspace insightId gets a benign no-row result rather
+ * than mutating a row they shouldn't see.
+ *
+ * When `expectedState` is provided, the resolve fires only if the
+ * pre-update state matches. On mismatch — including the common "already
+ * resolved by someone else" race outcome — throws `InsightStateRaceError`.
  */
 export async function resolveInsight(
-  insightId: string,
-  opts: ResolveInsightOptions = {}
+  args: ResolveInsightArgs
 ): Promise<ResolveInsightResult> {
   const now = new Date().toISOString();
   const res = await pool.query<{ prior_state: InsightStatus | null; updated: boolean }>(
     `WITH locked AS (
         SELECT id, properties->'fleetgraph_insight'->>'state' AS prior_state
           FROM documents
-         WHERE id = $1 AND document_type = 'insight'
+         WHERE id = $1 AND workspace_id = $2 AND document_type = 'insight'
          FOR UPDATE
       ),
       updated AS (
@@ -450,23 +472,23 @@ export async function resolveInsight(
            SET properties = jsonb_set(
                  jsonb_set(
                    jsonb_set(d.properties, '{fleetgraph_insight,state}', '"resolved"'::jsonb, false),
-                   '{fleetgraph_insight,resolved_at}', to_jsonb($2::text), false
+                   '{fleetgraph_insight,resolved_at}', to_jsonb($3::text), false
                  ),
                  '{fleetgraph_insight,resolved_reason}',
-                 CASE WHEN $3::text IS NULL THEN 'null'::jsonb ELSE to_jsonb($3::text) END,
+                 CASE WHEN $4::text IS NULL THEN 'null'::jsonb ELSE to_jsonb($4::text) END,
                  false
                )
           FROM locked
          WHERE d.id = locked.id
            AND locked.prior_state <> 'resolved'
-           AND ($4::text IS NULL OR locked.prior_state = $4::text)
+           AND ($5::text IS NULL OR locked.prior_state = $5::text)
         RETURNING locked.prior_state
       )
       SELECT
         locked.prior_state AS prior_state,
         EXISTS (SELECT 1 FROM updated) AS updated
       FROM locked`,
-    [insightId, now, opts.reason ?? null, opts.expectedState ?? null]
+    [args.insightId, args.workspaceId, now, args.reason ?? null, args.expectedState ?? null]
   );
 
   if (res.rows.length === 0) {
@@ -474,10 +496,14 @@ export async function resolveInsight(
   }
   const { prior_state, updated } = res.rows[0]!;
 
-  // expectedState supplied but didn't match → race detected.
-  if (opts.expectedState && !updated && prior_state !== 'resolved') {
+  // expectedState supplied but the UPDATE didn't fire → either we lost a
+  // race (someone else resolved it) or the prior state doesn't match. Both
+  // are race conditions the caller wants to know about. Drop the prior
+  // `prior_state !== 'resolved'` guard that silently suppressed the most
+  // common race outcome (caught by adversarial review).
+  if (args.expectedState && !updated) {
     throw new InsightStateRaceError(
-      `Expected state '${opts.expectedState}' but found '${prior_state}'.`
+      `Expected state '${args.expectedState}' but found '${prior_state}'.`
     );
   }
 

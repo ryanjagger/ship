@@ -217,7 +217,14 @@ describe('createOrRefreshInsight — decision matrix', () => {
     expect(calls[1]).toMatch(/SET LOCAL statement_timeout = '5s'/);
     expect(calls[2]).toMatch(/pg_advisory_xact_lock\(hashtextextended/);
     expect(calls[3]).toMatch(/SELECT id, properties->'fleetgraph_insight'/);
-    expect(calls[4]).toMatch(/FOR SHARE/);
+    // Subject probe is workspace-scoped to prevent cross-workspace insight
+    // creation (caught by adversarial review F-A1).
+    expect(calls[4]).toMatch(
+      /SELECT title, document_type\s+FROM documents\s+WHERE id = \$1 AND workspace_id = \$2[\s\S]*FOR SHARE/
+    );
+    const subjectParams = mockClientQuery.mock.calls[4]![1] as unknown[];
+    expect(subjectParams[0]).toBe('subj-1');
+    expect(subjectParams[1]).toBe('ws-1');
     expect(calls[5]).toMatch(/INSERT INTO documents/);
     expect(calls[6]).toMatch(/INSERT INTO document_associations[\s\S]*'discusses'/);
     expect(calls[7]).toBe('COMMIT');
@@ -371,6 +378,22 @@ describe('createOrRefreshInsight — transaction discipline', () => {
     expect(calls.filter((s) => s.startsWith('INSERT INTO documents'))).toHaveLength(0);
   });
 
+  // T10b. Cross-workspace subject: FOR SHARE filters by workspace_id, so a
+  //       subjectId from a foreign workspace returns empty → ROLLBACK, no
+  //       INSERT, didCreate=false. Same shape as T10 (missing subject) — the
+  //       fix prevents cross-tenant insight creation (F-A1).
+  it('T10b: subject in different workspace → ROLLBACK, no INSERT, didCreate=false', async () => {
+    mockCreateSequence({ subjectFound: false });
+    const result = await createOrRefreshInsight(args());
+
+    expect(result.didCreate).toBe(false);
+    expect(result.insight).toBeNull();
+    // The subject probe was scoped by workspace_id (assertion proves we
+    // didn't mutate the foreign-workspace row).
+    const subjectSql = String(mockClientQuery.mock.calls[4]![0]);
+    expect(subjectSql).toMatch(/workspace_id = \$2/);
+  });
+
   // T11. document_associations INSERT rejected: ROLLBACK fires, COMMIT never called.
   it('T11: associations INSERT failure → ROLLBACK, no COMMIT', async () => {
     mockClientQuery
@@ -517,7 +540,7 @@ describe('resolveInsight', () => {
       rowCount: 1,
     });
 
-    const result = await resolveInsight('insight-1');
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
     expect(result.didResolve).toBe(true);
     expect(result.priorState).toBe('open');
 
@@ -536,7 +559,7 @@ describe('resolveInsight', () => {
       rowCount: 1,
     });
 
-    const result = await resolveInsight('insight-1');
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
     expect(result.didResolve).toBe(false);
     expect(result.priorState).toBe('resolved');
     // The UPDATE clause `locked.prior_state <> 'resolved'` filters it out
@@ -551,7 +574,7 @@ describe('resolveInsight', () => {
       rows: [{ prior_state: 'dismissed', updated: true }],
       rowCount: 1,
     });
-    const result = await resolveInsight('insight-1');
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
     expect(result.didResolve).toBe(true);
     expect(result.priorState).toBe('dismissed');
   });
@@ -562,22 +585,26 @@ describe('resolveInsight', () => {
       rows: [{ prior_state: 'snoozed', updated: true }],
       rowCount: 1,
     });
-    const result = await resolveInsight('insight-1');
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
     expect(result.didResolve).toBe(true);
     expect(result.priorState).toBe('snoozed');
   });
 
   // T21. Resolve with expectedState='open' against an open row → succeeds.
-  it('T21: expectedState matches → succeeds, $4 bound to the expected state', async () => {
+  // Params after the workspace-scoping fix: $1=insightId, $2=workspaceId,
+  // $3=now, $4=reason, $5=expectedState.
+  it('T21: expectedState matches → succeeds, $5 bound to the expected state', async () => {
     mockPoolQuery.mockResolvedValueOnce({
       rows: [{ prior_state: 'open', updated: true }],
       rowCount: 1,
     });
-    const result = await resolveInsight('insight-1', { expectedState: 'open' });
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1', expectedState: 'open' });
     expect(result.didResolve).toBe(true);
 
     const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
-    expect(params[3]).toBe('open'); // expectedState bound to $4
+    expect(params[0]).toBe('insight-1');
+    expect(params[1]).toBe('ws-1');
+    expect(params[4]).toBe('open'); // expectedState bound to $5
   });
 
   // T22. Resolve with expectedState='open' against a resolved row → throws.
@@ -589,40 +616,70 @@ describe('resolveInsight', () => {
     });
 
     await expect(
-      resolveInsight('insight-1', { expectedState: 'open' })
+      resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1', expectedState: 'open' })
     ).rejects.toBeInstanceOf(InsightStateRaceError);
   });
 
-  // T22b. expectedState='open' but row already resolved → returns no-op, does NOT throw.
-  // (Already-resolved is the idempotent path even when expectedState is supplied.)
-  it('T22b: expectedState mismatch where prior is already resolved → no-op, no throw', async () => {
+  // T22b. expectedState='open' but row already resolved → THROWS race error.
+  // The prior version of this test expected a silent no-op; that was a real
+  // bug (adversarial review F-A2) — the most common race outcome ("someone
+  // else resolved it first") returned success-shaped data and the caller
+  // couldn't distinguish "I resolved it" from "I lost the race".
+  it('T22b: expectedState=open on an already-resolved row throws (race detected)', async () => {
     mockPoolQuery.mockResolvedValueOnce({
       rows: [{ prior_state: 'resolved', updated: false }],
       rowCount: 1,
     });
-    const result = await resolveInsight('insight-1', { expectedState: 'open' });
+    await expect(
+      resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1', expectedState: 'open' })
+    ).rejects.toBeInstanceOf(InsightStateRaceError);
+  });
+
+  // T22c. Without expectedState, already-resolved is still a benign no-op.
+  it('T22c: expectedState omitted + already-resolved row → benign no-op, no throw', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'resolved', updated: false }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
     expect(result.didResolve).toBe(false);
     expect(result.priorState).toBe('resolved');
+  });
+
+  // T22d. CTE locks rows by (id, workspace_id) — cross-workspace insightId
+  // returns no-row priorState=null (benign), does NOT mutate the foreign row.
+  it('T22d: resolveInsight is workspace-scoped — foreign workspaceId gets no-row result', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const result = await resolveInsight({ insightId: 'foreign-insight', workspaceId: 'ws-1' });
+    expect(result.didResolve).toBe(false);
+    expect(result.priorState).toBeNull();
+
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/WHERE id = \$1 AND workspace_id = \$2 AND document_type = 'insight'/);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params[0]).toBe('foreign-insight');
+    expect(params[1]).toBe('ws-1');
   });
 
   // T23. Resolve a nonexistent id → returns null priorState, no throw.
   it('T23: nonexistent id → returns priorState=null, didResolve=false', async () => {
     mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    const result = await resolveInsight('missing-id');
+    const result = await resolveInsight({ insightId: 'missing-id', workspaceId: 'ws-1' });
     expect(result.didResolve).toBe(false);
     expect(result.priorState).toBeNull();
   });
 
-  // T24. Reason is persisted via $3.
-  it('T24: reason param is bound to $3 and embedded via jsonb_set in resolved_reason', async () => {
+  // T24. Reason is persisted via $4 (after the workspace-scoping fix:
+  // $1=insightId, $2=workspaceId, $3=now, $4=reason, $5=expectedState).
+  it('T24: reason param is bound to $4 and embedded via jsonb_set in resolved_reason', async () => {
     mockPoolQuery.mockResolvedValueOnce({
       rows: [{ prior_state: 'open', updated: true }],
       rowCount: 1,
     });
-    await resolveInsight('insight-1', { reason: 'drift_cleared' });
+    await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1', reason: 'drift_cleared' });
 
     const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
-    expect(params[2]).toBe('drift_cleared'); // reason bound to $3
+    expect(params[3]).toBe('drift_cleared'); // reason bound to $4
     const sql = String(mockPoolQuery.mock.calls[0]![0]);
     expect(sql).toMatch(/resolved_reason/);
   });
