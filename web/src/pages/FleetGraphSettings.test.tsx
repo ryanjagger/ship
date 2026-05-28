@@ -84,13 +84,18 @@ describe('FleetGraphSettingsPage', () => {
     mockedUseWorkspace.mockReset();
   });
 
-  it('admin sees the toggle and Sweep now button', async () => {
-    mockedApiGet.mockResolvedValueOnce(jsonResponse({ sweepEnabled: false }));
+  it('admin sees both toggles and the Sweep now button', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: false, llmVerdictsEnabled: false })
+    );
 
     renderWithProviders({ isAdmin: true });
 
     expect(
       await screen.findByLabelText(/Enable scheduled sweep/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Enable AI verdicts/i)
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /Sweep now/i })
@@ -100,8 +105,10 @@ describe('FleetGraphSettingsPage', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('non-admin sees the read-only banner and no controls', async () => {
-    mockedApiGet.mockResolvedValueOnce(jsonResponse({ sweepEnabled: true }));
+  it('non-admin sees the read-only banner and neither toggle', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: true })
+    );
 
     renderWithProviders({ isAdmin: false });
 
@@ -112,6 +119,9 @@ describe('FleetGraphSettingsPage', () => {
       screen.queryByLabelText(/Enable scheduled sweep/i)
     ).not.toBeInTheDocument();
     expect(
+      screen.queryByLabelText(/Enable AI verdicts/i)
+    ).not.toBeInTheDocument();
+    expect(
       screen.queryByRole('button', { name: /Sweep now/i })
     ).not.toBeInTheDocument();
     // PATCH/POST must NOT be invoked on initial render for non-admins.
@@ -119,9 +129,13 @@ describe('FleetGraphSettingsPage', () => {
     expect(mockedApiPost).not.toHaveBeenCalled();
   });
 
-  it('toggling ON optimistically flips the checkbox and PATCH success keeps it on', async () => {
-    mockedApiGet.mockResolvedValueOnce(jsonResponse({ sweepEnabled: false }));
-    mockedApiPatch.mockResolvedValueOnce(jsonResponse({ sweepEnabled: true }));
+  it('toggling sweep ON optimistically flips the checkbox and PATCH success keeps it on', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: false, llmVerdictsEnabled: false })
+    );
+    mockedApiPatch.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: false })
+    );
 
     renderWithProviders({ isAdmin: true });
 
@@ -147,8 +161,10 @@ describe('FleetGraphSettingsPage', () => {
     expect(checkbox.checked).toBe(true);
   });
 
-  it('PATCH failure rolls the toggle back and surfaces an inline error', async () => {
-    mockedApiGet.mockResolvedValueOnce(jsonResponse({ sweepEnabled: false }));
+  it('PATCH failure rolls the sweep toggle back and surfaces an inline error', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: false, llmVerdictsEnabled: false })
+    );
     mockedApiPatch.mockResolvedValueOnce(
       jsonResponse(
         { error: { code: 'INTERNAL_ERROR', message: 'boom' } },
@@ -165,30 +181,159 @@ describe('FleetGraphSettingsPage', () => {
     fireEvent.click(checkbox);
 
     // Final state after error settles: rolled back to false + inline error.
-    // (Optimistic flip is asserted by the success-path test above; the
-    // rollback can be observably fast enough that the intermediate `true`
-    // state isn't visible in this mock harness.)
     await waitFor(() => {
       expect(checkbox.checked).toBe(false);
     });
     expect(screen.getByRole('alert')).toHaveTextContent(/boom/i);
   });
 
-  it('Sweep now success shows the delta line and invalidates insight lists + counts', async () => {
-    mockedApiGet.mockResolvedValueOnce(jsonResponse({ sweepEnabled: true }));
+  it('toggling LLM verdicts ON optimistically flips and PATCHes only llmVerdictsEnabled', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: false, llmVerdictsEnabled: false })
+    );
+    mockedApiPatch.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: false, llmVerdictsEnabled: true })
+    );
+
+    renderWithProviders({ isAdmin: true });
+
+    const checkbox = (await screen.findByLabelText(
+      /Enable AI verdicts/i
+    )) as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.click(checkbox);
+
+    // Optimistic flip is async — wait for it to land.
+    await waitFor(() => expect(checkbox.checked).toBe(true));
+
+    await waitFor(() => {
+      expect(mockedApiPatch).toHaveBeenCalledWith(
+        '/api/workspaces/settings/fleetgraph',
+        { llmVerdictsEnabled: true }
+      );
+    });
+
+    // Server-truth response — still on.
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it('LLM toggle PATCH failure rolls back and surfaces an inline error', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: false, llmVerdictsEnabled: false })
+    );
+    mockedApiPatch.mockResolvedValueOnce(
+      jsonResponse(
+        { error: { code: 'INTERNAL_ERROR', message: 'kapow' } },
+        500
+      )
+    );
+
+    renderWithProviders({ isAdmin: true });
+
+    const checkbox = (await screen.findByLabelText(
+      /Enable AI verdicts/i
+    )) as HTMLInputElement;
+
+    fireEvent.click(checkbox);
+
+    await waitFor(() => {
+      expect(checkbox.checked).toBe(false);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(/kapow/i);
+  });
+
+  it('toggling sweep does not disturb cached llmVerdictsEnabled', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: false, llmVerdictsEnabled: true })
+    );
+    mockedApiPatch.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: true })
+    );
+
+    renderWithProviders({ isAdmin: true });
+
+    const sweep = (await screen.findByLabelText(
+      /Enable scheduled sweep/i
+    )) as HTMLInputElement;
+    const llm = screen.getByLabelText(/Enable AI verdicts/i) as HTMLInputElement;
+
+    // Initial state from GET: sweep off, LLM on.
+    expect(sweep.checked).toBe(false);
+    expect(llm.checked).toBe(true);
+
+    fireEvent.click(sweep);
+
+    // Optimistic: sweep flipped on, LLM stays on (independent keys).
+    await waitFor(() => expect(sweep.checked).toBe(true));
+    expect(llm.checked).toBe(true);
+
+    await waitFor(() => {
+      expect(mockedApiPatch).toHaveBeenCalledWith(
+        '/api/workspaces/settings/fleetgraph',
+        { sweepEnabled: true }
+      );
+    });
+
+    // Final server truth: both on.
+    expect(sweep.checked).toBe(true);
+    expect(llm.checked).toBe(true);
+  });
+
+  it('toggling LLM does not disturb cached sweepEnabled', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: false })
+    );
+    mockedApiPatch.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: true })
+    );
+
+    renderWithProviders({ isAdmin: true });
+
+    const sweep = (await screen.findByLabelText(
+      /Enable scheduled sweep/i
+    )) as HTMLInputElement;
+    const llm = screen.getByLabelText(/Enable AI verdicts/i) as HTMLInputElement;
+
+    // Initial state from GET: sweep on, LLM off.
+    expect(sweep.checked).toBe(true);
+    expect(llm.checked).toBe(false);
+
+    fireEvent.click(llm);
+
+    // Optimistic: LLM flipped on, sweep stays on.
+    await waitFor(() => expect(llm.checked).toBe(true));
+    expect(sweep.checked).toBe(true);
+
+    await waitFor(() => {
+      expect(mockedApiPatch).toHaveBeenCalledWith(
+        '/api/workspaces/settings/fleetgraph',
+        { llmVerdictsEnabled: true }
+      );
+    });
+
+    expect(sweep.checked).toBe(true);
+    expect(llm.checked).toBe(true);
+  });
+
+  it('Sweep now success shows the delta line including suppressed and invalidates lists + counts', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: false })
+    );
     mockedApiPost.mockResolvedValueOnce(
       jsonResponse({
         workspaceId: 'ws-1',
         scanned: 12,
         created: 2,
         refreshed: 1,
-        skipped: 9,
+        skipped: 8,
+        suppressed: 1,
+        degraded: false,
       })
     );
 
     const { queryClient } = renderWithProviders({ isAdmin: true });
 
-    // Spy on invalidateQueries to assert the precise keys.
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
 
     const button = await screen.findByRole('button', { name: /Sweep now/i });
@@ -200,11 +345,15 @@ describe('FleetGraphSettingsPage', () => {
 
     expect(
       await screen.findByText(
-        /Last manual sweep: 12 scanned, 2 created, 1 refreshed, 9 skipped/i
+        /Last manual sweep: 12 scanned, 2 created, 1 refreshed, 1 suppressed, 8 skipped/i
       )
     ).toBeInTheDocument();
 
-    // The mutation should have invalidated both list and count keys.
+    // No degraded warning when degraded is false.
+    expect(
+      screen.queryByText(/AI fell back to deterministic verdicts/i)
+    ).not.toBeInTheDocument();
+
     const invalidatedKeys = invalidateSpy.mock.calls.map(
       ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey
     );
@@ -212,8 +361,75 @@ describe('FleetGraphSettingsPage', () => {
     expect(invalidatedKeys).toContainEqual(insightKeys.counts());
   });
 
+  it('Sweep now success with degraded: true renders the AI-fallback warning', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: true })
+    );
+    mockedApiPost.mockResolvedValueOnce(
+      jsonResponse({
+        workspaceId: 'ws-1',
+        scanned: 5,
+        created: 2,
+        refreshed: 0,
+        skipped: 1,
+        suppressed: 2,
+        degraded: true,
+      })
+    );
+
+    renderWithProviders({ isAdmin: true });
+
+    const button = await screen.findByRole('button', { name: /Sweep now/i });
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/api/insights/sweep');
+    });
+
+    expect(
+      await screen.findByText(
+        /Last manual sweep: 5 scanned, 2 created, 0 refreshed, 2 suppressed, 1 skipped/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /AI fell back to deterministic verdicts for some projects this run\. \(Check LangSmith for details\.\)/i
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('Sweep now success with degraded: false omits the warning', async () => {
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: true })
+    );
+    mockedApiPost.mockResolvedValueOnce(
+      jsonResponse({
+        workspaceId: 'ws-1',
+        scanned: 3,
+        created: 0,
+        refreshed: 0,
+        skipped: 3,
+        suppressed: 0,
+        degraded: false,
+      })
+    );
+
+    renderWithProviders({ isAdmin: true });
+
+    const button = await screen.findByRole('button', { name: /Sweep now/i });
+    fireEvent.click(button);
+
+    await screen.findByText(/Last manual sweep:/i);
+
+    expect(
+      screen.queryByText(/AI fell back to deterministic verdicts/i)
+    ).not.toBeInTheDocument();
+  });
+
   it('Sweep now 409 shows the "already running" message', async () => {
-    mockedApiGet.mockResolvedValueOnce(jsonResponse({ sweepEnabled: true }));
+    mockedApiGet.mockResolvedValueOnce(
+      jsonResponse({ sweepEnabled: true, llmVerdictsEnabled: false })
+    );
     mockedApiPost.mockResolvedValueOnce(
       jsonResponse({ error: 'sweep_in_progress' }, 409)
     );
