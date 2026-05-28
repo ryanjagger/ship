@@ -269,8 +269,8 @@ export function FleetGraphSettingsPage() {
                   </label>
                   <p className="text-sm text-muted pl-6">
                     When enabled, drift insights include reasoning from an AI
-                    model. Adds API costs per detected drift. Disabled = fast
-                    deterministic verdicts.
+                    model that reviews the project's plan and recent activity.
+                    Adds API costs per detected drift.
                   </p>
                 </div>
 
