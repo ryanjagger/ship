@@ -1,7 +1,7 @@
 ---
 title: "feat: FleetGraph Insight Entity (data layer)"
 type: feat
-status: active
+status: completed
 date: 2026-05-27
 ---
 
