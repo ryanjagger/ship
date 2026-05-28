@@ -2,7 +2,7 @@
 
 ## Agent Responsibility
 What does this agent monitor proactively?
-    - Proactively, we're watching a Project's 'plan' field. Ship's philosophy states that a plan is a hypothesis about what value it will deliver. Because of the overall value that this hypothesis can add to a retro, the agent judges the quality of the plan and provides tips to improve it. The proactive output now has two paths: (1) the cached plan-review on the Project Details card (request-triggered, on page load), and (2) a **scheduled, no-user-present drift sweep** — an hourly `node-cron` tick (`api/src/scheduler/index.ts`, env-gated by `FLEETGRAPH_SWEEP_ENABLED` + a per-workspace `settings->fleetgraph->>'sweep_enabled'` toggle) that detects project drift, runs an LLM verdict on it, and persists findings as `insight` documents. So sweeps are no longer deferred — what remains deferred is the *event-driven* (change-triggered) path and any *external* notification.
+    - Proactively, we're watching a Project's 'plan' field. Ship's philosophy states that a plan is a hypothesis about what value it will deliver. Because of the overall value that this hypothesis can add to a retro, the agent judges the quality of the plan and provides tips to improve it. The proactive output now has two paths: (1) the cached plan-review on the Project Details card (request-triggered, on page load), and (2) a **scheduled, no-user-present drift sweep** — a `node-cron` tick that runs every 4 minutes (`api/src/scheduler/index.ts`, env-gated by `FLEETGRAPH_SWEEP_ENABLED` + a per-workspace `settings->fleetgraph->>'sweep_enabled'` toggle) that detects project drift, runs an LLM verdict on it, and persists findings as `insight` documents. So sweeps are no longer deferred — what remains deferred is the *event-driven* (change-triggered) path and any *external* notification.
 
 What does it reason about when invoked on demand?
     - The current page's focal entity (a Project or Week) and the context the graph fetches for it: the plan, its associated issues and their statuses, the people/roles on the workspace, and recent activity (standups, comments, status changes). It answers the user's question grounded only in that scoped context, and can diagnose *why* a project looks stuck and recommend a next action.
@@ -23,9 +23,9 @@ How does the on-demand mode use context from the current view?
     - The in-page launcher seeds the chat session with the current page's entity (`{ entityId, entityType }`, where a Week maps to a sprint document), so the user doesn't have to restate it. The graph's scope → fetch nodes resolve that entity and pre-load its full context (focal doc + plan, associated issues, people, recent activity) into the prompt, and the answer is grounded in exactly that scope.
 
 Does it poll on a schedule? How frequently?
-    - Yes — shipped. An hourly `node-cron` tick (`SWEEP_CRON_SCHEDULE = '0 * * * *'`,
+    - Yes — shipped. A `node-cron` tick that runs every 4 minutes (`SWEEP_CRON_SCHEDULE = '*/4 * * * *'`,
       `api/src/scheduler/index.ts`, registered from `api/src/index.ts` after `server.listen`) runs as a
-      low-frequency backstop, not the primary path. A periodic sweep is required because the
+      scheduled backstop, not the primary path. A periodic sweep is required because the
       highest-value proactive signals are *time-based* and have no triggering event — e.g. "no movement
       in N days," "target_date approaching/passed," or a project that was never analyzed. The hash-cache
       (`input_hash` over day-rounded drift inputs) means most swept projects are no-op refreshes, so the
@@ -57,7 +57,7 @@ Is it a hybrid of both?
       switch). The remaining deferred piece is the **event-driven half** (low-latency, change-triggered
       re-analysis).
 
-## Agent Diagram
+## Graph Diagram
 ```mermaid
 flowchart TD
     subgraph inputs[Four entry inputs — all seed the ONE graph]
@@ -145,7 +145,7 @@ update it as each case lands.
     - **Role**
         - PM / Director
     - **Trigger**
-        - Two paths: (a) on-read `DriftBadge` when a project list/detail is viewed; (b) hourly `node-cron` sweep (env + per-workspace gated), no user present
+        - Two paths: (a) on-read `DriftBadge` when a project list/detail is viewed; (b) every-4-minutes `node-cron` sweep (env + per-workspace gated), no user present
     - **Agent Detects / Produces**
         - Detects stale plan / no movement / rising incomplete work via `computeProjectDrift` over `driftSql.ts`. Sweep path runs an LLM verdict (`drift` mode, `runDriftReasoning` → SURFACE_ACT / SURFACE_FYI / SUPPRESS + reasoning) that gates surfacing, then persists an `insight` (severity, summary, evidence, verdict); deterministic fallback when the model is unavailable; one open insight per (workspace, subject, kind); stable detection = hash-cache no-op. (Standup/week-doc signals deferred — person-scoped.)
     - **Human Decides**
@@ -163,7 +163,7 @@ update it as each case lands.
     - **Role**
         - PM / Engineer
     - **Trigger**
-        - Retro page load. (An end-of-week *proactive* retro sweep is deferred — the hourly scheduler exists but only runs the drift sweep)
+        - Retro page load. (An end-of-week *proactive* retro sweep is deferred — the scheduler exists but only runs the drift sweep)
     - **Agent Detects / Produces**
         - Weekly retro → completeness score + per-plan-item coverage/evidence feedback. Project retro → a `validated` / `invalidated` / `insufficient_evidence` recommendation with `evidence_found`, `evidence_missing`, and a suggested conclusion
     - **Human Decides**
@@ -180,7 +180,7 @@ update it as each case lands.
 
 
 ## Trigger Model
-**Hybrid** - Using cron job for a scheduled hourly sweep, detecting Project Drifts and creating Insight notifications without any user interaction. On-demand trigger by user for Project Plan Reviews, Issue Deduplification, Project Retro Assistance, and Issue Deduplication.
+**Hybrid** - Using cron job for a scheduled sweep every 4 minutes, detecting Project Drifts and creating Insight notifications without any user interaction. On-demand trigger by user for Project Plan Reviews, Issue Deduplification, Project Retro Assistance, and Issue Deduplication.
 
 
 ## Test Cases
@@ -191,7 +191,7 @@ pending — capture them from live runs against the states below and paste them 
 | # | Use case | Ship State | Expected Output | Trace Link |
 |---|----------|-----------|----------------|------------|
 | 1 | Project Plan Review | A project with a `plan` field populated (and optionally a Target Date), viewed on its Fleet review surface — or a plan edited, then reopened/refreshed to recompute. | `plan_review` mode (`runPlanReview` → `getReview`) judges the plan as a testable hypothesis against the rubric (`what_changes` / `by_how_much` / `for_whom` / `by_when`), returning a per-piece met/unmet checklist, an overall status (`looks_testable` / `needs_work` / `no_plan`), a one-sentence diagnosis + recommended next action, and a suggested rewrite; degrades to "unavailable" when the model is down or there is no plan. Advisory only — the agent never edits the plan. | _pending_ |
-| 2 | Project Drift Detection | A project whose plan was last edited >N days ago, with open issues and no recent activity, in a workspace with `sweep_enabled=true` (and `FLEETGRAPH_SWEEP_ENABLED=true`). | Hourly sweep detects drift (`computeProjectDrift`), `drift` mode returns `SURFACE_ACT`/`SURFACE_FYI` with reasoning, and an `insight` document is created (severity, summary, evidence) surfaced on the Insights page + count badge. A re-run with unchanged state is a hash-cache no-op refresh. | _pending_ |
+| 2 | Project Drift Detection | A project whose plan was last edited >N days ago, with open issues and no recent activity, in a workspace with `sweep_enabled=true` (and `FLEETGRAPH_SWEEP_ENABLED=true`). | The every-4-minutes sweep detects drift (`computeProjectDrift`), `drift` mode returns `SURFACE_ACT`/`SURFACE_FYI` with reasoning, and an `insight` document is created (severity, summary, evidence) surfaced on the Insights page + count badge. A re-run with unchanged state is a hash-cache no-op refresh. | _pending_ |
 | 3 | "What should I do next?" | An issue with a state/priority/assignee, a parent project, sibling issues, and recent comments; user clicks "What should I do next?" (seeded chat). | A grounded next action plus blockers/risks, missing context, and suggested state/priority/assignee updates — all offered through the `propose_*` / confirm HITL flow, nothing auto-applied. | _pending_ |
 | 4 | Retro Assistant | A weekly retro page (plan items + evidence) or a project retro page loaded. | Weekly: a completeness score + per-plan-item coverage/evidence feedback (`analyzeRetro`). Project: a `validated` / `invalidated` / `insufficient_evidence` recommendation with evidence found/missing and a suggested conclusion (`buildRetroRecommendation`). Advisory only — the human still sets `plan_validated`. | _pending_ |
 | 5 | Issue Dedup-on-Create | In a workspace with existing open issues, the author types an issue title similar to an existing one, then clicks "Ask Fleet if these are duplicates". | Stage 1: `pg_trgm` candidates listed under the title (≤5). Stage 2 (`dedup` mode): per-match true-duplicate verdict with confidence + reason and a recommendation; degrades to candidates-only if the provider is unavailable; no model call when there are zero candidates. | _pending_ |
@@ -206,3 +206,33 @@ pending — capture them from live runs against the states below and paste them 
 **Two-tier provider strategy.** Structured modes call `fleet-ai.ts`'s `evaluateStructured` (preserving the tested zod Anthropic workaround verbatim); chat uses LangChain `getBoundChatModel` with **write-only** `.bindTools` (`propose_*`). The `fetch` node pre-loads the full read context into the prompt, so chat answers in a single turn with no read-tool round-trips — binding read tools would leak unrun `tool_use` blocks into the answer.
 
 **Deployment model.** The proactive sweep runs as an **in-process `node-cron` task on the existing API or Elastic Beanstalk tier** — not a separate worker tier or job queue — env-gated (`FLEETGRAPH_SWEEP_ENABLED`) and per-workspace toggled, with a per-workspace advisory lock for single-flight across instances. Paused chat proposals persist via a custom JSONB checkpointer (`ConversationDocCheckpointSaver`) that writes to `properties.fleetgraph_checkpoint` on the conversation document (latest-tuple-only), so a confirm/resume survives a restart without a dedicated checkpoint store. Findings persist as system-authored `insight` documents in the existing `documents` table — no new content table, consistent with Ship's unified-document model.
+
+
+I'll convert this cost analysis into markdown for you.
+
+# Cost Analysis (**Pending**)
+
+## Development and Testing Costs
+
+- Cost per graph run Documented and defended in FLEETGRAPH.md
+- Estimated runs per day Documented and defended in FLEETGRAPH.md
+
+| Item | Amount |
+|------|--------|
+| Claude API - input tokens | |
+| Claude API - output tokens | |
+| Total invocations during development | |
+| Total development spend | |
+
+## Production Cost Projections
+
+| 100 Users | 1,000 Users | 10,000 Users |
+|-----------|-------------|--------------|
+| $\_\_\_/month | $\_\_\_/month | $\_\_\_/month |
+
+**Assumptions:**
+- Proactive runs per project per day:
+- On-demand invocations per user per day:
+- Average tokens per invocation:
+- Cost per run:
+- Estimated runs per day:

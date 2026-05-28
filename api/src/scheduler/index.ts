@@ -1,6 +1,6 @@
 /**
  * FleetGraph scheduler — registers an in-process `node-cron` task that runs
- * `runFleetgraphSweepTick()` hourly. The tick iterates every workspace that
+ * `runFleetgraphSweepTick()` every 4 minutes. The tick iterates every workspace that
  * has `settings->fleetgraph->>'sweep_enabled'='true'` (and is not archived),
  * acquires a non-blocking per-workspace advisory lock, and dispatches to
  * `sweepWorkspaceDrift({ client })` so the sweep service inherits the lock
@@ -46,13 +46,13 @@ import {
 
 let task: ScheduledTask | null = null;
 
-/** Hourly on the hour. Exported so tests can assert the registered schedule. */
-export const SWEEP_CRON_SCHEDULE = '0 * * * *';
+/** Every 4 minutes. Exported so tests can assert the registered schedule. */
+export const SWEEP_CRON_SCHEDULE = '*/4 * * * *';
 
 // ─── Public API ─────────────────────────────────────────────────────────
 
 /**
- * Register the hourly FleetGraph sweep with `node-cron`. Gated by
+ * Register the every-4-minutes FleetGraph sweep with `node-cron`. Gated by
  * `FLEETGRAPH_SWEEP_ENABLED='true'` — when unset or any other value, returns
  * silently without registering. Safe to call multiple times: subsequent calls
  * while a task is already registered are no-ops (the existing task is kept).

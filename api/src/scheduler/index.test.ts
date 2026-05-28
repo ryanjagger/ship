@@ -147,8 +147,8 @@ describe('startScheduler', () => {
     startScheduler();
     expect(mockCronSchedule).toHaveBeenCalledTimes(1);
     expect(mockCronSchedule.mock.calls[0]?.[0]).toBe(SWEEP_CRON_SCHEDULE);
-    // Sanity — the hourly-on-the-hour expression.
-    expect(SWEEP_CRON_SCHEDULE).toBe('0 * * * *');
+    // Sanity — the every-4-minutes expression.
+    expect(SWEEP_CRON_SCHEDULE).toBe('*/4 * * * *');
     // Second arg is the callback function.
     expect(typeof mockCronSchedule.mock.calls[0]?.[1]).toBe('function');
   });
