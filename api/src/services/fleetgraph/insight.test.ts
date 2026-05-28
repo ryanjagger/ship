@@ -421,6 +421,15 @@ describe('createOrRefreshInsight — transaction discipline', () => {
     expect(lockIdx).toBeGreaterThan(setLocalIdx);
   });
 
+  // T13b. Existing-row SELECT takes FOR UPDATE — load-bearing for the
+  //       race against concurrent resolveInsight (caught by U6 T40).
+  it('T13b: existing-row SELECT takes FOR UPDATE to serialize against concurrent resolve', async () => {
+    mockRefreshSequence({ existing: existingInsight({ input_hash: 'hash-v1' }) });
+    await createOrRefreshInsight(args({ inputHash: 'hash-v1' }));
+    const selectSql = String(mockClientQuery.mock.calls[3]![0]);
+    expect(selectSql).toMatch(/FOR UPDATE/);
+  });
+
   // T14. INSERT binds created_by as SQL NULL (not the string 'null').
   it('T14: created_by is bound as SQL NULL in the INSERT statement', async () => {
     mockCreateSequence({ subjectFound: true });

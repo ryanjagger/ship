@@ -199,6 +199,14 @@ export async function createOrRefreshInsight(
     // Find the existing live (non-resolved) insight for this (subject, kind),
     // if any. Resolved rows are intentionally excluded — append-only history
     // means they live forever and re-detection inserts a fresh OPEN row.
+    //
+    // FOR UPDATE is load-bearing: a concurrent `resolveInsight` on the same row
+    // would otherwise commit between this SELECT (READ COMMITTED snapshot still
+    // shows state='open') and the UPDATE below, and our UPDATE would clobber
+    // the resolution. FOR UPDATE makes the SELECT block until the concurrent
+    // resolve commits; on unblock, the SELECT re-reads and the state filter
+    // (`IN (open,snoozed,dismissed)`) correctly excludes the now-resolved row,
+    // falling through to the no-row INSERT branch. Caught by U6 T40.
     const existing = await client.query<{
       id: string;
       ins: InsightProperties;
@@ -213,7 +221,8 @@ export async function createOrRefreshInsight(
           AND archived_at IS NULL
           AND deleted_at IS NULL
         ORDER BY created_at DESC
-        LIMIT 1`,
+        LIMIT 1
+        FOR UPDATE`,
       [args.workspaceId, args.subjectId, args.kind]
     );
 
