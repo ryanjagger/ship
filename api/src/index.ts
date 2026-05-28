@@ -20,6 +20,7 @@ async function main() {
   // Now import app after secrets are loaded
   const { createApp } = await import('./app.js');
   const { setupCollaboration } = await import('./collaboration/index.js');
+  const { startScheduler } = await import('./scheduler/index.js');
 
   const PORT = process.env.PORT || 3000;
   const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
@@ -40,6 +41,10 @@ async function main() {
     console.log(`API server running on http://localhost:${PORT}`);
     console.log(`CORS origin: ${CORS_ORIGIN}`);
   });
+
+  // Register the FleetGraph hourly sweep (gated by FLEETGRAPH_SWEEP_ENABLED;
+  // returns silently when the env flag is not 'true').
+  startScheduler();
 }
 
 main().catch((err) => {

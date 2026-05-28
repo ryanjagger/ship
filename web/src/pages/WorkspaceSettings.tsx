@@ -186,6 +186,15 @@ export function WorkspaceSettingsPage() {
           >
             Conversions
           </Link>
+          <Link
+            to="/settings/fleet"
+            className={cn(
+              'px-4 py-3 text-sm font-medium border-b-2 border-transparent',
+              'text-muted hover:text-foreground hover:border-border/50 transition-colors'
+            )}
+          >
+            Fleet
+          </Link>
         </nav>
       </div>
 

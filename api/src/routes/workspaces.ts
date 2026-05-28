@@ -1,9 +1,15 @@
 import { Router, Request, Response } from 'express';
 import type { Router as RouterType } from 'express';
+import { z } from 'zod';
 import { pool } from '../db/client.js';
-import { authMiddleware, workspaceAdminMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed, workspaceAdminMiddleware } from '../middleware/auth.js';
 import { ERROR_CODES, HTTP_STATUS } from '@ship/shared';
 import { logAuditEvent } from '../services/audit.js';
+import {
+  getFleetgraphSettings,
+  setFleetgraphSweepEnabled,
+  setFleetgraphLlmVerdictsEnabled,
+} from '../services/workspace-settings.js';
 
 const router: RouterType = Router();
 
@@ -139,6 +145,99 @@ router.get('/current', authMiddleware, async (req: Request, res: Response): Prom
     });
   }
 });
+
+// GET /api/workspaces/settings/fleetgraph - Read FleetGraph settings (any member)
+router.get(
+  '/settings/fleetgraph',
+  authMiddleware,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (!assertAuthed(req, res)) return;
+      const settings = await getFleetgraphSettings(req.workspaceId);
+      res.json(settings);
+    } catch (error) {
+      console.error('Get fleetgraph settings error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        error: {
+          code: ERROR_CODES.INTERNAL_ERROR,
+          message: 'Failed to get fleetgraph settings',
+        },
+      });
+    }
+  }
+);
+
+// Partial PATCH body — either or both flags may be set, but at least one
+// MUST be present. Empty body 400s via the `.refine()` check.
+const FleetgraphSettingsBody = z
+  .object({
+    sweepEnabled: z.boolean().optional(),
+    llmVerdictsEnabled: z.boolean().optional(),
+  })
+  .refine(
+    (body) =>
+      body.sweepEnabled !== undefined || body.llmVerdictsEnabled !== undefined,
+    {
+      message:
+        'At least one of sweepEnabled or llmVerdictsEnabled must be provided.',
+    }
+  );
+
+// PATCH /api/workspaces/settings/fleetgraph - Update FleetGraph settings (admin only)
+router.patch(
+  '/settings/fleetgraph',
+  authMiddleware,
+  workspaceAdminMiddleware,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (!assertAuthed(req, res)) return;
+      const parsed = FleetgraphSettingsBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: {
+            code: ERROR_CODES.VALIDATION_ERROR,
+            message: 'Invalid body',
+            details: parsed.error.issues.map((i) => ({
+              path: i.path,
+              message: i.message,
+            })),
+          },
+        });
+        return;
+      }
+      // Dispatch each present key to its dedicated single-statement setter.
+      // Order doesn't matter — both are independent jsonb_set writes against
+      // disjoint paths. Then re-read once to surface the truly-combined
+      // state, so the response always reflects BOTH flags regardless of
+      // which were updated.
+      if (parsed.data.sweepEnabled !== undefined) {
+        await setFleetgraphSweepEnabled(
+          req.workspaceId,
+          parsed.data.sweepEnabled
+        );
+      }
+      if (parsed.data.llmVerdictsEnabled !== undefined) {
+        await setFleetgraphLlmVerdictsEnabled(
+          req.workspaceId,
+          parsed.data.llmVerdictsEnabled
+        );
+      }
+      const updated = await getFleetgraphSettings(req.workspaceId);
+      res.json(updated);
+    } catch (error) {
+      console.error('Update fleetgraph settings error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        error: {
+          code: ERROR_CODES.INTERNAL_ERROR,
+          message: 'Failed to update fleetgraph settings',
+        },
+      });
+    }
+  }
+);
 
 // POST /api/workspaces/:id/switch - Switch to a workspace
 router.post('/:id/switch', authMiddleware, async (req: Request, res: Response): Promise<void> => {
