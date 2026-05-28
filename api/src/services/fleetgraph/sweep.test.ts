@@ -18,7 +18,7 @@ const {
   mockCreateOrRefresh,
   mockGetInsightByIdentity,
   mockGetFleetgraphSettings,
-  mockGenerateDriftVerdict,
+  mockRunDriftReasoning,
 } = vi.hoisted(() => ({
   mockClientQuery: vi.fn(),
   mockRelease: vi.fn(),
@@ -26,7 +26,7 @@ const {
   mockCreateOrRefresh: vi.fn(),
   mockGetInsightByIdentity: vi.fn(),
   mockGetFleetgraphSettings: vi.fn(),
-  mockGenerateDriftVerdict: vi.fn(),
+  mockRunDriftReasoning: vi.fn(),
 }));
 
 vi.mock('../../db/client.js', () => ({
@@ -48,9 +48,19 @@ vi.mock('../workspace-settings.js', () => ({
   getFleetgraphSettings: mockGetFleetgraphSettings,
 }));
 
-vi.mock('./verdictGenerator.js', () => ({
-  generateDriftVerdict: mockGenerateDriftVerdict,
-}));
+// Mock the graph-entry-point sibling of runPlanReview. We mock
+// `./index.js` (not the focused evaluator that previously lived in
+// verdictGenerator.ts — deleted in U4) at the boundary the sweep now
+// calls. `vi.importActual` spread preserves the rest of `./index.js`'s
+// surface so unrelated transitive consumers aren't disturbed.
+vi.mock('./index.js', async () => {
+  const actual =
+    await vi.importActual<typeof import('./index.js')>('./index.js');
+  return {
+    ...actual,
+    runDriftReasoning: mockRunDriftReasoning,
+  };
+});
 
 import {
   sweepWorkspaceDrift,
@@ -72,7 +82,7 @@ beforeEach(() => {
   mockCreateOrRefresh.mockReset();
   mockGetInsightByIdentity.mockReset();
   mockGetFleetgraphSettings.mockReset();
-  mockGenerateDriftVerdict.mockReset();
+  mockRunDriftReasoning.mockReset();
 
   // Default: LLM verdicts OFF (existing tests assume deterministic-only).
   mockGetFleetgraphSettings.mockResolvedValue({
@@ -574,7 +584,7 @@ describe('sweepWorkspaceDrift — with-client path', () => {
 // ─── U4: LLM verdict routing ───────────────────────────────────────────
 
 describe('sweepWorkspaceDrift — LLM verdicts disabled (default)', () => {
-  it('every drifting project uses deterministic verdict; probe + generator NOT called', async () => {
+  it('every drifting project uses deterministic verdict; probe + reasoning NOT called', async () => {
     mockGetFleetgraphSettings.mockResolvedValue({
       sweepEnabled: true,
       llmVerdictsEnabled: false,
@@ -592,7 +602,7 @@ describe('sweepWorkspaceDrift — LLM verdicts disabled (default)', () => {
     expect(result.suppressed).toBe(0);
     expect(result.degraded).toBe(false);
     expect(mockGetInsightByIdentity).not.toHaveBeenCalled();
-    expect(mockGenerateDriftVerdict).not.toHaveBeenCalled();
+    expect(mockRunDriftReasoning).not.toHaveBeenCalled();
 
     // Both substrate calls carry verdict_source = 'deterministic' + sweep_run_id.
     expect(mockCreateOrRefresh).toHaveBeenCalledTimes(2);
@@ -611,10 +621,9 @@ describe('sweepWorkspaceDrift — LLM verdicts enabled, no existing insight, SUR
       llmVerdictsEnabled: true,
     });
     mockGetInsightByIdentity.mockResolvedValue(null);
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SURFACE_ACT', reasoning: 'AI says urgent' },
-      degraded: false,
-      source: 'llm',
     });
     mockNoClientLockSequence({
       acquired: true,
@@ -633,7 +642,25 @@ describe('sweepWorkspaceDrift — LLM verdicts enabled, no existing insight, SUR
       'p-1',
       'project_drift'
     );
-    expect(mockGenerateDriftVerdict).toHaveBeenCalledTimes(1);
+    expect(mockRunDriftReasoning).toHaveBeenCalledTimes(1);
+
+    // New U4 assertion: ctx + traceMetadata shape at the boundary.
+    const callArgs = mockRunDriftReasoning.mock.calls[0]![0] as {
+      entityId: string;
+      signals: unknown[];
+      ctx: { workspaceId: string; userId: string; isAdmin: boolean };
+      traceMetadata?: Record<string, string>;
+    };
+    expect(callArgs.entityId).toBe('p-1');
+    expect(callArgs.ctx).toEqual({
+      workspaceId: 'ws-1',
+      userId: '00000000-0000-0000-0000-000000000000',
+      isAdmin: true,
+    });
+    expect(callArgs.traceMetadata?.workspace_id).toBe('ws-1');
+    const sweepRunIdFromCtx = callArgs.traceMetadata?.sweep_run_id;
+    expect(typeof sweepRunIdFromCtx).toBe('string');
+    expect((sweepRunIdFromCtx as string).length).toBeGreaterThan(0);
 
     expect(mockCreateOrRefresh).toHaveBeenCalledTimes(1);
     const args = mockCreateOrRefresh.mock.calls[0]![0];
@@ -641,6 +668,8 @@ describe('sweepWorkspaceDrift — LLM verdicts enabled, no existing insight, SUR
     expect(args.verdict.reasoning).toBe('AI says urgent');
     const evidence = args.evidence as Record<string, unknown>;
     expect(evidence.verdict_source).toBe('llm');
+    // Same sweep_run_id is also stamped onto the evidence blob.
+    expect(evidence.sweep_run_id).toBe(sweepRunIdFromCtx);
   });
 });
 
@@ -651,10 +680,9 @@ describe('sweepWorkspaceDrift — LLM verdicts enabled, SUPPRESS', () => {
       llmVerdictsEnabled: true,
     });
     mockGetInsightByIdentity.mockResolvedValue(null);
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SUPPRESS', reasoning: 'noise' },
-      degraded: false,
-      source: 'llm',
     });
     mockNoClientLockSequence({
       acquired: true,
@@ -681,10 +709,9 @@ describe('sweepWorkspaceDrift — LLM verdicts enabled, SUPPRESS', () => {
       state: 'open',
       inputHash: 'completely-different-hash',
     });
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SUPPRESS', reasoning: 'not worth it' },
-      degraded: false,
-      source: 'llm',
     });
     mockNoClientLockSequence({
       acquired: true,
@@ -705,10 +732,9 @@ describe('sweepWorkspaceDrift — LLM verdicts enabled, SUPPRESS', () => {
       llmVerdictsEnabled: true,
     });
     mockGetInsightByIdentity.mockResolvedValue(null);
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SUPPRESS', reasoning: 'noise' },
-      degraded: false,
-      source: 'llm',
     });
     mockNoClientLockSequence({
       acquired: true,
@@ -728,7 +754,7 @@ describe('sweepWorkspaceDrift — LLM verdicts enabled, SUPPRESS', () => {
 });
 
 describe('sweepWorkspaceDrift — probe short-circuit', () => {
-  it('existing OPEN insight with matching hash → generator NOT called; substrate called with deterministic', async () => {
+  it('existing OPEN insight with matching hash → reasoning NOT called; substrate called with deterministic', async () => {
     mockGetFleetgraphSettings.mockResolvedValue({
       sweepEnabled: true,
       llmVerdictsEnabled: true,
@@ -743,10 +769,9 @@ describe('sweepWorkspaceDrift — probe short-circuit', () => {
     // call. Second sweep primes the probe with that hash so the short-circuit
     // fires.
     mockGetInsightByIdentity.mockResolvedValue(null);
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SURFACE_ACT', reasoning: 'first run' },
-      degraded: false,
-      source: 'llm',
     });
     mockCreateOrRefresh.mockResolvedValueOnce(createResult({ didCreate: true }));
     await sweepWorkspaceDrift('ws-1');
@@ -757,7 +782,7 @@ describe('sweepWorkspaceDrift — probe short-circuit', () => {
     // Second sweep: probe returns existing OPEN with matching hash.
     mockClientQuery.mockReset();
     mockCreateOrRefresh.mockReset();
-    mockGenerateDriftVerdict.mockReset();
+    mockRunDriftReasoning.mockReset();
     mockGetInsightByIdentity.mockReset();
     mockGetInsightByIdentity.mockResolvedValue({
       id: 'existing-row',
@@ -773,14 +798,14 @@ describe('sweepWorkspaceDrift — probe short-circuit', () => {
     const result = await sweepWorkspaceDrift('ws-1');
 
     expect(result.refreshed).toBe(1);
-    expect(mockGenerateDriftVerdict).not.toHaveBeenCalled();
+    expect(mockRunDriftReasoning).not.toHaveBeenCalled();
     expect(mockCreateOrRefresh).toHaveBeenCalledTimes(1);
     const args = mockCreateOrRefresh.mock.calls[0]![0];
     const evidence = args.evidence as Record<string, unknown>;
     expect(evidence.verdict_source).toBe('deterministic');
   });
 
-  it('existing OPEN insight with DIFFERENT hash → generator IS called', async () => {
+  it('existing OPEN insight with DIFFERENT hash → reasoning IS called', async () => {
     mockGetFleetgraphSettings.mockResolvedValue({
       sweepEnabled: true,
       llmVerdictsEnabled: true,
@@ -790,10 +815,9 @@ describe('sweepWorkspaceDrift — probe short-circuit', () => {
       state: 'open',
       inputHash: 'stale-hash-different-from-current',
     });
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SURFACE_FYI', reasoning: 'new signal' },
-      degraded: false,
-      source: 'llm',
     });
     mockNoClientLockSequence({
       acquired: true,
@@ -804,7 +828,7 @@ describe('sweepWorkspaceDrift — probe short-circuit', () => {
     const result = await sweepWorkspaceDrift('ws-1');
 
     expect(result.refreshed).toBe(1);
-    expect(mockGenerateDriftVerdict).toHaveBeenCalledTimes(1);
+    expect(mockRunDriftReasoning).toHaveBeenCalledTimes(1);
     const args = mockCreateOrRefresh.mock.calls[0]![0];
     expect(args.verdict.decision).toBe('SURFACE_FYI');
     expect((args.evidence as Record<string, unknown>).verdict_source).toBe('llm');
@@ -812,19 +836,16 @@ describe('sweepWorkspaceDrift — probe short-circuit', () => {
 });
 
 describe('sweepWorkspaceDrift — LLM failure fallback', () => {
-  it('generator returns degraded: true → substrate called with deterministic; result.degraded: true', async () => {
+  it('runDriftReasoning returns {available:false} → substrate called with deterministic; result.degraded: true', async () => {
     mockGetFleetgraphSettings.mockResolvedValue({
       sweepEnabled: true,
       llmVerdictsEnabled: true,
     });
     mockGetInsightByIdentity.mockResolvedValue(null);
-    // Mimic the generator's fallback path: it returns the deterministic
-    // fallback verdict it was passed, with degraded: true + source: 'deterministic'.
-    mockGenerateDriftVerdict.mockImplementation(async (_input: any, fallback: any) => ({
-      verdict: fallback,
-      degraded: true,
-      source: 'deterministic',
-    }));
+    // The graph entry point signals unavailability (timeout, throw, missing
+    // verdict, degraded analysis) by resolving `{available: false}`. The
+    // sweep substitutes the deterministic verdict and flips `degraded`.
+    mockRunDriftReasoning.mockResolvedValue({ available: false });
     mockNoClientLockSequence({
       acquired: true,
       queryRows: [projectRow({ id: 'p-1' })],
@@ -861,10 +882,9 @@ describe('sweepWorkspaceDrift — mixed tick', () => {
     // first sweep to discover B's deterministic hash, then second sweep
     // with the probe primed for B only.
     mockGetInsightByIdentity.mockResolvedValue(null);
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SURFACE_ACT', reasoning: 'discovery-only' },
-      degraded: false,
-      source: 'llm',
     });
     mockNoClientLockSequence({
       acquired: true,
@@ -877,7 +897,7 @@ describe('sweepWorkspaceDrift — mixed tick', () => {
     // Real run: 3 projects.
     mockClientQuery.mockReset();
     mockCreateOrRefresh.mockReset();
-    mockGenerateDriftVerdict.mockReset();
+    mockRunDriftReasoning.mockReset();
     mockGetInsightByIdentity.mockReset();
     mockGetInsightByIdentity.mockImplementation(async (_ws: string, subjectId: string) => {
       if (subjectId === 'p-B') {
@@ -885,23 +905,18 @@ describe('sweepWorkspaceDrift — mixed tick', () => {
       }
       return null;
     });
-    mockGenerateDriftVerdict
+    mockRunDriftReasoning
       .mockResolvedValueOnce({
+        available: true,
         verdict: { decision: 'SURFACE_ACT', reasoning: 'real LLM' },
-        degraded: false,
-        source: 'llm',
       })
-      .mockImplementationOnce(async (_input: any, fallback: any) => ({
-        verdict: fallback,
-        degraded: true,
-        source: 'deterministic',
-      }));
+      .mockResolvedValueOnce({ available: false });
     mockNoClientLockSequence({
       acquired: true,
       queryRows: [
         projectRow({ id: 'p-A' }), // LLM SURFACE_ACT
-        projectRow({ id: 'p-B' }), // probe hit (no generator call)
-        projectRow({ id: 'p-C' }), // LLM fallback
+        projectRow({ id: 'p-B' }), // probe hit (no reasoning call)
+        projectRow({ id: 'p-C' }), // LLM unavailable → fallback
       ],
     });
     mockCreateOrRefresh
@@ -913,7 +928,7 @@ describe('sweepWorkspaceDrift — mixed tick', () => {
 
     expect(result.degraded).toBe(true);
     expect(result.suppressed).toBe(0);
-    expect(mockGenerateDriftVerdict).toHaveBeenCalledTimes(2); // A + C (B probe-hit)
+    expect(mockRunDriftReasoning).toHaveBeenCalledTimes(2); // A + C (B probe-hit)
     expect(mockCreateOrRefresh).toHaveBeenCalledTimes(3);
   });
 });
@@ -985,7 +1000,7 @@ describe('__testing.buildVerdictForProject', () => {
     reasoning: 'fallback reasoning',
   };
 
-  it('llmVerdictsEnabled=false → deterministic, no probe, no generator', async () => {
+  it('llmVerdictsEnabled=false → deterministic, no probe, no reasoning', async () => {
     const out = await __testing.buildVerdictForProject({
       workspaceId: 'ws-1',
       subjectId: 'p-1',
@@ -1000,10 +1015,10 @@ describe('__testing.buildVerdictForProject', () => {
     expect(out.degraded).toBe(false);
     expect(out.suppressed).toBe(false);
     expect(mockGetInsightByIdentity).not.toHaveBeenCalled();
-    expect(mockGenerateDriftVerdict).not.toHaveBeenCalled();
+    expect(mockRunDriftReasoning).not.toHaveBeenCalled();
   });
 
-  it('probe matches → deterministic, no generator', async () => {
+  it('probe matches → deterministic, no reasoning', async () => {
     mockGetInsightByIdentity.mockResolvedValue({
       id: 'x',
       state: 'open',
@@ -1020,19 +1035,18 @@ describe('__testing.buildVerdictForProject', () => {
       sweepRunId: 'run-1',
     });
     expect(out.source).toBe('deterministic');
-    expect(mockGenerateDriftVerdict).not.toHaveBeenCalled();
+    expect(mockRunDriftReasoning).not.toHaveBeenCalled();
   });
 
-  it('probe hash mismatch → generator called', async () => {
+  it('probe hash mismatch → reasoning called with system ctx + trace metadata', async () => {
     mockGetInsightByIdentity.mockResolvedValue({
       id: 'x',
       state: 'open',
       inputHash: 'different-hash',
     });
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SURFACE_FYI', reasoning: 'from LLM' },
-      degraded: false,
-      source: 'llm',
     });
     const out = await __testing.buildVerdictForProject({
       workspaceId: 'ws-1',
@@ -1046,15 +1060,29 @@ describe('__testing.buildVerdictForProject', () => {
     });
     expect(out.source).toBe('llm');
     expect(out.suppressed).toBe(false);
-    expect(mockGenerateDriftVerdict).toHaveBeenCalledTimes(1);
+    expect(mockRunDriftReasoning).toHaveBeenCalledTimes(1);
+    const call = mockRunDriftReasoning.mock.calls[0]![0] as {
+      entityId: string;
+      ctx: { workspaceId: string; userId: string; isAdmin: boolean };
+      traceMetadata?: Record<string, string>;
+    };
+    expect(call.entityId).toBe('p-1');
+    expect(call.ctx).toEqual({
+      workspaceId: 'ws-1',
+      userId: '00000000-0000-0000-0000-000000000000',
+      isAdmin: true,
+    });
+    expect(call.traceMetadata).toEqual({
+      workspace_id: 'ws-1',
+      sweep_run_id: 'run-1',
+    });
   });
 
-  it('generator returns SUPPRESS → suppressed:true', async () => {
+  it('reasoning returns SUPPRESS → suppressed:true', async () => {
     mockGetInsightByIdentity.mockResolvedValue(null);
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SUPPRESS', reasoning: 'noise' },
-      degraded: false,
-      source: 'llm',
     });
     const out = await __testing.buildVerdictForProject({
       workspaceId: 'ws-1',
@@ -1070,16 +1098,34 @@ describe('__testing.buildVerdictForProject', () => {
     expect(out.verdict.decision).toBe('SUPPRESS');
   });
 
-  it('probe returns resolved (non-open) row → generator IS called', async () => {
+  it('reasoning returns {available:false} → deterministic fallback, degraded:true', async () => {
+    mockGetInsightByIdentity.mockResolvedValue(null);
+    mockRunDriftReasoning.mockResolvedValue({ available: false });
+    const out = await __testing.buildVerdictForProject({
+      workspaceId: 'ws-1',
+      subjectId: 'p-1',
+      projectTitle: 'P',
+      signals: [],
+      deterministicVerdict,
+      computedInputHash: 'hash-1',
+      llmVerdictsEnabled: true,
+      sweepRunId: 'run-1',
+    });
+    expect(out.source).toBe('deterministic');
+    expect(out.degraded).toBe(true);
+    expect(out.suppressed).toBe(false);
+    expect(out.verdict).toEqual(deterministicVerdict);
+  });
+
+  it('probe returns resolved (non-open) row → reasoning IS called', async () => {
     mockGetInsightByIdentity.mockResolvedValue({
       id: 'x',
       state: 'resolved',
       inputHash: 'hash-1', // even though matching, state is not open
     });
-    mockGenerateDriftVerdict.mockResolvedValue({
+    mockRunDriftReasoning.mockResolvedValue({
+      available: true,
       verdict: { decision: 'SURFACE_ACT', reasoning: 're-detected' },
-      degraded: false,
-      source: 'llm',
     });
     const out = await __testing.buildVerdictForProject({
       workspaceId: 'ws-1',
@@ -1092,6 +1138,6 @@ describe('__testing.buildVerdictForProject', () => {
       sweepRunId: 'run-1',
     });
     expect(out.source).toBe('llm');
-    expect(mockGenerateDriftVerdict).toHaveBeenCalledTimes(1);
+    expect(mockRunDriftReasoning).toHaveBeenCalledTimes(1);
   });
 });
