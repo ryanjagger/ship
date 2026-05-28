@@ -58,7 +58,74 @@ Is it a hybrid of both?
       re-analysis).
 
 ## Agent Diagram
-[FleetGraph Agent Diagram](docs/fleetgraph/fleetgraph-graph.md)
+```mermaid
+flowchart TD
+    subgraph inputs[Four entry inputs — all seed the ONE graph]
+        P["proactive plan-review<br/>{ mode: 'plan_review', entityId, entityType, ctx }<br/>→ runPlanReview()"]
+        C["chat<br/>{ mode: 'chat', entityId, entityType, message, ctx, history }<br/>→ runChatTurn() / streamChatTurn() / resumeChatTurn()"]
+        D["dedup (on-demand, as author types a title)<br/>{ mode: 'dedup', entityId=draft, entityType: 'issue', draftTitle, candidates, ctx }<br/>→ runDedupReview() — stage-1 pg_trgm candidates fetched OUTSIDE the graph;<br/>short-circuits with NO model call when there are none"]
+        DR["drift (sweep cron, service-principal ctx)<br/>{ mode: 'drift', entityId=project, driftSignals, ctx, traceMetadata }<br/>→ runDriftReasoning() — 60s wall-clock race; verdict feeds the insight sweep"]
+    end
+
+    P --> SCOPE
+    C --> SCOPE
+    D --> SCOPE
+    DR --> SCOPE
+
+    START([START]) -.-> SCOPE
+    SCOPE["scope<br/>seed state from input · resolve FleetContext<br/>(week → document_type='sprint')"]
+    FETCH["fetch<br/>parallel reads via FleetContext-scoped, visibility-filtered tools:<br/>focal doc+body · associations · people/roles · recent standups/comments/status<br/>(consolidated traversal — one snapshot, no per-entity N+1)"]
+    REASON["reason — branches by mode<br/><b>plan_review / dedup / drift:</b> fleet-ai.ts structured call (zod-v3 Anthropic path) → structured payload<br/>&nbsp;&nbsp;plan_review (+ fleet-checks signals) → FleetPlanReview · dedup → duplicate verdict · drift → {decision, reasoning}<br/><b>chat:</b> bound chat model (.bindTools = propose_* WRITE-ONLY tools; context pre-fetched, single turn) → answer, maybe one propose_* call<br/><i>dedup is dispatched BEFORE the focal guard (it judges draftTitle vs candidates, not the focal's deep context)</i>"]
+    POLICY{"policyRoute<br/><i>conditional edge — NOT a node</i><br/>route by proposal presence (policy.ts)"}
+    OUTPUT["output<br/><b>chat:</b> streamed/answer turn<br/><b>plan_review / dedup / drift:</b> structured result lifted by the entry point"]
+    ACTION["action<br/>interrupt(proposal) ⏸  → return to caller<br/>— on resume, executeProposal runs AFTER interrupt() —"]
+    ENDN([END])
+
+    SCOPE --> FETCH --> REASON
+    REASON -.->|"addConditionalEdges(reason, policyRoute)"| POLICY
+    POLICY -->|"'output': no write proposed<br/>(chat answer / plan-review / dedup / drift verdict)"| OUTPUT
+    POLICY -->|"'action': write proposed — CHAT ONLY<br/>(create_issue / update_issue / post_comment)"| ACTION
+    OUTPUT --> ENDN
+    ACTION -->|paused| PAUSE[["⏸ pause — return proposal + thread_id to caller"]]
+    PAUSE -->|"resume: Command({ resume: { approved } })"| ACTION
+    ACTION -->|"approved → write executed (audited)<br/>declined → abandoned"| ENDN
+
+    CKPT[("custom JSONB checkpointer<br/>properties.fleetgraph_checkpoint<br/>on the conversation document<br/>(latest-tuple-only)<br/>— chat only; the 3 structured modes use a<br/>transient random thread_id → no persistence, never pause")]
+    ACTION -.persists paused state.-> CKPT
+    CKPT -.restores on resume.-> ACTION
+```
+
+## ASCII (quick reference)
+
+```
+            ┌─ plan_review: { mode:'plan_review', entityId }            (runPlanReview)
+            ├─ chat:        { mode:'chat', entityId, message, history }  (runChatTurn / streamChatTurn / resumeChatTurn)
+ trigger ───┤
+            ├─ dedup:       { mode:'dedup', draftTitle, candidates }     (runDedupReview — stage-1 pg_trgm OUTSIDE graph)
+            └─ drift:       { mode:'drift', entityId, driftSignals }     (runDriftReasoning — sweep cron, 60s race)
+                  │
+                  ▼
+            scope        seed state · resolve FleetContext (week→sprint)
+                  │
+                  ▼
+            fetch        parallel visibility-scoped reads → one merged context snapshot
+                  │
+                  ▼
+            reason       plan_review / dedup / drift → fleet-ai structured (zod-v3 Anthropic path)
+                  │      chat                        → bound chat model (propose_* WRITE-ONLY; context pre-fetched)
+                  │      (dedup dispatched before the focal guard)
+                  ▼
+            policyRoute ──────────┐   ← conditional edge (policy.ts), not a node
+              │ (no write)        │ (write proposed — CHAT ONLY)
+              ▼                   ▼
+            output            action ── interrupt(proposal) ──► [pause → caller]
+              │                   ▲                                  │ resume Command({approved})
+              ▼                   └──────── re-run from top ─────────┘
+             END                 mutation executes AFTER interrupt(); pre-interrupt work idempotent
+                                 approved → executeProposal (audited) ; declined → abandon → END
+```
+
+
 
 ## Use Cases
 Each entry gives role, trigger, what the agent detects or produces, and what the human decides.
