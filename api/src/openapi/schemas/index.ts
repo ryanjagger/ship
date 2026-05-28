@@ -30,6 +30,8 @@ export * from './comments.js';
 export * from './ai.js';
 export * from './fleet.js';
 export * from './fleetgraph.js';
+export * from './insights.js';
+export * from './workspace-settings.js';
 
 // Re-export registry and generator for convenience
 export { registry, generateOpenAPIDocument } from '../registry.js';

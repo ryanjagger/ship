@@ -202,7 +202,7 @@ export interface InsightProperties {
   dismissed_by: string | null;
 }
 
-// Read shape returned by `getInsight` / `listOpenInsights`. The subject doc is
+// Read shape returned by `getInsight` / `listInsights`. The subject doc is
 // joined at read time and its title + type are included to avoid caller N+1.
 export interface FleetInsight {
   id: string;

@@ -18,7 +18,7 @@ import {
   sweepWorkspaceDrift,
   SweepInProgressError,
 } from './sweep.js';
-import { listOpenInsights } from './insight.js';
+import { listInsights } from './insight.js';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────
 
@@ -190,10 +190,10 @@ describe('C2: sequential sweeps refresh the existing OPEN row', () => {
   });
 });
 
-// ─── C3 — persisted insight reachable via listOpenInsights ──────────────
+// ─── C3 — persisted insight reachable via listInsights ─────────────────
 
-describe('C3: post-sweep insight reachable via visibility-scoped listOpenInsights', () => {
-  it('listOpenInsights for a workspace admin returns the swept insight', async () => {
+describe('C3: post-sweep insight reachable via visibility-scoped listInsights', () => {
+  it('listInsights for a workspace admin returns the swept insight', async () => {
     await clearInsightsForWorkspace(workspaceId);
     const r = await sweepWorkspaceDrift(workspaceId);
     expect(r.created).toBeGreaterThanOrEqual(1);
@@ -201,7 +201,7 @@ describe('C3: post-sweep insight reachable via visibility-scoped listOpenInsight
     // Admin read — bypasses the visibility filter via OR TRUE. Guards
     // the linkage lesson: the row exists AND it is reachable through the
     // visibility-scoped read path, not just by primary key.
-    const insights = await listOpenInsights({
+    const insights = await listInsights({
       workspaceId,
       userId,
       isAdmin: true,

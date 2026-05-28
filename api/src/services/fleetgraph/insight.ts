@@ -3,7 +3,7 @@
  * proactive sweep findings. The substrate for the (deferred) cron sweep:
  * `createOrRefreshInsight` is the workhorse callers invoke when the agent
  * decides to surface a finding; `resolveInsight` is what callers invoke when
- * the underlying condition clears; `listOpenInsights` / `getInsight` are the
+ * the underlying condition clears; `listInsights` / `getInsight` are the
  * read paths the (deferred) endpoint + UI consume.
  *
  * See docs/plans/2026-05-27-002-feat-fleetgraph-insight-entity-plan.md for
@@ -62,7 +62,7 @@
  * filter to the SUBJECT, not the insight, so this is correct by construction.
  *
  * ── AUTH CONTRACT (CALLER'S RESPONSIBILITY) ──────────────────────────────
- * `listOpenInsights` and `getInsight` accept `ctx: { workspaceId, userId,
+ * `listInsights` and `getInsight` accept `ctx: { workspaceId, userId,
  * isAdmin }` as plain arguments. Callers MUST derive `userId` and
  * `workspaceId` from a validated session (and `isAdmin` from
  * `getVisibilityContext`). The service trusts these values — it does NOT
@@ -528,11 +528,18 @@ export interface InsightReadContext {
   isAdmin: boolean;
 }
 
-export interface ListOpenInsightsOptions extends InsightReadContext {
+export interface ListInsightsOptions extends InsightReadContext {
   /** Optional filter: only return insights whose subject is in this set. */
   subjectIds?: string[];
   /** Optional filter: only return insights of these kinds. */
   kinds?: InsightKind[];
+  /**
+   * State filter. Defaults to `'open'` (preserves the historical
+   * `listOpenInsights` behavior). `'all'` drops the state predicate entirely
+   * — used by the `?state=all` endpoint shape. Any single `InsightStatus`
+   * value (e.g. `'resolved'`) parameterizes the predicate.
+   */
+  state?: InsightStatus | 'all';
   /** Default 50. */
   limit?: number;
   /** Default 0. */
@@ -540,26 +547,33 @@ export interface ListOpenInsightsOptions extends InsightReadContext {
 }
 
 /**
- * Visibility-scoped list of OPEN insights for the workspace. Visibility is
- * evaluated against the JOINED SUBJECT — `VISIBILITY_FILTER_SQL('s', ...)` —
- * not against the insight row, so subject visibility flips take effect
- * without a backfill. Same-workspace subject join is enforced
- * (`s.workspace_id = i.workspace_id`) so a malformed cross-workspace
- * `discusses` association can't expose insights to the wrong workspace.
+ * Visibility-scoped list of insights for the workspace, filtered by `state`
+ * (default `'open'` to preserve the historical `listOpenInsights` shape).
+ * Visibility is evaluated against the JOINED SUBJECT —
+ * `VISIBILITY_FILTER_SQL('s', ...)` — not against the insight row, so
+ * subject visibility flips take effect without a backfill. Same-workspace
+ * subject join is enforced (`s.workspace_id = i.workspace_id`) so a
+ * malformed cross-workspace `discusses` association can't expose insights
+ * to the wrong workspace.
  *
  * Ordering: severity (ACT first), then last_seen_at DESC, then id DESC
  * (deterministic tiebreaker).
  */
-export async function listOpenInsights(
-  opts: ListOpenInsightsOptions
+export async function listInsights(
+  opts: ListInsightsOptions
 ): Promise<FleetInsight[]> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
+  const state: InsightStatus | 'all' = opts.state ?? 'open';
 
   // Parameters: $1=workspaceId, $2=userId, then optional filters.
   const params: unknown[] = [opts.workspaceId, opts.userId];
   const filters: string[] = [];
 
+  if (state !== 'all') {
+    params.push(state);
+    filters.push(`i.properties->'fleetgraph_insight'->>'state' = $${params.length}`);
+  }
   if (opts.subjectIds && opts.subjectIds.length > 0) {
     params.push(opts.subjectIds);
     filters.push(`s.id = ANY($${params.length}::uuid[])`);
@@ -589,7 +603,6 @@ export async function listOpenInsights(
        AND i.document_type = 'insight'
        AND i.archived_at IS NULL
        AND i.deleted_at IS NULL
-       AND i.properties->'fleetgraph_insight'->>'state' = 'open'
        AND s.deleted_at IS NULL
        AND s.archived_at IS NULL
        AND ${VISIBILITY_FILTER_SQL('s', '$2', opts.isAdmin)}
@@ -622,6 +635,56 @@ export async function listOpenInsights(
     subject_title: r.s_title,
     subject_document_type: r.s_type,
   }));
+}
+
+/**
+ * Visibility-scoped COUNT for the same query shape `listInsights` uses.
+ * Same JOINs, same WHERE (incl. the optional `state`/`kinds`/`subjectIds`
+ * filters), but `SELECT COUNT(*)` with no LIMIT/OFFSET. Used to drive
+ * lightweight badge counts without fetching rows.
+ */
+export async function countInsights(
+  opts: ListInsightsOptions
+): Promise<number> {
+  const state: InsightStatus | 'all' = opts.state ?? 'open';
+
+  const params: unknown[] = [opts.workspaceId, opts.userId];
+  const filters: string[] = [];
+
+  if (state !== 'all') {
+    params.push(state);
+    filters.push(`i.properties->'fleetgraph_insight'->>'state' = $${params.length}`);
+  }
+  if (opts.subjectIds && opts.subjectIds.length > 0) {
+    params.push(opts.subjectIds);
+    filters.push(`s.id = ANY($${params.length}::uuid[])`);
+  }
+  if (opts.kinds && opts.kinds.length > 0) {
+    params.push(opts.kinds);
+    filters.push(`i.properties->'fleetgraph_insight'->>'kind' = ANY($${params.length}::text[])`);
+  }
+
+  const optionalWhere = filters.length > 0 ? `AND ${filters.join(' AND ')}` : '';
+
+  const sql = `
+    SELECT COUNT(*)::text AS count
+      FROM documents i
+      INNER JOIN document_associations da
+             ON da.document_id = i.id AND da.relationship_type = 'discusses'
+      INNER JOIN documents s
+             ON s.id = da.related_id AND s.workspace_id = i.workspace_id
+     WHERE i.workspace_id = $1
+       AND i.document_type = 'insight'
+       AND i.archived_at IS NULL
+       AND i.deleted_at IS NULL
+       AND s.deleted_at IS NULL
+       AND s.archived_at IS NULL
+       AND ${VISIBILITY_FILTER_SQL('s', '$2', opts.isAdmin)}
+       ${optionalWhere}
+  `;
+
+  const res = await pool.query<{ count: string }>(sql, params);
+  return parseInt(res.rows[0]?.count ?? '0', 10);
 }
 
 /**
@@ -700,7 +763,7 @@ function insightTitle(kind: InsightKind, subjectTitle: string): string {
  * Internal fetch by id — used by createOrRefreshInsight to return the
  * post-write state. Does NOT apply visibility (the upsert's transaction
  * already proved authorization at the subject layer). The public
- * visibility-applying read paths (`listOpenInsights`, `getInsight`) live in
+ * visibility-applying read paths (`listInsights`, `getInsight`) live in
  * U5 below.
  */
 async function getInsightInternal(
