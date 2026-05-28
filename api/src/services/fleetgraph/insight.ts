@@ -741,6 +741,60 @@ export async function getInsight(
   };
 }
 
+/**
+ * Service-internal probe for the current insight row of
+ * `(workspace_id, subject_id, kind)` — no visibility filter, no user context,
+ * no lock. Intended as a pre-prompt short-circuit for the sweep: when an OPEN
+ * row already exists with the same `input_hash` we computed for the current
+ * tick, the LLM call can be skipped (the substrate's no-op refresh branch
+ * would have ignored the write anyway). Callers MUST NOT expose the result
+ * directly to users — visibility is enforced at the user-facing read paths
+ * (`listInsights` / `getInsight`).
+ *
+ * The partial unique index `insights_open_per_subject_kind` (migration 046)
+ * guarantees at most one OPEN row per `(workspace, subject, kind)`. The
+ * ORDER BY collapses to "OPEN row if any, otherwise most-recent non-open
+ * row" so the sweep can also see resolved/dismissed/snoozed history when no
+ * OPEN row exists. Excludes soft-deleted and archived rows.
+ *
+ * Returns `null` when no row exists for the workspace.
+ */
+export async function getInsightByIdentity(
+  workspaceId: string,
+  subjectId: string,
+  kind: InsightKind
+): Promise<{ id: string; state: InsightStatus; inputHash: string } | null> {
+  const res = await pool.query<{
+    id: string;
+    state: string;
+    input_hash: string;
+  }>(
+    `SELECT id,
+            properties->'fleetgraph_insight'->>'state' AS state,
+            properties->'fleetgraph_insight'->>'input_hash' AS input_hash
+       FROM documents
+      WHERE workspace_id = $1
+        AND document_type = 'insight'
+        AND properties->'fleetgraph_insight'->>'subject_id' = $2
+        AND properties->'fleetgraph_insight'->>'kind' = $3
+        AND archived_at IS NULL
+        AND deleted_at IS NULL
+      ORDER BY (properties->'fleetgraph_insight'->>'state' = 'open') DESC,
+               (properties->'fleetgraph_insight'->>'last_changed_at') DESC NULLS LAST,
+               id DESC
+      LIMIT 1`,
+    [workspaceId, subjectId, kind]
+  );
+
+  if (res.rows.length === 0) return null;
+  const r = res.rows[0]!;
+  return {
+    id: r.id,
+    state: r.state as InsightStatus,
+    inputHash: r.input_hash,
+  };
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────
 
 /** Human-readable insight title. Used at create time only; subject title is
