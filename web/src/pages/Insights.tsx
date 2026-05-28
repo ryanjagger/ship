@@ -92,9 +92,9 @@ function EmptyState({ state }: { state: string }) {
     <div className="px-3 py-4 text-sm text-muted" data-testid="insights-empty-state">
       <div>{headline}</div>
       <div className="mt-1">
-        Insights surface from the FleetGraph sweep.{' '}
-        <Link to="/settings/fleetgraph" className="text-accent-text hover:underline">
-          Configure FleetGraph
+        Insights surface from the Fleet sweep.{' '}
+        <Link to="/settings/fleet" className="text-accent-text hover:underline">
+          Configure Fleet
         </Link>{' '}
         to enable per-workspace sweeps.
       </div>

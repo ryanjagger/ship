@@ -31,7 +31,7 @@ const fleetgraphSettingsKey = ['workspace-settings', 'fleetgraph'] as const;
 async function fetchFleetgraphSettings(): Promise<FleetgraphSettings> {
   const res = await apiGet('/api/workspaces/settings/fleetgraph');
   if (!res.ok) {
-    const error = new Error('Failed to load FleetGraph settings') as Error & {
+    const error = new Error('Failed to load Fleet settings') as Error & {
       status: number;
     };
     error.status = res.status;
@@ -46,7 +46,7 @@ async function updateFleetgraphSettings(
   const res = await apiPatch('/api/workspaces/settings/fleetgraph', body);
   if (!res.ok) {
     // Try to surface server message; tolerate non-JSON 500s gracefully.
-    let message = 'Failed to update FleetGraph settings';
+    let message = 'Failed to update Fleet settings';
     try {
       const data = (await res.json()) as
         | { error?: { message?: string } }
@@ -192,7 +192,7 @@ export function FleetGraphSettingsPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 items-center justify-between border-b border-border px-6">
-        <h1 className="text-lg font-semibold text-foreground">FleetGraph</h1>
+        <h1 className="text-lg font-semibold text-foreground">Fleet</h1>
       </header>
 
       <main className="flex-1 overflow-auto p-6 pb-20">

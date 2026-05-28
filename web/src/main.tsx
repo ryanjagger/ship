@@ -256,7 +256,7 @@ function AppRoutes() {
         <Route path="feedback/:id" element={<FeedbackEditorPage />} />
         <Route path="settings" element={<WorkspaceSettingsPage />} />
         <Route path="settings/conversions" element={<ConvertedDocumentsPage />} />
-        <Route path="settings/fleetgraph" element={<FleetGraphSettingsPage />} />
+        <Route path="settings/fleet" element={<FleetGraphSettingsPage />} />
       </Route>
       </Routes>
     </React.Suspense>
