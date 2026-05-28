@@ -38,7 +38,12 @@ vi.mock('../../db/client.js', () => ({
   },
 }));
 
-import { createOrRefreshInsight, type CreateOrRefreshInsightArgs } from './insight.js';
+import {
+  createOrRefreshInsight,
+  resolveInsight,
+  InsightStateRaceError,
+  type CreateOrRefreshInsightArgs,
+} from './insight.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -451,6 +456,7 @@ describe('createOrRefreshInsight — invariants', () => {
   });
 
   // T16. didEscalate is true ONLY for FYI→ACT against open OR dismissed; never snoozed.
+  // (T16 follows)
   it('T16: didEscalate fires only for FYI→ACT against open or dismissed', async () => {
     // open FYI → ACT: TRUE
     mockClientQuery.mockReset();
@@ -487,5 +493,126 @@ describe('createOrRefreshInsight — invariants', () => {
     });
     r = await createOrRefreshInsight(args({ severity: 'fyi', inputHash: 'h1' }));
     expect(r.didEscalate).toBe(false);
+  });
+});
+
+// ─── resolveInsight tests (T17–T24) ─────────────────────────────────────
+
+describe('resolveInsight', () => {
+  // T17. Resolve `open` → state=resolved, resolved_at stamped, priorState='open'.
+  it('T17: resolve open insight → didResolve=true, priorState=open', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'open', updated: true }],
+      rowCount: 1,
+    });
+
+    const result = await resolveInsight('insight-1');
+    expect(result.didResolve).toBe(true);
+    expect(result.priorState).toBe('open');
+
+    // SQL shape: single CTE + FOR UPDATE statement
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/WITH locked AS/);
+    expect(sql).toMatch(/FOR UPDATE/);
+    expect(sql).toMatch(/jsonb_set.*'\{fleetgraph_insight,state\}'.*'"resolved"'/s);
+    expect(sql).toMatch(/locked\.prior_state <> 'resolved'/);
+  });
+
+  // T18. Resolve `resolved` → no-op, didResolve=false, no second resolved_at stamp.
+  it('T18: resolve already-resolved insight is a no-op (didResolve=false)', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'resolved', updated: false }],
+      rowCount: 1,
+    });
+
+    const result = await resolveInsight('insight-1');
+    expect(result.didResolve).toBe(false);
+    expect(result.priorState).toBe('resolved');
+    // The UPDATE clause `locked.prior_state <> 'resolved'` filters it out
+    // server-side; we don't need to fire a second statement.
+    expect(mockPoolQuery).toHaveBeenCalledTimes(1);
+  });
+
+  // T19. Resolve `dismissed` → flip to resolved (auto-resolve targets any
+  // non-resolved status).
+  it('T19: resolve dismissed insight → didResolve=true (auto-resolve targets non-resolved)', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'dismissed', updated: true }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight('insight-1');
+    expect(result.didResolve).toBe(true);
+    expect(result.priorState).toBe('dismissed');
+  });
+
+  // T20. Resolve `snoozed` → flip to resolved.
+  it('T20: resolve snoozed insight → didResolve=true', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'snoozed', updated: true }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight('insight-1');
+    expect(result.didResolve).toBe(true);
+    expect(result.priorState).toBe('snoozed');
+  });
+
+  // T21. Resolve with expectedState='open' against an open row → succeeds.
+  it('T21: expectedState matches → succeeds, $4 bound to the expected state', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'open', updated: true }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight('insight-1', { expectedState: 'open' });
+    expect(result.didResolve).toBe(true);
+
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params[3]).toBe('open'); // expectedState bound to $4
+  });
+
+  // T22. Resolve with expectedState='open' against a resolved row → throws.
+  it('T22: expectedState mismatch on non-resolved prior throws InsightStateRaceError', async () => {
+    // expectedState='open' but the row is 'snoozed' — updated=false, prior_state='snoozed'
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'snoozed', updated: false }],
+      rowCount: 1,
+    });
+
+    await expect(
+      resolveInsight('insight-1', { expectedState: 'open' })
+    ).rejects.toBeInstanceOf(InsightStateRaceError);
+  });
+
+  // T22b. expectedState='open' but row already resolved → returns no-op, does NOT throw.
+  // (Already-resolved is the idempotent path even when expectedState is supplied.)
+  it('T22b: expectedState mismatch where prior is already resolved → no-op, no throw', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'resolved', updated: false }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight('insight-1', { expectedState: 'open' });
+    expect(result.didResolve).toBe(false);
+    expect(result.priorState).toBe('resolved');
+  });
+
+  // T23. Resolve a nonexistent id → returns null priorState, no throw.
+  it('T23: nonexistent id → returns priorState=null, didResolve=false', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const result = await resolveInsight('missing-id');
+    expect(result.didResolve).toBe(false);
+    expect(result.priorState).toBeNull();
+  });
+
+  // T24. Reason is persisted via $3.
+  it('T24: reason param is bound to $3 and embedded via jsonb_set in resolved_reason', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'open', updated: true }],
+      rowCount: 1,
+    });
+    await resolveInsight('insight-1', { reason: 'drift_cleared' });
+
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params[2]).toBe('drift_cleared'); // reason bound to $3
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/resolved_reason/);
   });
 });

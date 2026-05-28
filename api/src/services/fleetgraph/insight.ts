@@ -384,6 +384,107 @@ export async function createOrRefreshInsight(
   }
 }
 
+// ─── resolveInsight ─────────────────────────────────────────────────────
+
+export interface ResolveInsightOptions {
+  /** Optional human-readable reason; persisted as `properties.fleetgraph_insight.resolved_reason`. */
+  reason?: string;
+  /**
+   * Race-detection guard. When provided, the resolve fires ONLY if the
+   * current state matches. Used by user-initiated resolves to fail loudly
+   * on race ("the row I'm resolving must still be in this state"). The
+   * sweep's auto-resolve path omits it — it accepts any non-resolved state.
+   */
+  expectedState?: InsightStatus;
+}
+
+export interface ResolveInsightResult {
+  /**
+   * The state BEFORE this call (per the CTE's pre-update capture). `null`
+   * when the id didn't match any insight row at all.
+   */
+  priorState: InsightStatus | null;
+  /** True when this call actually transitioned the row to `resolved`. */
+  didResolve: boolean;
+}
+
+/**
+ * Idempotent transition to `state='resolved'`. Single-statement CTE +
+ * `SELECT ... FOR UPDATE` so concurrent callers serialize at the row level
+ * (the conversation.ts:claimPending pattern). The UPDATE fires ONLY when
+ * the current state is non-resolved — calling resolve on an
+ * already-resolved row is a true no-op (`didResolve: false`, no second
+ * `resolved_at` stamp).
+ *
+ * Targets any non-resolved status (`open`, `snoozed`, `dismissed`) — when
+ * the underlying drift condition clears, prior user state hints (snooze/
+ * dismiss) become irrelevant.
+ *
+ * When `expectedState` is provided, the UPDATE additionally requires the
+ * pre-update state to match. On mismatch, the function throws
+ * `InsightStateRaceError` so user-initiated resolves can show "someone
+ * else changed this insight; please refresh."
+ */
+export async function resolveInsight(
+  insightId: string,
+  opts: ResolveInsightOptions = {}
+): Promise<ResolveInsightResult> {
+  const now = new Date().toISOString();
+  const res = await pool.query<{ prior_state: InsightStatus | null; updated: boolean }>(
+    `WITH locked AS (
+        SELECT id, properties->'fleetgraph_insight'->>'state' AS prior_state
+          FROM documents
+         WHERE id = $1 AND document_type = 'insight'
+         FOR UPDATE
+      ),
+      updated AS (
+        UPDATE documents d
+           SET properties = jsonb_set(
+                 jsonb_set(
+                   jsonb_set(d.properties, '{fleetgraph_insight,state}', '"resolved"'::jsonb, false),
+                   '{fleetgraph_insight,resolved_at}', to_jsonb($2::text), false
+                 ),
+                 '{fleetgraph_insight,resolved_reason}',
+                 CASE WHEN $3::text IS NULL THEN 'null'::jsonb ELSE to_jsonb($3::text) END,
+                 false
+               )
+          FROM locked
+         WHERE d.id = locked.id
+           AND locked.prior_state <> 'resolved'
+           AND ($4::text IS NULL OR locked.prior_state = $4::text)
+        RETURNING locked.prior_state
+      )
+      SELECT
+        locked.prior_state AS prior_state,
+        EXISTS (SELECT 1 FROM updated) AS updated
+      FROM locked`,
+    [insightId, now, opts.reason ?? null, opts.expectedState ?? null]
+  );
+
+  if (res.rows.length === 0) {
+    return { priorState: null, didResolve: false };
+  }
+  const { prior_state, updated } = res.rows[0]!;
+
+  // expectedState supplied but didn't match → race detected.
+  if (opts.expectedState && !updated && prior_state !== 'resolved') {
+    throw new InsightStateRaceError(
+      `Expected state '${opts.expectedState}' but found '${prior_state}'.`
+    );
+  }
+
+  return { priorState: prior_state, didResolve: updated };
+}
+
+/** Thrown by `resolveInsight` when `expectedState` is supplied and the
+ *  current row state does not match — caller likely lost a race. */
+export class InsightStateRaceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InsightStateRaceError';
+  }
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────
 
 /** Human-readable insight title. Used at create time only; subject title is
