@@ -35,6 +35,7 @@ const TeamDirectoryPage = React.lazy(() => import('@/pages/TeamDirectory').then(
 const PersonEditorPage = React.lazy(() => import('@/pages/PersonEditor').then(m => ({ default: m.PersonEditorPage })));
 const FeedbackEditorPage = React.lazy(() => import('@/pages/FeedbackEditor').then(m => ({ default: m.FeedbackEditorPage })));
 const ProjectsPage = React.lazy(() => import('@/pages/Projects').then(m => ({ default: m.ProjectsPage })));
+const InsightsPage = React.lazy(() => import('@/pages/Insights').then(m => ({ default: m.InsightsPage })));
 const DashboardPage = React.lazy(() => import('@/pages/Dashboard').then(m => ({ default: m.DashboardPage })));
 const MyWeekPage = React.lazy(() => import('@/pages/MyWeekPage').then(m => ({ default: m.MyWeekPage })));
 const AdminDashboardPage = React.lazy(() => import('@/pages/AdminDashboard').then(m => ({ default: m.AdminDashboardPage })));
@@ -231,6 +232,7 @@ function AppRoutes() {
         <Route path="issues/:id" element={<DocumentRedirect />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:id" element={<DocumentRedirect />} />
+        <Route path="insights" element={<InsightsPage />} />
         <Route path="programs" element={<ProgramsPage />} />
         <Route path="programs/:programId/sprints/:id" element={<DocumentRedirect />} />
         <Route path="programs/:id/*" element={<ProgramTabRedirect />} />
