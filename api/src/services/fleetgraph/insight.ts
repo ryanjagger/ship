@@ -98,7 +98,6 @@
  *   the caller's responsibility (only the sweep writes these; we control it).
  */
 
-import type { PoolClient } from 'pg';
 import { pool } from '../../db/client.js';
 import { VISIBILITY_FILTER_SQL } from '../../middleware/visibility.js';
 import type {
@@ -485,6 +484,165 @@ export class InsightStateRaceError extends Error {
   }
 }
 
+// ─── Read paths ─────────────────────────────────────────────────────────
+
+export interface InsightReadContext {
+  workspaceId: string;
+  userId: string;
+  /** Resolved boolean from getVisibilityContext — see middleware/visibility.ts. */
+  isAdmin: boolean;
+}
+
+export interface ListOpenInsightsOptions extends InsightReadContext {
+  /** Optional filter: only return insights whose subject is in this set. */
+  subjectIds?: string[];
+  /** Optional filter: only return insights of these kinds. */
+  kinds?: InsightKind[];
+  /** Default 50. */
+  limit?: number;
+  /** Default 0. */
+  offset?: number;
+}
+
+/**
+ * Visibility-scoped list of OPEN insights for the workspace. Visibility is
+ * evaluated against the JOINED SUBJECT — `VISIBILITY_FILTER_SQL('s', ...)` —
+ * not against the insight row, so subject visibility flips take effect
+ * without a backfill. Same-workspace subject join is enforced
+ * (`s.workspace_id = i.workspace_id`) so a malformed cross-workspace
+ * `discusses` association can't expose insights to the wrong workspace.
+ *
+ * Ordering: severity (ACT first), then last_seen_at DESC, then id DESC
+ * (deterministic tiebreaker).
+ */
+export async function listOpenInsights(
+  opts: ListOpenInsightsOptions
+): Promise<FleetInsight[]> {
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+
+  // Parameters: $1=workspaceId, $2=userId, then optional filters.
+  const params: unknown[] = [opts.workspaceId, opts.userId];
+  const filters: string[] = [];
+
+  if (opts.subjectIds && opts.subjectIds.length > 0) {
+    params.push(opts.subjectIds);
+    filters.push(`s.id = ANY($${params.length}::uuid[])`);
+  }
+  if (opts.kinds && opts.kinds.length > 0) {
+    params.push(opts.kinds);
+    filters.push(`i.properties->'fleetgraph_insight'->>'kind' = ANY($${params.length}::text[])`);
+  }
+  // limit / offset always last
+  params.push(limit);
+  const limitParam = `$${params.length}`;
+  params.push(offset);
+  const offsetParam = `$${params.length}`;
+
+  const optionalWhere = filters.length > 0 ? `AND ${filters.join(' AND ')}` : '';
+
+  const sql = `
+    SELECT i.id, i.workspace_id, i.title, i.created_at,
+           i.properties->'fleetgraph_insight' AS ins,
+           s.id AS s_id, s.title AS s_title, s.document_type AS s_type
+      FROM documents i
+      INNER JOIN document_associations da
+             ON da.document_id = i.id AND da.relationship_type = 'discusses'
+      INNER JOIN documents s
+             ON s.id = da.related_id AND s.workspace_id = i.workspace_id
+     WHERE i.workspace_id = $1
+       AND i.document_type = 'insight'
+       AND i.archived_at IS NULL
+       AND i.deleted_at IS NULL
+       AND i.properties->'fleetgraph_insight'->>'state' = 'open'
+       AND s.deleted_at IS NULL
+       AND s.archived_at IS NULL
+       AND ${VISIBILITY_FILTER_SQL('s', '$2', opts.isAdmin)}
+       ${optionalWhere}
+     ORDER BY
+       (i.properties->'fleetgraph_insight'->>'severity' = 'act') DESC,
+       (i.properties->'fleetgraph_insight'->>'last_seen_at') DESC,
+       i.id DESC
+     LIMIT ${limitParam} OFFSET ${offsetParam}
+  `;
+
+  const res = await pool.query<{
+    id: string;
+    workspace_id: string;
+    title: string;
+    created_at: string;
+    ins: InsightProperties;
+    s_id: string;
+    s_title: string;
+    s_type: DocumentType;
+  }>(sql, params);
+
+  return res.rows.map((r) => ({
+    id: r.id,
+    workspace_id: r.workspace_id,
+    title: r.title,
+    created_at: r.created_at,
+    insight: r.ins,
+    subject_id: r.s_id,
+    subject_title: r.s_title,
+    subject_document_type: r.s_type,
+  }));
+}
+
+/**
+ * Visibility-scoped single-insight fetch. Returns null when the insight
+ * doesn't exist OR when the caller cannot see its subject — callers MUST
+ * surface this as a 404 (not 403) to prevent disclosure of the insight's
+ * existence to unauthorized viewers.
+ */
+export async function getInsight(
+  insightId: string,
+  ctx: InsightReadContext
+): Promise<FleetInsight | null> {
+  const res = await pool.query<{
+    id: string;
+    workspace_id: string;
+    title: string;
+    created_at: string;
+    ins: InsightProperties;
+    s_id: string;
+    s_title: string;
+    s_type: DocumentType;
+  }>(
+    `SELECT i.id, i.workspace_id, i.title, i.created_at,
+            i.properties->'fleetgraph_insight' AS ins,
+            s.id AS s_id, s.title AS s_title, s.document_type AS s_type
+       FROM documents i
+       INNER JOIN document_associations da
+              ON da.document_id = i.id AND da.relationship_type = 'discusses'
+       INNER JOIN documents s
+              ON s.id = da.related_id AND s.workspace_id = i.workspace_id
+      WHERE i.id = $1
+        AND i.workspace_id = $2
+        AND i.document_type = 'insight'
+        AND i.archived_at IS NULL
+        AND i.deleted_at IS NULL
+        AND s.deleted_at IS NULL
+        AND s.archived_at IS NULL
+        AND ${VISIBILITY_FILTER_SQL('s', '$3', ctx.isAdmin)}
+      LIMIT 1`,
+    [insightId, ctx.workspaceId, ctx.userId]
+  );
+
+  if (res.rows.length === 0) return null;
+  const r = res.rows[0]!;
+  return {
+    id: r.id,
+    workspace_id: r.workspace_id,
+    title: r.title,
+    created_at: r.created_at,
+    insight: r.ins,
+    subject_id: r.s_id,
+    subject_title: r.s_title,
+    subject_document_type: r.s_type,
+  };
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────
 
 /** Human-readable insight title. Used at create time only; subject title is
@@ -550,9 +708,3 @@ async function getInsightInternal(
   };
 }
 
-// `VISIBILITY_FILTER_SQL` and PoolClient are imported for U5's read paths and
-// for type signatures U4 will reference; tag them as intentionally used so
-// the linter/tree-shaker doesn't drop the imports mid-iteration.
-void VISIBILITY_FILTER_SQL;
-type _PoolClientUsed = PoolClient;
-void (null as unknown as _PoolClientUsed);

@@ -41,6 +41,8 @@ vi.mock('../../db/client.js', () => ({
 import {
   createOrRefreshInsight,
   resolveInsight,
+  listOpenInsights,
+  getInsight,
   InsightStateRaceError,
   type CreateOrRefreshInsightArgs,
 } from './insight.js';
@@ -614,5 +616,178 @@ describe('resolveInsight', () => {
     expect(params[2]).toBe('drift_cleared'); // reason bound to $3
     const sql = String(mockPoolQuery.mock.calls[0]![0]);
     expect(sql).toMatch(/resolved_reason/);
+  });
+});
+
+// ─── listOpenInsights + getInsight tests (T25–T36) ──────────────────────
+
+describe('listOpenInsights — visibility + ordering', () => {
+  function listRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'insight-1',
+      workspace_id: 'ws-1',
+      title: 'Project drift: Acme',
+      created_at: NOW,
+      ins: existingInsight(),
+      s_id: 'subj-1',
+      s_title: 'Acme',
+      s_type: 'project',
+      ...overrides,
+    };
+  }
+
+  // T25. Non-admin: visibility filter is the workspace+created_by branch (no `OR TRUE`).
+  it('T25: non-admin reads use the workspace+created_by visibility filter', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [listRow()], rowCount: 1 });
+    await listOpenInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/s\.visibility = 'workspace' OR s\.created_by = \$2\)/);
+    expect(sql).not.toMatch(/OR TRUE/);
+  });
+
+  // T28. Admin: filter collapses to include `OR TRUE` branch.
+  it('T28: admin reads include the OR TRUE branch on the visibility filter', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [listRow()], rowCount: 1 });
+    await listOpenInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: true });
+
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/OR TRUE\)/);
+  });
+
+  // T29 / T30. Subject deleted/archived filters are present.
+  it('T29: query filters s.deleted_at IS NULL', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listOpenInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    expect(String(mockPoolQuery.mock.calls[0]![0])).toMatch(/s\.deleted_at IS NULL/);
+  });
+  it('T30: query filters s.archived_at IS NULL', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listOpenInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    expect(String(mockPoolQuery.mock.calls[0]![0])).toMatch(/s\.archived_at IS NULL/);
+  });
+
+  // T31. state='open' filter.
+  it("T31: filters fleetgraph_insight.state = 'open'", async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listOpenInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    expect(String(mockPoolQuery.mock.calls[0]![0])).toMatch(
+      /i\.properties->'fleetgraph_insight'->>'state' = 'open'/
+    );
+  });
+
+  // T32. ORDER BY: ACT first, last_seen_at DESC, id DESC tiebreaker.
+  it('T32: ORDER BY severity (ACT first), last_seen_at DESC, id DESC tiebreaker', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listOpenInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/ORDER BY[\s\S]*severity[\s\S]*= 'act'\) DESC/);
+    expect(sql).toMatch(/last_seen_at[\s\S]*DESC/);
+    expect(sql).toMatch(/i\.id DESC/);
+  });
+
+  // T33. Returned shape includes subject_title + subject_document_type.
+  it('T33: returned rows include subject_title and subject_document_type', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [listRow()], rowCount: 1 });
+    const out = await listOpenInsights({
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.subject_title).toBe('Acme');
+    expect(out[0]!.subject_document_type).toBe('project');
+    expect(out[0]!.id).toBe('insight-1');
+  });
+
+  // Cross-workspace constraint: s.workspace_id = i.workspace_id present in the JOIN.
+  it('subject join is constrained to same workspace_id', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listOpenInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    expect(String(mockPoolQuery.mock.calls[0]![0])).toMatch(
+      /JOIN documents s[\s\S]*s\.workspace_id = i\.workspace_id/
+    );
+  });
+
+  // Subject + kind filters supplied → both ANY clauses bound and parameters appended.
+  it('subject + kind filters bind ANY($N::uuid[]) / ANY($N::text[])', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listOpenInsights({
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+      subjectIds: ['subj-1', 'subj-2'],
+      kinds: ['project_drift'],
+    });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/s\.id = ANY\(\$\d+::uuid\[\]\)/);
+    expect(sql).toMatch(/kind' = ANY\(\$\d+::text\[\]\)/);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).toContain('ws-1');
+    expect(params).toContain('u-1');
+    expect(params).toEqual(expect.arrayContaining([['subj-1', 'subj-2']]));
+    expect(params).toEqual(expect.arrayContaining([['project_drift']]));
+  });
+});
+
+describe('getInsight — visibility-scoped single fetch', () => {
+  // T34. Returns null on visibility miss (404-shaped, not 403).
+  it('T34: invisible insight returns null (404-shape, not 403)', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsight('insight-x', {
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(out).toBeNull();
+  });
+
+  // T35. Nonexistent id returns null.
+  it('T35: nonexistent id returns null', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsight('does-not-exist', {
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(out).toBeNull();
+  });
+
+  // T36. Visible insight returns full FleetInsight shape with joined subject.
+  it('T36: visible insight returns full shape including joined subject metadata', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'insight-1',
+          workspace_id: 'ws-1',
+          title: 'Project drift: Acme',
+          created_at: NOW,
+          ins: existingInsight(),
+          s_id: 'subj-1',
+          s_title: 'Acme',
+          s_type: 'project',
+        },
+      ],
+      rowCount: 1,
+    });
+    const out = await getInsight('insight-1', {
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(out).not.toBeNull();
+    expect(out!.subject_title).toBe('Acme');
+    expect(out!.subject_document_type).toBe('project');
+    expect(out!.insight.state).toBe('open');
+  });
+
+  // SQL shape: same visibility filter applied to subject, same workspace constraint.
+  it('applies VISIBILITY_FILTER_SQL against the subject and constrains workspace', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await getInsight('insight-1', { workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/s\.workspace_id = i\.workspace_id/);
+    expect(sql).toMatch(/i\.workspace_id = \$2/);
+    expect(sql).toMatch(/s\.visibility = 'workspace' OR s\.created_by = \$3\)/);
   });
 });
