@@ -1,7 +1,7 @@
 ---
 title: "feat: FleetGraph insight surfacing layer (sweep, read endpoint, UI)"
 type: feat
-status: active
+status: completed
 date: 2026-05-28
 origin: (none — solo plan, but builds on docs/plans/2026-05-27-002-feat-fleetgraph-insight-entity-plan.md and reuses docs/plans/2026-05-27-001-feat-project-drift-detection-plan.md thresholds)
 ---
