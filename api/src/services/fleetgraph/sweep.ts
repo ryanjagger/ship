@@ -61,7 +61,7 @@ import {
   type CreateOrRefreshInsightArgs,
 } from './insight.js';
 import { getFleetgraphSettings } from '../workspace-settings.js';
-import { generateDriftVerdict } from './verdictGenerator.js';
+import { runDriftReasoning } from './index.js';
 import type {
   Drift,
   DriftSignal,
@@ -69,6 +69,18 @@ import type {
   InsightVerdict,
   InsightVerdictDecision,
 } from '@ship/shared';
+
+/**
+ * Sentinel UUID for service-principal Fleet invocations. Used to construct
+ * a FleetContext for runDriftReasoning where no user session exists.
+ *
+ * Do not change this value once shipped — code may compare against it to
+ * detect system-authored runs. With `isAdmin: true`, VISIBILITY_FILTER_SQL
+ * short-circuits to TRUE (visibility.ts:65-80), giving the sweep the
+ * workspace-wide read access it needs without bespoke service-principal
+ * code in any node or tool.
+ */
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000' as const;
 
 // ─── Public types ───────────────────────────────────────────────────────
 
@@ -413,11 +425,13 @@ interface VerdictDecisionOutput {
  *   1. LLM disabled → deterministic (no probe, no LLM call).
  *   2. LLM enabled, probe finds OPEN row with matching hash → deterministic
  *      (substrate's no-op refresh handles the write efficiently).
- *   3. LLM enabled, no probe hit → call generator. SUPPRESS short-circuits;
- *      otherwise return the LLM verdict (or fallback if generator degraded).
+ *   3. LLM enabled, no probe hit → call `runDriftReasoning`. SUPPRESS short-
+ *      circuits; otherwise return the LLM verdict (or deterministic fallback
+ *      when the graph reports `{available: false}`).
  *
- * Never throws — the verdict generator guarantees a VerdictOutput shape, and
- * a probe SQL failure bubbles up to runSweepLoop's catch via the caller.
+ * Never throws — `runDriftReasoning` guarantees a RunDriftReasoningResult
+ * shape (never throws itself), and a probe SQL failure bubbles up to
+ * runSweepLoop's catch via the caller.
  */
 async function buildVerdictForProject(
   input: VerdictDecisionInput
@@ -454,23 +468,37 @@ async function buildVerdictForProject(
     };
   }
 
-  const generated = await generateDriftVerdict(
-    {
-      projectTitle: input.projectTitle,
-      signals: input.signals,
-      workspaceId: input.workspaceId,
-      sweepRunId: input.sweepRunId,
+  const ctx = {
+    workspaceId: input.workspaceId,
+    userId: SYSTEM_USER_ID,
+    isAdmin: true,
+  };
+  const result = await runDriftReasoning({
+    entityId: input.subjectId,
+    signals: input.signals,
+    ctx,
+    traceMetadata: {
+      workspace_id: input.workspaceId,
+      sweep_run_id: input.sweepRunId,
     },
-    input.deterministicVerdict
-  );
+  });
 
-  const suppressed = generated.verdict.decision === 'SUPPRESS';
+  if (result.available) {
+    const suppressed = result.verdict.decision === 'SUPPRESS';
+    return {
+      verdict: result.verdict,
+      source: 'llm',
+      degraded: false,
+      suppressed,
+    };
+  }
 
+  // Graph unavailable / degraded → deterministic fallback.
   return {
-    verdict: generated.verdict,
-    source: generated.source,
-    degraded: generated.degraded,
-    suppressed,
+    verdict: input.deterministicVerdict,
+    source: 'deterministic',
+    degraded: true,
+    suppressed: false,
   };
 }
 
