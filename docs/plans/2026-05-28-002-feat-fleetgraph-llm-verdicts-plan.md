@@ -1,7 +1,7 @@
 ---
 title: "feat: LLM-backed verdicts for Fleet sweep insights"
 type: feat
-status: active
+status: completed
 date: 2026-05-28
 origin: (none — solo plan, builds on docs/plans/2026-05-28-001-feat-fleetgraph-insight-surfacing-plan.md)
 ---
