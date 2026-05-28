@@ -1,7 +1,7 @@
 ---
 title: "feat: Graph-routed Fleet drift verdicts (sweep through the LangGraph agent)"
 type: feat
-status: active
+status: completed
 date: 2026-05-28
 origin: (none — solo plan; builds on docs/plans/2026-05-28-002-feat-fleetgraph-llm-verdicts-plan.md)
 ---
