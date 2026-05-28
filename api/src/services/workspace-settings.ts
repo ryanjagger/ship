@@ -86,12 +86,17 @@ export async function setFleetgraphSweepEnabled(
   enabled: boolean
 ): Promise<FleetgraphSettings> {
   await pool.query(
+    // Deep-merge pattern (||) instead of jsonb_set. jsonb_set with
+    // create_missing=true only creates LEAF keys when the immediate parent
+    // exists; a fresh workspace has settings='{}' so settings.fleetgraph
+    // doesn't exist and jsonb_set silently returns the original value.
+    // The double `||` merges both the top-level (preserve unrelated keys)
+    // AND the fleetgraph sub-object (preserve the sibling key).
     `UPDATE workspaces
-        SET settings = jsonb_set(
-              COALESCE(settings, '{}'::jsonb),
-              '{fleetgraph,sweep_enabled}',
-              $1::jsonb,
-              true
+        SET settings = COALESCE(settings, '{}'::jsonb) || jsonb_build_object(
+              'fleetgraph',
+              COALESCE(settings->'fleetgraph', '{}'::jsonb)
+                || jsonb_build_object('sweep_enabled', $1::jsonb)
             )
       WHERE id = $2`,
     [JSON.stringify(enabled), workspaceId]
@@ -99,8 +104,7 @@ export async function setFleetgraphSweepEnabled(
   // Lean return: report the just-set value alongside a default-false for
   // the OTHER key. The PATCH route handler does a final `getFleetgraphSettings`
   // read to surface the truly-combined state when callers need both flags
-  // (e.g. partial PATCH responses). Kept single-write to preserve the
-  // single-round-trip discipline established by the surfacing plan U1.
+  // (e.g. partial PATCH responses).
   return { sweepEnabled: enabled, llmVerdictsEnabled: false };
 }
 
@@ -121,12 +125,15 @@ export async function setFleetgraphLlmVerdictsEnabled(
   enabled: boolean
 ): Promise<FleetgraphSettings> {
   await pool.query(
+    // Deep-merge pattern (||) — see setFleetgraphSweepEnabled for rationale.
+    // jsonb_set with create_missing=true does NOT create intermediate
+    // objects; a fresh workspace's settings='{}' means settings.fleetgraph
+    // must be created via `||` merge to avoid a silent no-op write.
     `UPDATE workspaces
-        SET settings = jsonb_set(
-              COALESCE(settings, '{}'::jsonb),
-              '{fleetgraph,llm_verdicts_enabled}',
-              $1::jsonb,
-              true
+        SET settings = COALESCE(settings, '{}'::jsonb) || jsonb_build_object(
+              'fleetgraph',
+              COALESCE(settings->'fleetgraph', '{}'::jsonb)
+                || jsonb_build_object('llm_verdicts_enabled', $1::jsonb)
             )
       WHERE id = $2`,
     [JSON.stringify(enabled), workspaceId]

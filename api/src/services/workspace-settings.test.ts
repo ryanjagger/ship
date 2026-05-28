@@ -208,7 +208,7 @@ describe('getFleetgraphSettings', () => {
 // ─── setFleetgraphSweepEnabled ──────────────────────────────────────────
 
 describe('setFleetgraphSweepEnabled', () => {
-  it('issues a single-statement jsonb_set UPDATE with the deep path', async () => {
+  it('issues a single-statement deep-merge UPDATE creating intermediate fleetgraph object', async () => {
     mockPoolQuery.mockResolvedValueOnce({ rowCount: 1, rows: [] });
 
     const result = await setFleetgraphSweepEnabled('ws-1', true);
@@ -220,14 +220,14 @@ describe('setFleetgraphSweepEnabled', () => {
     expect(mockPoolQuery).toHaveBeenCalledTimes(1);
 
     const [sql, params] = mockPoolQuery.mock.calls[0]!;
-    // SQL shape: single statement, jsonb_set on COALESCE'd settings, deep path,
-    // $1::jsonb param, create_missing = true.
+    // SQL shape: single statement, deep-merge via `||` (jsonb_set with
+    // create_missing=true does NOT create intermediate objects, so a fresh
+    // workspace with settings='{}' would otherwise silently no-op the write).
     expect(sql).toMatch(/UPDATE workspaces/);
-    expect(sql).toMatch(/jsonb_set\(/);
-    expect(sql).toMatch(/COALESCE\(settings,\s*'\{\}'::jsonb\)/);
-    expect(sql).toMatch(/\{fleetgraph,sweep_enabled\}/);
-    expect(sql).toMatch(/\$1::jsonb/);
-    expect(sql).toMatch(/true\s*\)/); // create_missing
+    expect(sql).toMatch(/COALESCE\(settings,\s*'\{\}'::jsonb\)\s*\|\|/);
+    expect(sql).toMatch(/jsonb_build_object\(\s*'fleetgraph'/);
+    expect(sql).toMatch(/COALESCE\(settings->'fleetgraph',\s*'\{\}'::jsonb\)\s*\|\|/);
+    expect(sql).toMatch(/jsonb_build_object\('sweep_enabled',\s*\$1::jsonb\)/);
     expect(sql).toMatch(/WHERE id = \$2/);
 
     // Params: $1 is the JSON-encoded boolean literal 'true', $2 is the ws id.
@@ -244,21 +244,22 @@ describe('setFleetgraphSweepEnabled', () => {
     expect(params).toEqual(['false', 'ws-1']);
   });
 
-  it('preserves unrelated top-level keys via the deep-path jsonb_set shape', async () => {
-    // We cannot exercise actual jsonb_set semantics in a mocked test, but we
-    // can assert the SQL shape guarantees preservation: jsonb_set only
-    // touches the named path, and COALESCE keeps a NULL settings safe.
+  it('preserves unrelated top-level keys via the deep-merge shape', async () => {
+    // The `||` merge at the top level preserves any non-`fleetgraph` keys
+    // (e.g. a future `notifications.*` namespace). COALESCE handles a NULL
+    // settings column defensively. SQL-shape assertion guards against a
+    // regression to a settings-clobbering pattern.
     mockPoolQuery.mockResolvedValueOnce({ rowCount: 1, rows: [] });
 
     await setFleetgraphSweepEnabled('ws-1', true);
 
     const [sql] = mockPoolQuery.mock.calls[0]!;
-    // The path is the deep nested one, not a top-level replace.
-    expect(sql).toMatch(/'\{fleetgraph,sweep_enabled\}'/);
+    // Top-level merge preserves unrelated keys.
+    expect(sql).toMatch(/COALESCE\(settings,\s*'\{\}'::jsonb\)\s*\|\|/);
     // No `settings = $1` pattern (that would clobber unrelated keys).
     expect(sql).not.toMatch(/SET settings = \$1\s/);
-    // COALESCE handles the NULL-settings edge defensively.
-    expect(sql).toMatch(/COALESCE\(settings,\s*'\{\}'::jsonb\)/);
+    // Inner merge on settings->'fleetgraph' preserves sibling fleetgraph keys.
+    expect(sql).toMatch(/COALESCE\(settings->'fleetgraph',\s*'\{\}'::jsonb\)\s*\|\|/);
   });
 
   it('is idempotent on double-call — both writes succeed without error', async () => {
@@ -291,7 +292,7 @@ describe('setFleetgraphSweepEnabled', () => {
 // ─── setFleetgraphLlmVerdictsEnabled ────────────────────────────────────
 
 describe('setFleetgraphLlmVerdictsEnabled', () => {
-  it('issues a single-statement jsonb_set UPDATE with the deep path', async () => {
+  it('issues a single-statement deep-merge UPDATE creating intermediate fleetgraph object', async () => {
     mockPoolQuery.mockResolvedValueOnce({ rowCount: 1, rows: [] });
 
     const result = await setFleetgraphLlmVerdictsEnabled('ws-1', true);
@@ -300,15 +301,13 @@ describe('setFleetgraphLlmVerdictsEnabled', () => {
     expect(mockPoolQuery).toHaveBeenCalledTimes(1);
 
     const [sql, params] = mockPoolQuery.mock.calls[0]!;
-    // SQL shape mirrors setFleetgraphSweepEnabled exactly, only the path
-    // changes. Single statement, jsonb_set, COALESCE, $1::jsonb,
-    // create_missing = true, WHERE id = $2.
+    // Mirrors setFleetgraphSweepEnabled's deep-merge shape; only the leaf
+    // key name differs.
     expect(sql).toMatch(/UPDATE workspaces/);
-    expect(sql).toMatch(/jsonb_set\(/);
-    expect(sql).toMatch(/COALESCE\(settings,\s*'\{\}'::jsonb\)/);
-    expect(sql).toMatch(/\{fleetgraph,llm_verdicts_enabled\}/);
-    expect(sql).toMatch(/\$1::jsonb/);
-    expect(sql).toMatch(/true\s*\)/); // create_missing
+    expect(sql).toMatch(/COALESCE\(settings,\s*'\{\}'::jsonb\)\s*\|\|/);
+    expect(sql).toMatch(/jsonb_build_object\(\s*'fleetgraph'/);
+    expect(sql).toMatch(/COALESCE\(settings->'fleetgraph',\s*'\{\}'::jsonb\)\s*\|\|/);
+    expect(sql).toMatch(/jsonb_build_object\('llm_verdicts_enabled',\s*\$1::jsonb\)/);
     expect(sql).toMatch(/WHERE id = \$2/);
 
     expect(params).toEqual(['true', 'ws-1']);
@@ -324,26 +323,21 @@ describe('setFleetgraphLlmVerdictsEnabled', () => {
     expect(params).toEqual(['false', 'ws-1']);
   });
 
-  it('preserves the OTHER key (sweep_enabled) via the deep-path jsonb_set shape', async () => {
-    // The deep-path jsonb_set with create_missing only touches the named
-    // path. SQL-shape assertion guarantees sibling keys (e.g. an already-set
-    // sweep_enabled) are NOT clobbered by this write. Real Postgres
-    // semantics are covered by the U6 concurrency tests.
+  it('preserves the OTHER key (sweep_enabled) via the deep-merge shape', async () => {
+    // The inner `COALESCE(settings->'fleetgraph','{}'::jsonb) ||
+    // jsonb_build_object('llm_verdicts_enabled', ...)` pattern merges into
+    // the existing fleetgraph object, preserving sweep_enabled.
     mockPoolQuery.mockResolvedValueOnce({ rowCount: 1, rows: [] });
 
     await setFleetgraphLlmVerdictsEnabled('ws-1', true);
 
     const [sql] = mockPoolQuery.mock.calls[0]!;
-    // The path is the deep nested LLM key, not a parent-level replace
-    // (which would clobber sweep_enabled).
-    expect(sql).toMatch(/'\{fleetgraph,llm_verdicts_enabled\}'/);
-    // No path of the form `{fleetgraph}` alone (that would replace the
-    // whole namespace and drop the sibling).
-    expect(sql).not.toMatch(/'\{fleetgraph\}'/);
+    // Inner merge preserves sweep_enabled when it exists in fleetgraph.
+    expect(sql).toMatch(/COALESCE\(settings->'fleetgraph',\s*'\{\}'::jsonb\)\s*\|\|/);
     // No `settings = $1` pattern.
     expect(sql).not.toMatch(/SET settings = \$1\s/);
-    // COALESCE handles the NULL-settings edge defensively.
-    expect(sql).toMatch(/COALESCE\(settings,\s*'\{\}'::jsonb\)/);
+    // No path that replaces the whole fleetgraph object directly.
+    expect(sql).not.toMatch(/jsonb_build_object\('fleetgraph',\s*\$1/);
   });
 
   it('returns the lean typed value when the workspace does not exist (UPDATE affects 0 rows)', async () => {

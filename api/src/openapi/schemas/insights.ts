@@ -141,6 +141,14 @@ export const SweepResultSchema = z
     created: z.number().int(),
     refreshed: z.number().int(),
     skipped: z.number().int(),
+    suppressed: z.number().int().nonnegative().openapi({
+      description:
+        'Number of drifting projects where the LLM verdict returned SUPPRESS; the insight substrate was NOT called for these.',
+    }),
+    degraded: z.boolean().openapi({
+      description:
+        'True iff at least one LLM verdict call fell back to the deterministic verdict during this sweep (provider unavailable, parse error, etc.). The "Sweep now" UI surfaces this as a soft warning.',
+    }),
   })
   .openapi('SweepResult');
 

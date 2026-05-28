@@ -157,7 +157,7 @@ async function tickOneWorkspace(workspaceId: string): Promise<void> {
       const result = await sweepWorkspaceDrift(workspaceId, { client });
       await client.query('COMMIT');
       console.log(
-        `[scheduler] sweep ws=${workspaceId} scanned=${result.scanned} created=${result.created} refreshed=${result.refreshed} skipped=${result.skipped}`
+        `[scheduler] sweep ws=${workspaceId} scanned=${result.scanned} created=${result.created} refreshed=${result.refreshed} skipped=${result.skipped} suppressed=${result.suppressed} degraded=${result.degraded}`
       );
     } catch (err) {
       try {
