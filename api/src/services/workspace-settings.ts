@@ -25,6 +25,7 @@ import { pool } from '../db/client.js';
 /** Typed shape of the `fleetgraph` namespace within `workspaces.settings`. */
 export interface FleetgraphSettings {
   sweepEnabled: boolean;
+  llmVerdictsEnabled: boolean;
 }
 
 /**
@@ -49,16 +50,22 @@ export async function getWorkspaceSettings(
 
 /**
  * Returns the FleetGraph-namespaced subset of the workspace settings, typed.
- * Missing keys default to `{ sweepEnabled: false }` — the sweep is opt-in.
+ * Missing keys default to `{ sweepEnabled: false, llmVerdictsEnabled: false }`
+ * — both features are opt-in. Both reads use a strict `=== true` check to
+ * defend against stray non-boolean values accidentally enabling either flag.
  */
 export async function getFleetgraphSettings(
   workspaceId: string
 ): Promise<FleetgraphSettings> {
   const settings = await getWorkspaceSettings(workspaceId);
-  const fleetgraph = (settings as { fleetgraph?: { sweep_enabled?: unknown } })
-    .fleetgraph;
+  const fleetgraph = (
+    settings as {
+      fleetgraph?: { sweep_enabled?: unknown; llm_verdicts_enabled?: unknown };
+    }
+  ).fleetgraph;
   const sweepEnabled = fleetgraph?.sweep_enabled === true;
-  return { sweepEnabled };
+  const llmVerdictsEnabled = fleetgraph?.llm_verdicts_enabled === true;
+  return { sweepEnabled, llmVerdictsEnabled };
 }
 
 /**
@@ -89,5 +96,40 @@ export async function setFleetgraphSweepEnabled(
       WHERE id = $2`,
     [JSON.stringify(enabled), workspaceId]
   );
-  return { sweepEnabled: enabled };
+  // Lean return: report the just-set value alongside a default-false for
+  // the OTHER key. The PATCH route handler does a final `getFleetgraphSettings`
+  // read to surface the truly-combined state when callers need both flags
+  // (e.g. partial PATCH responses). Kept single-write to preserve the
+  // single-round-trip discipline established by the surfacing plan U1.
+  return { sweepEnabled: enabled, llmVerdictsEnabled: false };
+}
+
+/**
+ * Sets `settings.fleetgraph.llm_verdicts_enabled` to the given boolean.
+ *
+ * Mirrors `setFleetgraphSweepEnabled` exactly — single-statement `jsonb_set`
+ * with `create_missing = true`, COALESCE on a potentially-NULL settings
+ * column, deep-path write that preserves any sibling key (notably
+ * `sweep_enabled`) and any unrelated top-level namespaces.
+ *
+ * Returns the lean just-set view (matching `setFleetgraphSweepEnabled`).
+ * The PATCH route handler is responsible for re-reading via
+ * `getFleetgraphSettings` when it needs the truly-combined response.
+ */
+export async function setFleetgraphLlmVerdictsEnabled(
+  workspaceId: string,
+  enabled: boolean
+): Promise<FleetgraphSettings> {
+  await pool.query(
+    `UPDATE workspaces
+        SET settings = jsonb_set(
+              COALESCE(settings, '{}'::jsonb),
+              '{fleetgraph,llm_verdicts_enabled}',
+              $1::jsonb,
+              true
+            )
+      WHERE id = $2`,
+    [JSON.stringify(enabled), workspaceId]
+  );
+  return { sweepEnabled: false, llmVerdictsEnabled: enabled };
 }

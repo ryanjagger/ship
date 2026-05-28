@@ -8,6 +8,7 @@ import { logAuditEvent } from '../services/audit.js';
 import {
   getFleetgraphSettings,
   setFleetgraphSweepEnabled,
+  setFleetgraphLlmVerdictsEnabled,
 } from '../services/workspace-settings.js';
 
 const router: RouterType = Router();
@@ -167,7 +168,21 @@ router.get(
   }
 );
 
-const FleetgraphSettingsBody = z.object({ sweepEnabled: z.boolean() });
+// Partial PATCH body — either or both flags may be set, but at least one
+// MUST be present. Empty body 400s via the `.refine()` check.
+const FleetgraphSettingsBody = z
+  .object({
+    sweepEnabled: z.boolean().optional(),
+    llmVerdictsEnabled: z.boolean().optional(),
+  })
+  .refine(
+    (body) =>
+      body.sweepEnabled !== undefined || body.llmVerdictsEnabled !== undefined,
+    {
+      message:
+        'At least one of sweepEnabled or llmVerdictsEnabled must be provided.',
+    }
+  );
 
 // PATCH /api/workspaces/settings/fleetgraph - Update FleetGraph settings (admin only)
 router.patch(
@@ -192,10 +207,24 @@ router.patch(
         });
         return;
       }
-      const updated = await setFleetgraphSweepEnabled(
-        req.workspaceId,
-        parsed.data.sweepEnabled
-      );
+      // Dispatch each present key to its dedicated single-statement setter.
+      // Order doesn't matter — both are independent jsonb_set writes against
+      // disjoint paths. Then re-read once to surface the truly-combined
+      // state, so the response always reflects BOTH flags regardless of
+      // which were updated.
+      if (parsed.data.sweepEnabled !== undefined) {
+        await setFleetgraphSweepEnabled(
+          req.workspaceId,
+          parsed.data.sweepEnabled
+        );
+      }
+      if (parsed.data.llmVerdictsEnabled !== undefined) {
+        await setFleetgraphLlmVerdictsEnabled(
+          req.workspaceId,
+          parsed.data.llmVerdictsEnabled
+        );
+      }
+      const updated = await getFleetgraphSettings(req.workspaceId);
       res.json(updated);
     } catch (error) {
       console.error('Update fleetgraph settings error:', error);
