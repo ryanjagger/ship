@@ -37,6 +37,8 @@ import type {
   FleetHypothesisPiece,
   FleetDedupReview,
   FleetDedupMatch,
+  DriftSignal,
+  InsightVerdict,
 } from '@ship/shared';
 import { hasText } from '../fleet-checks.js';
 import { pool as defaultPool } from '../../db/client.js';
@@ -48,7 +50,7 @@ import { getCompiledGraph, compileGraph } from './graph.js';
 import type { FleetContext, FleetEntityType } from './tools/read.js';
 import type { WriteProposal } from './tools/write.js';
 import type { FleetAnalysis } from './state.js';
-import type { PlanReviewAi } from './nodes/reason.js';
+import type { PlanReviewAi, DriftVerdictAi } from './nodes/reason.js';
 import type { InterruptPayload, ResumeValue } from './nodes/action.js';
 
 type CompiledGraph = ReturnType<typeof compileGraph>;
@@ -251,6 +253,125 @@ export async function runDedupReview(
     recommendation: ai.recommendation.trim() || null,
     ai_available: true,
   };
+}
+
+// ── drift (proactive, sweep-triggered drift verdict) ─────────────────────────
+
+/**
+ * Single wall-clock timeout (ms) around the entire `graph.invoke` for drift.
+ * Exported so tests can override via {@link setDriftGraphTimeoutMsForTests}.
+ * Drift is hourly cron — generous wall-clock, no per-node budgets.
+ */
+export const DRIFT_GRAPH_TIMEOUT_MS = 60_000;
+
+let driftGraphTimeoutMs: number = DRIFT_GRAPH_TIMEOUT_MS;
+
+/**
+ * Test-only seam. Lets graph.test.ts shrink the wall-clock to assert the
+ * timeout path in finite time without mutating the exported constant.
+ */
+export function setDriftGraphTimeoutMsForTests(ms: number): void {
+  driftGraphTimeoutMs = ms;
+}
+
+/**
+ * Thrown internally by `runDriftReasoning` when the wall-clock fires before
+ * `graph.invoke` resolves. Caller does not see it — it is caught and mapped to
+ * `{available: false}` like every other failure. Exported so tests can
+ * discriminate timeout from generic throws.
+ *
+ * CAVEAT: Promise.race does not cancel the in-flight LLM call — it just stops
+ * awaiting. The graph (and its model SDK call) continues executing in the
+ * background until completion or failure. Connection-pool resources release on
+ * completion. If observed in practice, follow-up adds AbortController wiring.
+ */
+export class DriftGraphTimeoutError extends Error {
+  constructor() {
+    super('Drift graph run exceeded timeout');
+    this.name = 'DriftGraphTimeoutError';
+  }
+}
+
+export interface RunDriftReasoningArgs {
+  entityId: string;
+  signals: DriftSignal[];
+  ctx: FleetContext;
+  /**
+   * Trace metadata forwarded to BOTH `RunnableConfig.metadata` (LangChain
+   * auto-trace root) and the drift reason branch's `evaluateStructured.metadata`
+   * (per-SDK-call wrapped span). Caller (sweep) sets exactly
+   * `{workspace_id, sweep_run_id}` — both UUIDs.
+   */
+  traceMetadata?: Record<string, string>;
+}
+
+export type RunDriftReasoningResult =
+  | { available: true; verdict: InsightVerdict }
+  | { available: false };
+
+/**
+ * Drive the compiled graph end-to-end for a single drifting project and lift
+ * the model's `{decision, reasoning}` verdict.
+ *
+ * Contract:
+ *   - Never throws. Any error (timeout, graph throw, missing verdict, degraded
+ *     analysis) returns `{available: false}`; sweep applies its deterministic
+ *     fallback.
+ *   - Service-principal expected: `args.ctx.userId` is the sentinel SYSTEM_USER_ID
+ *     and `args.ctx.isAdmin: true`, giving workspace-wide read access via
+ *     VISIBILITY_FILTER_SQL's existing admin short-circuit. `args.ctx.workspaceId`
+ *     scopes the run to one workspace.
+ *   - Timeout caveat: `Promise.race` does NOT cancel an in-flight LLM call. The
+ *     graph continues in the background after we stop awaiting it; the pool
+ *     connection releases on completion. See {@link DriftGraphTimeoutError}.
+ */
+export async function runDriftReasoning(
+  args: RunDriftReasoningArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<RunDriftReasoningResult> {
+  const runConfig: RunnableConfig = {
+    configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV, ...(args.traceMetadata ?? {}) },
+  };
+
+  const initialState = {
+    mode: 'drift' as const,
+    entityId: args.entityId,
+    entityType: 'project' as const,
+    ctx: args.ctx,
+    driftSignals: args.signals,
+    traceMetadata: args.traceMetadata ?? null,
+  };
+
+  let timerId: NodeJS.Timeout | undefined;
+  try {
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timerId = setTimeout(() => reject(new DriftGraphTimeoutError()), driftGraphTimeoutMs);
+    });
+    const final = (await Promise.race([
+      graph.invoke(initialState, runConfig),
+      timeoutPromise,
+    ])) as Record<string, unknown>;
+    if (timerId) clearTimeout(timerId);
+
+    const analysis = final.analysis as FleetAnalysis | null;
+    const dr = analysis?.driftReview as DriftVerdictAi | undefined;
+    if (!dr || final.degraded === true || analysis?.aiAvailable !== true) {
+      return { available: false };
+    }
+    return {
+      available: true,
+      verdict: { decision: dr.decision, reasoning: dr.reasoning },
+    };
+  } catch (err) {
+    if (timerId) clearTimeout(timerId);
+    const errName = err instanceof Error ? err.name : 'Unknown';
+    const errMessage = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[fleetgraph] runDriftReasoning failed (workspace=${args.ctx.workspaceId}): ${errName}: ${errMessage}`
+    );
+    return { available: false };
+  }
 }
 
 // ── chat ───────────────────────────────────────────────────────────────────

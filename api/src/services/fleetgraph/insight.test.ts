@@ -1,0 +1,1067 @@
+/**
+ * Unit tests for insight.ts. Mocked-pool style (mirrors fleet-service.test.ts):
+ * `pool.connect()` returns a fake client whose `query` we drive with
+ * `mockResolvedValueOnce` calls in the order the production code issues them.
+ * The point is to assert SQL SHAPE, ARGUMENT ORDER, and BRANCH SELECTION —
+ * NOT to run real SQL. Real Postgres exercises live in insight.concurrency.test.ts (U6).
+ *
+ * Each branch of the decision matrix gets one test (T1–T9). T10–T14 cover
+ * the transactional discipline (subject probe, rollback, statement_timeout
+ * ordering). T15–T16 are invariant assertions on the return shape.
+ */
+
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type {
+  InsightProperties,
+  InsightSeverity,
+  InsightVerdict,
+} from '@ship/shared';
+
+// ─── Mock setup ─────────────────────────────────────────────────────────
+// `pool.connect()` returns a fake PoolClient. The same `query` mock is also
+// reused for `pool.query` (used by getInsightInternal's post-write fetch).
+// vi.hoisted() declares the mocks alongside the vi.mock() factory so the
+// hoisting order is correct (vi.mock factories run before top-level code).
+const { mockClientQuery, mockRelease, mockPoolQuery } = vi.hoisted(() => ({
+  mockClientQuery: vi.fn(),
+  mockRelease: vi.fn(),
+  mockPoolQuery: vi.fn(),
+}));
+
+vi.mock('../../db/client.js', () => ({
+  pool: {
+    connect: vi.fn(async () => ({
+      query: mockClientQuery,
+      release: mockRelease,
+    })),
+    query: mockPoolQuery,
+  },
+}));
+
+import {
+  createOrRefreshInsight,
+  resolveInsight,
+  listInsights,
+  countInsights,
+  getInsight,
+  getInsightByIdentity,
+  InsightStateRaceError,
+  type CreateOrRefreshInsightArgs,
+} from './insight.js';
+
+// ─── Helpers ────────────────────────────────────────────────────────────
+
+const NOW = '2026-05-27T10:00:00.000Z';
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(NOW));
+  mockClientQuery.mockReset();
+  mockRelease.mockReset();
+  mockPoolQuery.mockReset();
+});
+
+function args(overrides: Partial<CreateOrRefreshInsightArgs> = {}): CreateOrRefreshInsightArgs {
+  return {
+    workspaceId: 'ws-1',
+    subjectId: 'subj-1',
+    subjectEntityType: 'project',
+    kind: 'project_drift',
+    severity: 'fyi',
+    summary: 'Project X is drifting',
+    recommendedAction: 'Review the plan',
+    evidence: { signals: [{ type: 'idle', reason: 'idle 9 days' }] },
+    verdict: { decision: 'SURFACE_FYI', reasoning: 'mild drift' } as InsightVerdict,
+    inputHash: 'hash-v1',
+    accountableOwnerId: null,
+    ...overrides,
+  };
+}
+
+function existingInsight(props: Partial<InsightProperties> = {}): InsightProperties {
+  return {
+    state: 'open',
+    kind: 'project_drift',
+    severity: 'fyi',
+    subject_id: 'subj-1',
+    subject_entity_type: 'project',
+    summary: 'old summary',
+    recommended_action: 'old action',
+    evidence: { signals: [] },
+    verdict: { decision: 'SURFACE_FYI', reasoning: 'old' },
+    input_hash: 'hash-v1',
+    accountable_owner_id: null,
+    first_seen_at: '2026-05-20T00:00:00.000Z',
+    last_seen_at: '2026-05-20T00:00:00.000Z',
+    last_changed_at: '2026-05-20T00:00:00.000Z',
+    occurrence_count: 1,
+    resolved_at: null,
+    resolved_reason: null,
+    snoozed_until: null,
+    dismissed_at: null,
+    dismissed_by: null,
+    ...props,
+  };
+}
+
+/**
+ * Build the canonical "create-branch" mock sequence. Order matches the
+ * production code: BEGIN, SET LOCAL, pg_advisory_xact_lock, SELECT existing
+ * (empty), SELECT subject FOR SHARE (hit), INSERT documents, INSERT
+ * document_associations, COMMIT, then the post-write getInsightInternal
+ * SELECT on `pool.query`.
+ */
+function mockCreateSequence(opts: { subjectFound: boolean; subjectTitle?: string }): void {
+  mockClientQuery
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // BEGIN
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SET LOCAL
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // advisory_xact_lock
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // SELECT existing → empty
+
+  if (!opts.subjectFound) {
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // subject FOR SHARE → miss
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // ROLLBACK
+    return;
+  }
+
+  const subjectTitle = opts.subjectTitle ?? 'Acme Migration';
+  mockClientQuery
+    .mockResolvedValueOnce({
+      rows: [{ title: subjectTitle, document_type: 'project' }],
+      rowCount: 1,
+    })
+    .mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'insight-1',
+          workspace_id: 'ws-1',
+          title: `Project drift: ${subjectTitle}`,
+          created_at: NOW,
+        },
+      ],
+      rowCount: 1,
+    })
+    .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // INSERT associations
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // COMMIT
+
+  // The post-write getInsightInternal pool.query fetch
+  mockPoolQuery.mockResolvedValueOnce({
+    rows: [
+      {
+        id: 'insight-1',
+        workspace_id: 'ws-1',
+        title: `Project drift: ${subjectTitle}`,
+        created_at: NOW,
+        ins: { /* not asserted on create — we return InsightProperties built in-process */ },
+        s_id: 'subj-1',
+        s_title: subjectTitle,
+        s_type: 'project',
+      },
+    ],
+    rowCount: 1,
+  });
+}
+
+/**
+ * Build the "refresh-branch" mock sequence. BEGIN, SET LOCAL,
+ * advisory_xact_lock, SELECT existing (hit with given props), UPDATE
+ * documents (one or two depending on branch), COMMIT, post-write SELECT.
+ */
+function mockRefreshSequence(opts: {
+  existing: InsightProperties;
+  insightId?: string;
+}): void {
+  const insightId = opts.insightId ?? 'insight-1';
+  mockClientQuery
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // BEGIN
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SET LOCAL
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // advisory_xact_lock
+    .mockResolvedValueOnce({
+      rows: [{ id: insightId, ins: opts.existing }],
+      rowCount: 1,
+    }) // SELECT existing → hit
+    .mockResolvedValueOnce({ rows: [], rowCount: 1 }) // UPDATE
+    .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // COMMIT
+
+  // Post-write getInsightInternal fetch
+  mockPoolQuery.mockResolvedValueOnce({
+    rows: [
+      {
+        id: insightId,
+        workspace_id: 'ws-1',
+        title: 'Project drift: Acme Migration',
+        created_at: '2026-05-20T00:00:00.000Z',
+        ins: opts.existing, // best-effort; the real post-write read would reflect changes
+        s_id: 'subj-1',
+        s_title: 'Acme Migration',
+        s_type: 'project',
+      },
+    ],
+    rowCount: 1,
+  });
+}
+
+// ─── Decision matrix tests (T1–T9) ──────────────────────────────────────
+
+describe('createOrRefreshInsight — decision matrix', () => {
+  // T1. First detection: empty SELECT → subject FOR SHARE hit → INSERT + association → COMMIT.
+  it('T1: first detection inserts a fresh OPEN row + discusses association', async () => {
+    mockCreateSequence({ subjectFound: true });
+    const result = await createOrRefreshInsight(args());
+
+    expect(result.didCreate).toBe(true);
+    expect(result.didEscalate).toBe(false);
+    expect(result.insight).not.toBeNull();
+
+    // SQL sequence ordering
+    const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
+    expect(calls[0]).toBe('BEGIN');
+    expect(calls[1]).toMatch(/SET LOCAL statement_timeout = '5s'/);
+    expect(calls[2]).toMatch(/pg_advisory_xact_lock\(hashtextextended/);
+    expect(calls[3]).toMatch(/SELECT id, properties->'fleetgraph_insight'/);
+    // Subject probe is workspace-scoped to prevent cross-workspace insight
+    // creation (caught by adversarial review F-A1).
+    expect(calls[4]).toMatch(
+      /SELECT title, document_type\s+FROM documents\s+WHERE id = \$1 AND workspace_id = \$2[\s\S]*FOR SHARE/
+    );
+    const subjectParams = mockClientQuery.mock.calls[4]![1] as unknown[];
+    expect(subjectParams[0]).toBe('subj-1');
+    expect(subjectParams[1]).toBe('ws-1');
+    expect(calls[5]).toMatch(/INSERT INTO documents/);
+    expect(calls[6]).toMatch(/INSERT INTO document_associations[\s\S]*'discusses'/);
+    expect(calls[7]).toBe('COMMIT');
+
+    // INSERT params: workspace_id, title, properties (JSON string)
+    const insertParams = mockClientQuery.mock.calls[5]![1] as unknown[];
+    expect(insertParams[0]).toBe('ws-1');
+    expect(insertParams[1]).toBe('Project drift: Acme Migration');
+    const props = JSON.parse(insertParams[2] as string);
+    expect(props.fleetgraph_insight.state).toBe('open');
+    expect(props.fleetgraph_insight.severity).toBe('fyi');
+    expect(props.fleetgraph_insight.subject_id).toBe('subj-1');
+    expect(props.fleetgraph_insight.input_hash).toBe('hash-v1');
+    expect(props.fleetgraph_insight.occurrence_count).toBe(1);
+    expect(props.fleetgraph_insight.first_seen_at).toBe(NOW);
+    expect(props.fleetgraph_insight.last_seen_at).toBe(NOW);
+    expect(props.fleetgraph_insight.last_changed_at).toBe(NOW);
+    expect(props.fleetgraph_insight.snoozed_until).toBeNull(); // reserved
+  });
+
+  // T2. Re-detection same hash: bump last_seen_at + occurrence_count only.
+  it('T2: same-hash re-detection bumps last_seen + count only', async () => {
+    mockRefreshSequence({ existing: existingInsight({ input_hash: 'hash-v1' }) });
+    const result = await createOrRefreshInsight(args({ inputHash: 'hash-v1' }));
+
+    expect(result.didCreate).toBe(false);
+    expect(result.didEscalate).toBe(false);
+
+    const updateSql = String(mockClientQuery.mock.calls[4]![0]);
+    expect(updateSql).toMatch(/last_seen_at/);
+    expect(updateSql).toMatch(/occurrence_count/);
+    // Critically: last_changed_at is NOT in the SQL for this branch
+    expect(updateSql).not.toMatch(/last_changed_at/);
+    expect(updateSql).not.toMatch(/severity/);
+    expect(updateSql).not.toMatch(/summary/);
+  });
+
+  // T3. Re-detection different hash, same severity: full evidence refresh.
+  it('T3: different-hash re-detection refreshes evidence + both timestamps', async () => {
+    mockRefreshSequence({ existing: existingInsight({ input_hash: 'hash-v1' }) });
+    const result = await createOrRefreshInsight(
+      args({ inputHash: 'hash-v2', summary: 'new summary' })
+    );
+
+    expect(result.didCreate).toBe(false);
+    expect(result.didEscalate).toBe(false);
+
+    // The refresh branch UPDATEs the whole fleetgraph_insight key
+    const updateSql = String(mockClientQuery.mock.calls[4]![0]);
+    expect(updateSql).toMatch(/jsonb_set\(properties, '\{fleetgraph_insight\}'/);
+
+    const newProps = JSON.parse(mockClientQuery.mock.calls[4]![1]![0]);
+    expect(newProps.input_hash).toBe('hash-v2');
+    expect(newProps.summary).toBe('new summary');
+    expect(newProps.last_seen_at).toBe(NOW);
+    expect(newProps.last_changed_at).toBe(NOW);
+    expect(newProps.occurrence_count).toBe(2); // 1 → 2
+    expect(newProps.state).toBe('open'); // unchanged
+    expect(newProps.severity).toBe('fyi'); // unchanged
+  });
+
+  // T4. FYI→ACT escalation on open row: severity bumped, didEscalate=true.
+  it('T4: FYI→ACT escalation sets didEscalate and severity=act', async () => {
+    mockRefreshSequence({ existing: existingInsight({ severity: 'fyi', input_hash: 'hash-v1' }) });
+    const result = await createOrRefreshInsight(args({ severity: 'act', inputHash: 'hash-v2' }));
+
+    expect(result.didEscalate).toBe(true);
+    const newProps = JSON.parse(mockClientQuery.mock.calls[4]![1]![0]);
+    expect(newProps.severity).toBe('act');
+    expect(newProps.state).toBe('open');
+  });
+
+  // T5. ACT→FYI de-escalation: silent, didEscalate=false.
+  it('T5: ACT→FYI de-escalation is silent (didEscalate=false)', async () => {
+    mockRefreshSequence({ existing: existingInsight({ severity: 'act', input_hash: 'hash-v1' }) });
+    const result = await createOrRefreshInsight(args({ severity: 'fyi', inputHash: 'hash-v2' }));
+
+    expect(result.didEscalate).toBe(false);
+    const newProps = JSON.parse(mockClientQuery.mock.calls[4]![1]![0]);
+    expect(newProps.severity).toBe('fyi');
+  });
+
+  // T6. Prior `resolved` row + new detection: existing SELECT excludes resolved
+  //     → falls into no-row branch → fresh INSERT.
+  it('T6: prior resolved row → fresh OPEN row inserted (append-only history)', async () => {
+    // The SELECT filters resolved out by `state IN (open,snoozed,dismissed)`, so
+    // a resolved row never surfaces. The fixture is the same as T1.
+    mockCreateSequence({ subjectFound: true });
+    const result = await createOrRefreshInsight(args());
+
+    expect(result.didCreate).toBe(true);
+    // Exactly one INSERT into documents
+    const insertCount = mockClientQuery.mock.calls.filter((c) =>
+      /INSERT INTO documents/.test(String(c[0]))
+    ).length;
+    expect(insertCount).toBe(1);
+  });
+
+  // T7. Prior `dismissed` + same-severity re-detection: silent refresh, state stays.
+  it('T7: dismissed + same severity → silent refresh, state stays dismissed', async () => {
+    mockRefreshSequence({
+      existing: existingInsight({ state: 'dismissed', severity: 'fyi', input_hash: 'hash-v1' }),
+    });
+    const result = await createOrRefreshInsight(args({ severity: 'fyi', inputHash: 'hash-v2' }));
+
+    expect(result.didEscalate).toBe(false);
+    const newProps = JSON.parse(mockClientQuery.mock.calls[4]![1]![0]);
+    expect(newProps.state).toBe('dismissed');
+  });
+
+  // T8. Prior `dismissed` FYI + FYI→ACT escalation: reopen to OPEN, didEscalate=true.
+  it('T8: dismissed FYI → ACT detection flips state=open AND didEscalate=true', async () => {
+    mockRefreshSequence({
+      existing: existingInsight({ state: 'dismissed', severity: 'fyi', input_hash: 'hash-v1' }),
+    });
+    const result = await createOrRefreshInsight(args({ severity: 'act', inputHash: 'hash-v2' }));
+
+    expect(result.didEscalate).toBe(true);
+    const newProps = JSON.parse(mockClientQuery.mock.calls[4]![1]![0]);
+    expect(newProps.state).toBe('open');
+    expect(newProps.severity).toBe('act');
+  });
+
+  // T9. Snoozed: silent refresh, never escalate, state stays snoozed.
+  it('T9: snoozed silently refreshes; didEscalate=false even on FYI→ACT', async () => {
+    mockRefreshSequence({
+      existing: existingInsight({ state: 'snoozed', severity: 'fyi', input_hash: 'hash-v1' }),
+    });
+    const result = await createOrRefreshInsight(args({ severity: 'act', inputHash: 'hash-v2' }));
+
+    expect(result.didEscalate).toBe(false);
+    const newProps = JSON.parse(mockClientQuery.mock.calls[4]![1]![0]);
+    expect(newProps.state).toBe('snoozed'); // stays
+    expect(newProps.severity).toBe('act'); // severity bumps; just no ping
+  });
+});
+
+// ─── Transaction discipline (T10–T14) ───────────────────────────────────
+
+describe('createOrRefreshInsight — transaction discipline', () => {
+  // T10. Subject deleted between sweep decide-to-create and the create call:
+  //      FOR SHARE returns empty → ROLLBACK, no INSERTs.
+  it('T10: missing subject → ROLLBACK, return didCreate=false, no INSERT', async () => {
+    mockCreateSequence({ subjectFound: false });
+    const result = await createOrRefreshInsight(args());
+
+    expect(result.didCreate).toBe(false);
+    expect(result.insight).toBeNull();
+    const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
+    expect(calls).toContain('ROLLBACK');
+    expect(calls.filter((s) => s.startsWith('INSERT INTO documents'))).toHaveLength(0);
+  });
+
+  // T10b. Cross-workspace subject: FOR SHARE filters by workspace_id, so a
+  //       subjectId from a foreign workspace returns empty → ROLLBACK, no
+  //       INSERT, didCreate=false. Same shape as T10 (missing subject) — the
+  //       fix prevents cross-tenant insight creation (F-A1).
+  it('T10b: subject in different workspace → ROLLBACK, no INSERT, didCreate=false', async () => {
+    mockCreateSequence({ subjectFound: false });
+    const result = await createOrRefreshInsight(args());
+
+    expect(result.didCreate).toBe(false);
+    expect(result.insight).toBeNull();
+    // The subject probe was scoped by workspace_id (assertion proves we
+    // didn't mutate the foreign-workspace row).
+    const subjectSql = String(mockClientQuery.mock.calls[4]![0]);
+    expect(subjectSql).toMatch(/workspace_id = \$2/);
+  });
+
+  // T11. document_associations INSERT rejected: ROLLBACK fires, COMMIT never called.
+  it('T11: associations INSERT failure → ROLLBACK, no COMMIT', async () => {
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // BEGIN
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SET LOCAL
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // advisory_xact_lock
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SELECT existing → empty
+      .mockResolvedValueOnce({
+        rows: [{ title: 'Acme', document_type: 'project' }],
+        rowCount: 1,
+      }) // subject FOR SHARE
+      .mockResolvedValueOnce({
+        rows: [{ id: 'insight-1', workspace_id: 'ws-1', title: 't', created_at: NOW }],
+        rowCount: 1,
+      }) // INSERT documents
+      .mockRejectedValueOnce(new Error('FK violation on document_associations')) // INSERT associations FAILS
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // ROLLBACK
+
+    await expect(createOrRefreshInsight(args())).rejects.toThrow(/FK violation/);
+
+    const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
+    expect(calls).toContain('ROLLBACK');
+    expect(calls).not.toContain('COMMIT');
+  });
+
+  // T12. Mid-transaction throw triggers ROLLBACK + release.
+  it('T12: mid-transaction error → ROLLBACK + release fires; error rethrown', async () => {
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // BEGIN
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SET LOCAL
+      .mockRejectedValueOnce(new Error('lock acquisition failed'))
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // ROLLBACK
+
+    await expect(createOrRefreshInsight(args())).rejects.toThrow(/lock acquisition failed/);
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+    const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
+    expect(calls).toContain('ROLLBACK');
+  });
+
+  // T13. SET LOCAL statement_timeout is set BEFORE the advisory lock.
+  it('T13: statement_timeout is SET LOCAL before advisory lock', async () => {
+    mockCreateSequence({ subjectFound: true });
+    await createOrRefreshInsight(args());
+    const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
+    const setLocalIdx = calls.findIndex((s) => /SET LOCAL statement_timeout/.test(s));
+    const lockIdx = calls.findIndex((s) => /pg_advisory_xact_lock/.test(s));
+    expect(setLocalIdx).toBeGreaterThanOrEqual(0);
+    expect(lockIdx).toBeGreaterThan(setLocalIdx);
+  });
+
+  // T13b. Existing-row SELECT takes FOR UPDATE — load-bearing for the
+  //       race against concurrent resolveInsight (caught by U6 T40).
+  it('T13b: existing-row SELECT takes FOR UPDATE to serialize against concurrent resolve', async () => {
+    mockRefreshSequence({ existing: existingInsight({ input_hash: 'hash-v1' }) });
+    await createOrRefreshInsight(args({ inputHash: 'hash-v1' }));
+    const selectSql = String(mockClientQuery.mock.calls[3]![0]);
+    expect(selectSql).toMatch(/FOR UPDATE/);
+  });
+
+  // T14. INSERT binds created_by as SQL NULL (not the string 'null').
+  it('T14: created_by is bound as SQL NULL in the INSERT statement', async () => {
+    mockCreateSequence({ subjectFound: true });
+    await createOrRefreshInsight(args());
+    const insertSql = String(mockClientQuery.mock.calls[5]![0]);
+    expect(insertSql).toMatch(/created_by/);
+    expect(insertSql).toMatch(/NULL/);
+    // params: $1=workspace, $2=title, $3=properties — created_by is the
+    // literal `NULL` in the SQL, NOT a $-parameter, so it's never bound.
+    const insertParams = mockClientQuery.mock.calls[5]![1] as unknown[];
+    expect(insertParams.length).toBe(3);
+  });
+});
+
+// ─── Invariants (T15–T16) ───────────────────────────────────────────────
+
+describe('createOrRefreshInsight — invariants', () => {
+  // T15. didCreate is true exactly when a documents INSERT fires.
+  it('T15: didCreate=true exactly when documents INSERT fires (create branch); false on refresh', async () => {
+    mockCreateSequence({ subjectFound: true });
+    const r1 = await createOrRefreshInsight(args());
+    expect(r1.didCreate).toBe(true);
+    expect(
+      mockClientQuery.mock.calls.some((c) => /INSERT INTO documents/.test(String(c[0])))
+    ).toBe(true);
+
+    mockClientQuery.mockReset();
+    mockPoolQuery.mockReset();
+    mockRefreshSequence({ existing: existingInsight() });
+    const r2 = await createOrRefreshInsight(args({ inputHash: 'hash-different' }));
+    expect(r2.didCreate).toBe(false);
+    expect(
+      mockClientQuery.mock.calls.some((c) => /INSERT INTO documents/.test(String(c[0])))
+    ).toBe(false);
+  });
+
+  // T16. didEscalate is true ONLY for FYI→ACT against open OR dismissed; never snoozed.
+  // (T16 follows)
+  it('T16: didEscalate fires only for FYI→ACT against open or dismissed', async () => {
+    // open FYI → ACT: TRUE
+    mockClientQuery.mockReset();
+    mockPoolQuery.mockReset();
+    mockRefreshSequence({
+      existing: existingInsight({ state: 'open', severity: 'fyi', input_hash: 'h0' }),
+    });
+    let r = await createOrRefreshInsight(args({ severity: 'act' as InsightSeverity, inputHash: 'h1' }));
+    expect(r.didEscalate).toBe(true);
+
+    // dismissed FYI → ACT: TRUE
+    mockClientQuery.mockReset();
+    mockPoolQuery.mockReset();
+    mockRefreshSequence({
+      existing: existingInsight({ state: 'dismissed', severity: 'fyi', input_hash: 'h0' }),
+    });
+    r = await createOrRefreshInsight(args({ severity: 'act' as InsightSeverity, inputHash: 'h1' }));
+    expect(r.didEscalate).toBe(true);
+
+    // snoozed FYI → ACT: FALSE (snooze suppresses pings)
+    mockClientQuery.mockReset();
+    mockPoolQuery.mockReset();
+    mockRefreshSequence({
+      existing: existingInsight({ state: 'snoozed', severity: 'fyi', input_hash: 'h0' }),
+    });
+    r = await createOrRefreshInsight(args({ severity: 'act' as InsightSeverity, inputHash: 'h1' }));
+    expect(r.didEscalate).toBe(false);
+
+    // open ACT → FYI: FALSE (only fyi→act counts)
+    mockClientQuery.mockReset();
+    mockPoolQuery.mockReset();
+    mockRefreshSequence({
+      existing: existingInsight({ state: 'open', severity: 'act', input_hash: 'h0' }),
+    });
+    r = await createOrRefreshInsight(args({ severity: 'fyi', inputHash: 'h1' }));
+    expect(r.didEscalate).toBe(false);
+  });
+});
+
+// ─── resolveInsight tests (T17–T24) ─────────────────────────────────────
+
+describe('resolveInsight', () => {
+  // T17. Resolve `open` → state=resolved, resolved_at stamped, priorState='open'.
+  it('T17: resolve open insight → didResolve=true, priorState=open', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'open', updated: true }],
+      rowCount: 1,
+    });
+
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
+    expect(result.didResolve).toBe(true);
+    expect(result.priorState).toBe('open');
+
+    // SQL shape: single CTE + FOR UPDATE statement
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/WITH locked AS/);
+    expect(sql).toMatch(/FOR UPDATE/);
+    expect(sql).toMatch(/jsonb_set.*'\{fleetgraph_insight,state\}'.*'"resolved"'/s);
+    expect(sql).toMatch(/locked\.prior_state <> 'resolved'/);
+  });
+
+  // T18. Resolve `resolved` → no-op, didResolve=false, no second resolved_at stamp.
+  it('T18: resolve already-resolved insight is a no-op (didResolve=false)', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'resolved', updated: false }],
+      rowCount: 1,
+    });
+
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
+    expect(result.didResolve).toBe(false);
+    expect(result.priorState).toBe('resolved');
+    // The UPDATE clause `locked.prior_state <> 'resolved'` filters it out
+    // server-side; we don't need to fire a second statement.
+    expect(mockPoolQuery).toHaveBeenCalledTimes(1);
+  });
+
+  // T19. Resolve `dismissed` → flip to resolved (auto-resolve targets any
+  // non-resolved status).
+  it('T19: resolve dismissed insight → didResolve=true (auto-resolve targets non-resolved)', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'dismissed', updated: true }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
+    expect(result.didResolve).toBe(true);
+    expect(result.priorState).toBe('dismissed');
+  });
+
+  // T20. Resolve `snoozed` → flip to resolved.
+  it('T20: resolve snoozed insight → didResolve=true', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'snoozed', updated: true }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
+    expect(result.didResolve).toBe(true);
+    expect(result.priorState).toBe('snoozed');
+  });
+
+  // T21. Resolve with expectedState='open' against an open row → succeeds.
+  // Params after the workspace-scoping fix: $1=insightId, $2=workspaceId,
+  // $3=now, $4=reason, $5=expectedState.
+  it('T21: expectedState matches → succeeds, $5 bound to the expected state', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'open', updated: true }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1', expectedState: 'open' });
+    expect(result.didResolve).toBe(true);
+
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params[0]).toBe('insight-1');
+    expect(params[1]).toBe('ws-1');
+    expect(params[4]).toBe('open'); // expectedState bound to $5
+  });
+
+  // T22. Resolve with expectedState='open' against a resolved row → throws.
+  it('T22: expectedState mismatch on non-resolved prior throws InsightStateRaceError', async () => {
+    // expectedState='open' but the row is 'snoozed' — updated=false, prior_state='snoozed'
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'snoozed', updated: false }],
+      rowCount: 1,
+    });
+
+    await expect(
+      resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1', expectedState: 'open' })
+    ).rejects.toBeInstanceOf(InsightStateRaceError);
+  });
+
+  // T22b. expectedState='open' but row already resolved → THROWS race error.
+  // The prior version of this test expected a silent no-op; that was a real
+  // bug (adversarial review F-A2) — the most common race outcome ("someone
+  // else resolved it first") returned success-shaped data and the caller
+  // couldn't distinguish "I resolved it" from "I lost the race".
+  it('T22b: expectedState=open on an already-resolved row throws (race detected)', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'resolved', updated: false }],
+      rowCount: 1,
+    });
+    await expect(
+      resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1', expectedState: 'open' })
+    ).rejects.toBeInstanceOf(InsightStateRaceError);
+  });
+
+  // T22c. Without expectedState, already-resolved is still a benign no-op.
+  it('T22c: expectedState omitted + already-resolved row → benign no-op, no throw', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'resolved', updated: false }],
+      rowCount: 1,
+    });
+    const result = await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1' });
+    expect(result.didResolve).toBe(false);
+    expect(result.priorState).toBe('resolved');
+  });
+
+  // T22d. CTE locks rows by (id, workspace_id) — cross-workspace insightId
+  // returns no-row priorState=null (benign), does NOT mutate the foreign row.
+  it('T22d: resolveInsight is workspace-scoped — foreign workspaceId gets no-row result', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const result = await resolveInsight({ insightId: 'foreign-insight', workspaceId: 'ws-1' });
+    expect(result.didResolve).toBe(false);
+    expect(result.priorState).toBeNull();
+
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/WHERE id = \$1 AND workspace_id = \$2 AND document_type = 'insight'/);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params[0]).toBe('foreign-insight');
+    expect(params[1]).toBe('ws-1');
+  });
+
+  // T23. Resolve a nonexistent id → returns null priorState, no throw.
+  it('T23: nonexistent id → returns priorState=null, didResolve=false', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const result = await resolveInsight({ insightId: 'missing-id', workspaceId: 'ws-1' });
+    expect(result.didResolve).toBe(false);
+    expect(result.priorState).toBeNull();
+  });
+
+  // T24. Reason is persisted via $4 (after the workspace-scoping fix:
+  // $1=insightId, $2=workspaceId, $3=now, $4=reason, $5=expectedState).
+  it('T24: reason param is bound to $4 and embedded via jsonb_set in resolved_reason', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ prior_state: 'open', updated: true }],
+      rowCount: 1,
+    });
+    await resolveInsight({ insightId: 'insight-1', workspaceId: 'ws-1', reason: 'drift_cleared' });
+
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params[3]).toBe('drift_cleared'); // reason bound to $4
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/resolved_reason/);
+  });
+});
+
+// ─── listInsights + countInsights + getInsight tests (T25–T36) ──────────
+
+describe('listInsights — visibility + ordering', () => {
+  function listRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'insight-1',
+      workspace_id: 'ws-1',
+      title: 'Project drift: Acme',
+      created_at: NOW,
+      ins: existingInsight(),
+      s_id: 'subj-1',
+      s_title: 'Acme',
+      s_type: 'project',
+      ...overrides,
+    };
+  }
+
+  // T25. Non-admin: visibility filter is the workspace+created_by branch (no `OR TRUE`).
+  it('T25: non-admin reads use the workspace+created_by visibility filter', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [listRow()], rowCount: 1 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/s\.visibility = 'workspace' OR s\.created_by = \$2\)/);
+    expect(sql).not.toMatch(/OR TRUE/);
+  });
+
+  // T28. Admin: filter collapses to include `OR TRUE` branch.
+  it('T28: admin reads include the OR TRUE branch on the visibility filter', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [listRow()], rowCount: 1 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: true });
+
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/OR TRUE\)/);
+  });
+
+  // T29 / T30. Subject deleted/archived filters are present.
+  it('T29: query filters s.deleted_at IS NULL', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    expect(String(mockPoolQuery.mock.calls[0]![0])).toMatch(/s\.deleted_at IS NULL/);
+  });
+  it('T30: query filters s.archived_at IS NULL', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    expect(String(mockPoolQuery.mock.calls[0]![0])).toMatch(/s\.archived_at IS NULL/);
+  });
+
+  // T31. Default state ('open') parameterized into the WHERE.
+  it("T31: default state binds 'open' as a parameter", async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/i\.properties->'fleetgraph_insight'->>'state' = \$\d+/);
+    // Should NOT hardcode the literal — state is parameterized now.
+    expect(sql).not.toMatch(/state' = 'open'/);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).toContain('open');
+  });
+
+  // T31b. state='resolved' parameterizes to 'resolved'.
+  it("T31b: state='resolved' binds 'resolved' into the state predicate", async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false, state: 'resolved' });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/i\.properties->'fleetgraph_insight'->>'state' = \$\d+/);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).toContain('resolved');
+    expect(params).not.toContain('open');
+  });
+
+  // T31c. state='all' drops the state predicate entirely.
+  it("T31c: state='all' omits the state predicate", async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false, state: 'all' });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).not.toMatch(/'fleetgraph_insight'->>'state' = /);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).not.toContain('open');
+    expect(params).not.toContain('all');
+  });
+
+  // T32. ORDER BY: ACT first, last_seen_at DESC, id DESC tiebreaker.
+  it('T32: ORDER BY severity (ACT first), last_seen_at DESC, id DESC tiebreaker', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/ORDER BY[\s\S]*severity[\s\S]*= 'act'\) DESC/);
+    expect(sql).toMatch(/last_seen_at[\s\S]*DESC/);
+    expect(sql).toMatch(/i\.id DESC/);
+  });
+
+  // T33. Returned shape includes subject_title + subject_document_type.
+  it('T33: returned rows include subject_title and subject_document_type', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [listRow()], rowCount: 1 });
+    const out = await listInsights({
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.subject_title).toBe('Acme');
+    expect(out[0]!.subject_document_type).toBe('project');
+    expect(out[0]!.id).toBe('insight-1');
+  });
+
+  // Cross-workspace constraint: s.workspace_id = i.workspace_id present in the JOIN.
+  it('subject join is constrained to same workspace_id', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    expect(String(mockPoolQuery.mock.calls[0]![0])).toMatch(
+      /JOIN documents s[\s\S]*s\.workspace_id = i\.workspace_id/
+    );
+  });
+
+  // Subject + kind filters supplied → both ANY clauses bound and parameters appended.
+  it('subject + kind filters bind ANY($N::uuid[]) / ANY($N::text[])', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await listInsights({
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+      subjectIds: ['subj-1', 'subj-2'],
+      kinds: ['project_drift'],
+    });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/s\.id = ANY\(\$\d+::uuid\[\]\)/);
+    expect(sql).toMatch(/kind' = ANY\(\$\d+::text\[\]\)/);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).toContain('ws-1');
+    expect(params).toContain('u-1');
+    expect(params).toEqual(expect.arrayContaining([['subj-1', 'subj-2']]));
+    expect(params).toEqual(expect.arrayContaining([['project_drift']]));
+  });
+});
+
+describe('getInsight — visibility-scoped single fetch', () => {
+  // T34. Returns null on visibility miss (404-shaped, not 403).
+  it('T34: invisible insight returns null (404-shape, not 403)', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsight('insight-x', {
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(out).toBeNull();
+  });
+
+  // T35. Nonexistent id returns null.
+  it('T35: nonexistent id returns null', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsight('does-not-exist', {
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(out).toBeNull();
+  });
+
+  // T36. Visible insight returns full FleetInsight shape with joined subject.
+  it('T36: visible insight returns full shape including joined subject metadata', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'insight-1',
+          workspace_id: 'ws-1',
+          title: 'Project drift: Acme',
+          created_at: NOW,
+          ins: existingInsight(),
+          s_id: 'subj-1',
+          s_title: 'Acme',
+          s_type: 'project',
+        },
+      ],
+      rowCount: 1,
+    });
+    const out = await getInsight('insight-1', {
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(out).not.toBeNull();
+    expect(out!.subject_title).toBe('Acme');
+    expect(out!.subject_document_type).toBe('project');
+    expect(out!.insight.state).toBe('open');
+  });
+
+  // SQL shape: same visibility filter applied to subject, same workspace constraint.
+  it('applies VISIBILITY_FILTER_SQL against the subject and constrains workspace', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await getInsight('insight-1', { workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/s\.workspace_id = i\.workspace_id/);
+    expect(sql).toMatch(/i\.workspace_id = \$2/);
+    expect(sql).toMatch(/s\.visibility = 'workspace' OR s\.created_by = \$3\)/);
+  });
+});
+
+// ─── countInsights tests ────────────────────────────────────────────────
+
+describe('countInsights — visibility-scoped count', () => {
+  it('returns parsed integer count for state="open"', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ count: '7' }], rowCount: 1 });
+    const n = await countInsights({
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(n).toBe(7);
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/SELECT COUNT\(\*\)/);
+    expect(sql).not.toMatch(/LIMIT/);
+    expect(sql).not.toMatch(/OFFSET/);
+    // Default state predicate still applied
+    expect(sql).toMatch(/i\.properties->'fleetgraph_insight'->>'state' = \$\d+/);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).toContain('open');
+  });
+
+  it('returns 0 when the row is missing', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const n = await countInsights({
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+    });
+    expect(n).toBe(0);
+  });
+
+  it('respects visibility filter (non-admin uses workspace+created_by branch)', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ count: '3' }], rowCount: 1 });
+    await countInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: false });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/s\.visibility = 'workspace' OR s\.created_by = \$2\)/);
+    expect(sql).not.toMatch(/OR TRUE/);
+  });
+
+  it('admin count collapses visibility filter to OR TRUE branch', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ count: '5' }], rowCount: 1 });
+    await countInsights({ workspaceId: 'ws-1', userId: 'u-1', isAdmin: true });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/OR TRUE\)/);
+  });
+
+  it('respects kind filter via ANY(text[])', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ count: '2' }], rowCount: 1 });
+    await countInsights({
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+      kinds: ['project_drift'],
+    });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/kind' = ANY\(\$\d+::text\[\]\)/);
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).toEqual(expect.arrayContaining([['project_drift']]));
+  });
+
+  it("state='all' drops the state predicate in the count query too", async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ count: '12' }], rowCount: 1 });
+    await countInsights({
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      isAdmin: false,
+      state: 'all',
+    });
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).not.toMatch(/'fleetgraph_insight'->>'state' = /);
+  });
+});
+
+// ─── getInsightByIdentity tests ─────────────────────────────────────────
+// Service-internal probe used by the sweep to short-circuit the LLM call
+// when an OPEN insight with a matching input_hash already exists.
+// Mocked-pool tests verify SQL SHAPE and PARAMETER ORDER; no visibility
+// filter and no JOIN are involved.
+
+describe('getInsightByIdentity — service-internal probe', () => {
+  // Happy path: an OPEN row is returned with the {id, state, inputHash} shape.
+  it('returns {id, state:"open", inputHash} when an OPEN row exists', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ id: 'insight-1', state: 'open', input_hash: 'hash-v1' }],
+      rowCount: 1,
+    });
+    const out = await getInsightByIdentity('ws-1', 'subj-1', 'project_drift');
+    expect(out).toEqual({ id: 'insight-1', state: 'open', inputHash: 'hash-v1' });
+
+    // SQL shape: documents-only query, no JOIN, no visibility filter.
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/FROM documents/);
+    expect(sql).not.toMatch(/document_associations/);
+    expect(sql).not.toMatch(/VISIBILITY/i);
+    expect(sql).not.toMatch(/visibility = 'workspace'/);
+    // Workspace + type + subject + kind + soft-delete predicates all present.
+    expect(sql).toMatch(/workspace_id = \$1/);
+    expect(sql).toMatch(/document_type = 'insight'/);
+    expect(sql).toMatch(/'subject_id' = \$2/);
+    expect(sql).toMatch(/'kind' = \$3/);
+    expect(sql).toMatch(/archived_at IS NULL/);
+    expect(sql).toMatch(/deleted_at IS NULL/);
+    // ORDER BY puts OPEN row first.
+    expect(sql).toMatch(/ORDER BY[\s\S]*'state' = 'open'\)\s+DESC/);
+    expect(sql).toMatch(/LIMIT 1/);
+
+    // Params match the call signature exactly.
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).toEqual(['ws-1', 'subj-1', 'project_drift']);
+  });
+
+  // No row at all → null.
+  it('returns null when no insight row exists for the identity', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsightByIdentity('ws-1', 'subj-missing', 'project_drift');
+    expect(out).toBeNull();
+  });
+
+  // Only a resolved row exists (no OPEN row). The ORDER BY pushes it last,
+  // but since it's the only row LIMIT 1 returns it. Sweep callers only act
+  // when state==='open', so returning the resolved row is benign.
+  it('returns the resolved row when no OPEN row exists', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ id: 'insight-resolved', state: 'resolved', input_hash: 'hash-old' }],
+      rowCount: 1,
+    });
+    const out = await getInsightByIdentity('ws-1', 'subj-1', 'project_drift');
+    expect(out).toEqual({
+      id: 'insight-resolved',
+      state: 'resolved',
+      inputHash: 'hash-old',
+    });
+  });
+
+  // Both OPEN and resolved rows exist → ORDER BY pulls the OPEN row first.
+  // (Postgres applies the ORDER BY; the mock simulates that by returning the
+  // OPEN row as the first/only row given LIMIT 1.)
+  it('ORDER BY surfaces the OPEN row first when both states are present', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ id: 'insight-open', state: 'open', input_hash: 'hash-v2' }],
+      rowCount: 1,
+    });
+    const out = await getInsightByIdentity('ws-1', 'subj-1', 'project_drift');
+    expect(out!.state).toBe('open');
+    expect(out!.id).toBe('insight-open');
+
+    // Verify the ORDER BY clause actually privileges OPEN — guards against
+    // someone removing the (state='open') DESC ordering and breaking the
+    // partial-unique-index-backed "OPEN row if any" guarantee.
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/'state' = 'open'\)\s+DESC/);
+  });
+
+  // Cross-workspace isolation: the SQL constrains workspace_id = $1, so a
+  // query against ws-B will not find a row that lives in ws-A. The mock
+  // simulates this by returning [] when the parameter doesn't match.
+  it('cross-workspace isolation: ws-B query does not return a ws-A row', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsightByIdentity('ws-B', 'subj-1', 'project_drift');
+    expect(out).toBeNull();
+
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params[0]).toBe('ws-B');
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/workspace_id = \$1/);
+  });
+
+  // Deleted/archived rows are excluded by the WHERE clause. The SQL shape
+  // test above already asserts the predicates; this test asserts the
+  // resulting behavior at the call boundary.
+  it('excludes archived and soft-deleted rows via WHERE predicates', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsightByIdentity('ws-1', 'subj-deleted', 'project_drift');
+    expect(out).toBeNull();
+
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/archived_at IS NULL/);
+    expect(sql).toMatch(/deleted_at IS NULL/);
+  });
+});

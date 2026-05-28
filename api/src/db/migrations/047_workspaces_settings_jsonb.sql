@@ -1,0 +1,31 @@
+-- Migration 047: workspaces.settings JSONB column
+--
+-- Adds a single JSONB column to the `workspaces` table so per-workspace
+-- configuration can land without requiring further schema migrations. The
+-- first consumer is the FleetGraph sweep toggle (stored under
+-- `settings.fleetgraph.sweep_enabled`); future consumers will namespace
+-- their own top-level keys (e.g. `notifications.*`).
+--
+-- Design notes (see docs/plans/2026-05-28-001-feat-fleetgraph-insight-surfacing-plan.md
+-- "Key Technical Decisions" → "`workspaces.settings` is a single JSONB column"):
+--
+--   1. Single JSONB column over a side table. A side table buys nothing
+--      today (no rows to query, no per-tenant audit history, no normalized
+--      queries) and would force a JOIN on every settings read.
+--
+--   2. NOT NULL DEFAULT '{}'::jsonb covers existing rows without a backfill —
+--      the default is applied at the moment ADD COLUMN executes, so every
+--      pre-existing workspace row gets `settings = '{}'` automatically.
+--
+--   3. Writes MUST be single-statement `jsonb_set(...)` with `create_missing
+--      = true` — never read-modify-write of the whole blob. This mirrors the
+--      JSONB write discipline established in
+--      api/src/services/fleetgraph/insight.ts (header lines 22-26).
+--
+-- Idempotent: ADD COLUMN IF NOT EXISTS, so re-running this migration on a DB
+-- that already has the column is a no-op. No CHECK constraint on shape —
+-- callers are responsible for sane keys; the typed accessor in
+-- api/src/services/workspace-settings.ts is the contract.
+
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS settings JSONB NOT NULL DEFAULT '{}'::jsonb;

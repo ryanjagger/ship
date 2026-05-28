@@ -39,9 +39,9 @@ import type { FleetContext } from './tools/read.js';
 import type { FleetEntityType } from './tools/read.js';
 import type { FetchNodeOutput } from './nodes/fetch.js';
 import type { WriteProposal, ExecuteResult } from './tools/write.js';
-import type { FleetDedupCandidate } from '@ship/shared';
+import type { FleetDedupCandidate, DriftSignal } from '@ship/shared';
 
-export type FleetMode = 'plan_review' | 'chat' | 'dedup';
+export type FleetMode = 'plan_review' | 'chat' | 'dedup' | 'drift';
 
 /** The structured analysis the reasoning node produces (mode-shaped). */
 export interface FleetAnalysis {
@@ -57,6 +57,12 @@ export interface FleetAnalysis {
    * FleetDedupReview-shaped result. Opaque to the graph.
    */
   dedupReview?: unknown;
+  /**
+   * For drift: the structured drift verdict the entry point lifts into an
+   * InsightVerdict-shaped result. Opaque to the graph; downcast at the
+   * runDriftReasoning boundary.
+   */
+  driftReview?: unknown;
   /** True when the model contributed (vs. a neutral-degraded path). */
   aiAvailable: boolean;
 }
@@ -87,6 +93,24 @@ export const FleetGraphState = Annotation.Root({
   // candidates the reason node judges for true duplication. Both REPLACE.
   draftTitle: Annotation<string>({ reducer: replace<string>(), default: () => '' }),
   candidates: Annotation<FleetDedupCandidate[]>({ reducer: replace<FleetDedupCandidate[]>(), default: () => [] }),
+
+  // ── drift input (seeded once by the entry point) ──
+  /**
+   * The deterministic drift signals (idle / stale plan / rising incomplete work)
+   * the sweep computed for the focal project. The drift reason branch serializes
+   * them into the user prompt. REPLACE.
+   */
+  driftSignals: Annotation<DriftSignal[]>({ reducer: replace<DriftSignal[]>(), default: () => [] }),
+  /**
+   * Optional per-run trace metadata (mode-agnostic; today only drift threads it
+   * through). The drift reason branch forwards it into `evaluateStructured`'s
+   * `metadata` field so LangSmith spans are filterable by e.g. `workspace_id` +
+   * `sweep_run_id`. REPLACE.
+   */
+  traceMetadata: Annotation<Record<string, string> | null>({
+    reducer: replace<Record<string, string> | null>(),
+    default: () => null,
+  }),
 
   // ── fetched context (REPLACE — complete snapshot from U5) ──
   fetched: Annotation<FetchNodeOutput | null>({ reducer: replace<FetchNodeOutput | null>(), default: () => null }),

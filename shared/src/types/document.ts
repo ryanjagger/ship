@@ -155,6 +155,66 @@ export interface Drift {
   signals: DriftSignal[];
 }
 
+// FleetGraph insight — system-authored backing-store for proactive sweep findings.
+// Persisted as `document_type='insight'` documents (hidden from generic surfaces);
+// lifecycle state lives under `properties.fleetgraph_insight`. `'insight'` is
+// deliberately excluded from the `DocumentType` union above — it is server-internal
+// engine state, not a client-rendered document kind. Visibility is evaluated against
+// the SUBJECT at read time (not stored on the insight), so subject-visibility flips
+// take effect without a backfill. See `api/src/services/fleetgraph/insight.ts`.
+
+export type InsightKind = 'project_drift';
+
+export type InsightStatus = 'open' | 'resolved' | 'snoozed' | 'dismissed';
+
+export type InsightSeverity = 'fyi' | 'act';
+
+export type InsightVerdictDecision = 'SUPPRESS' | 'SURFACE_FYI' | 'SURFACE_ACT';
+
+export interface InsightVerdict {
+  decision: InsightVerdictDecision;
+  reasoning: string;
+}
+
+// The blob under `properties.fleetgraph_insight`. All writes touch this nested
+// object via single-statement deep-path `jsonb_set('{fleetgraph_insight,<field>}', …)`
+// — never read-modify-write of the whole `properties` blob.
+export interface InsightProperties {
+  state: InsightStatus;
+  kind: InsightKind;
+  severity: InsightSeverity;
+  subject_id: string;
+  subject_entity_type: string;            // 'project' for v1; extensible
+  summary: string;
+  recommended_action: string;
+  evidence: Record<string, unknown>;      // detector-shaped (e.g. DriftSignal[] + facts)
+  verdict: InsightVerdict;
+  input_hash: string;
+  accountable_owner_id: string | null;
+  first_seen_at: string;                  // ISO 8601
+  last_seen_at: string;                   // bumped on every observation
+  last_changed_at: string;                // bumped only when evidence changes
+  occurrence_count: number;
+  resolved_at: string | null;
+  resolved_reason: string | null;
+  snoozed_until: string | null;           // reserved; no v1 writer
+  dismissed_at: string | null;
+  dismissed_by: string | null;
+}
+
+// Read shape returned by `getInsight` / `listInsights`. The subject doc is
+// joined at read time and its title + type are included to avoid caller N+1.
+export interface FleetInsight {
+  id: string;
+  workspace_id: string;
+  title: string;                          // descriptive, e.g. "Project drift: <title>"
+  created_at: string;
+  insight: InsightProperties;
+  subject_id: string;
+  subject_title: string;
+  subject_document_type: DocumentType;
+}
+
 // Approval tracking state for accountability workflows
 export type ApprovalState = null | 'approved' | 'changed_since_approved' | 'changes_requested';
 

@@ -49,6 +49,7 @@
     "helmet": "^8.0.0",
     "langsmith": "^0.7.2",
     "lib0": "^0.2.99",
+    "node-cron": "^4.0.0",
     "openai": "^6.39.0",
     "openid-client": "^6.8.1",
     "pg": "^8.13.1",
