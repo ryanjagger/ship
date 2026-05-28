@@ -43,7 +43,7 @@ describe('getWorkspaceSettings', () => {
 
     expect(result).toEqual({});
     expect(mockPoolQuery).toHaveBeenCalledTimes(1);
-    const [sql, params] = mockPoolQuery.mock.calls[0];
+    const [sql, params] = mockPoolQuery.mock.calls[0]!;
     expect(sql).toMatch(/SELECT settings FROM workspaces WHERE id = \$1/);
     expect(params).toEqual(['ws-1']);
   });
@@ -161,7 +161,7 @@ describe('setFleetgraphSweepEnabled', () => {
     expect(result).toEqual({ sweepEnabled: true });
     expect(mockPoolQuery).toHaveBeenCalledTimes(1);
 
-    const [sql, params] = mockPoolQuery.mock.calls[0];
+    const [sql, params] = mockPoolQuery.mock.calls[0]!;
     // SQL shape: single statement, jsonb_set on COALESCE'd settings, deep path,
     // $1::jsonb param, create_missing = true.
     expect(sql).toMatch(/UPDATE workspaces/);
@@ -182,7 +182,7 @@ describe('setFleetgraphSweepEnabled', () => {
     const result = await setFleetgraphSweepEnabled('ws-1', false);
 
     expect(result).toEqual({ sweepEnabled: false });
-    const [, params] = mockPoolQuery.mock.calls[0];
+    const [, params] = mockPoolQuery.mock.calls[0]!;
     expect(params).toEqual(['false', 'ws-1']);
   });
 
@@ -194,7 +194,7 @@ describe('setFleetgraphSweepEnabled', () => {
 
     await setFleetgraphSweepEnabled('ws-1', true);
 
-    const [sql] = mockPoolQuery.mock.calls[0];
+    const [sql] = mockPoolQuery.mock.calls[0]!;
     // The path is the deep nested one, not a top-level replace.
     expect(sql).toMatch(/'\{fleetgraph,sweep_enabled\}'/);
     // No `settings = $1` pattern (that would clobber unrelated keys).

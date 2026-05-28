@@ -40,10 +40,11 @@ export async function getWorkspaceSettings(
     'SELECT settings FROM workspaces WHERE id = $1',
     [workspaceId]
   );
-  if (result.rowCount === 0) {
+  const row = result.rows[0];
+  if (!row) {
     return {};
   }
-  return result.rows[0].settings ?? {};
+  return row.settings ?? {};
 }
 
 /**
