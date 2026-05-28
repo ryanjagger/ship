@@ -14,8 +14,17 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { pool } from '../../db/client.js';
 import { ConversationDocCheckpointSaver } from './checkpointer.js';
 import { compileGraph } from './graph.js';
-import { runPlanReview, runChatTurn, resumeChatTurn, runDedupReview } from './index.js';
-import { PLAN_SYSTEM_PROMPT } from './nodes/reason.js';
+import {
+  runPlanReview,
+  runChatTurn,
+  resumeChatTurn,
+  runDedupReview,
+  runDriftReasoning,
+  setDriftGraphTimeoutMsForTests,
+  DRIFT_GRAPH_TIMEOUT_MS,
+} from './index.js';
+import { PLAN_SYSTEM_PROMPT, DRIFT_SCHEMA_NAME } from './nodes/reason.js';
+import type { DriftSignal } from '@ship/shared';
 import type { FleetContext } from './tools/read.js';
 import type { WriteProposal, ExecuteResult } from './tools/write.js';
 import { buildCreateIssueProposal } from './tools/write.js';
@@ -529,6 +538,302 @@ describe('chat turn (R4, R5)', () => {
     expect(res.status).toBe('answer');
     if (res.status === 'answer') {
       expect(res.answer).toMatch(/unavailable/i);
+    }
+  });
+});
+
+// ── drift (sweep-triggered, graph-routed verdict) ────────────────────────────
+
+describe('runDriftReasoning', () => {
+  const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+  const SWEEP_RUN_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+  const signals: DriftSignal[] = [
+    { type: 'idle', reason: 'No movement in 14 days' },
+    { type: 'stale_plan', reason: 'Plan untouched for 24 days' },
+  ];
+
+  // Service-principal ctx: sentinel userId + isAdmin: true. Matches the shape
+  // sweep constructs in U4.
+  const adminCtx = (): FleetContext => ({
+    workspaceId,
+    userId: SYSTEM_USER_ID,
+    isAdmin: true,
+  });
+
+  const traceMetadata = (): Record<string, string> => ({
+    workspace_id: workspaceId,
+    sweep_run_id: SWEEP_RUN_ID,
+  });
+
+  beforeEach(() => {
+    fleetAiEval.mockReset();
+    // Restore the default wall-clock for every test (a prior test may have
+    // shrunk it to assert the timeout path).
+    setDriftGraphTimeoutMsForTests(DRIFT_GRAPH_TIMEOUT_MS);
+  });
+
+  it('happy path: SURFACE_ACT — lifts verdict, pins schemaName + maxTokens + per-call metadata', async () => {
+    const captured: Array<Record<string, unknown>> = [];
+    fleetAiEval.mockImplementation(async (req: Record<string, unknown>) => {
+      captured.push(req);
+      return { decision: 'SURFACE_ACT', reasoning: 'idle for two weeks plus stale plan' };
+    });
+
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+
+    const result = await runDriftReasoning(
+      {
+        entityId: projectId,
+        signals,
+        ctx: adminCtx(),
+        traceMetadata: traceMetadata(),
+      },
+      graph
+    );
+
+    expect(result.available).toBe(true);
+    if (result.available) {
+      expect(result.verdict.decision).toBe('SURFACE_ACT');
+      expect(result.verdict.reasoning).toBe('idle for two weeks plus stale plan');
+    }
+
+    // Schema-name pinned, maxTokens bound, metadata threaded into per-SDK-call
+    // span (workspace_id + sweep_run_id present).
+    expect(captured).toHaveLength(1);
+    const req = captured[0]!;
+    expect(req.schemaName).toBe(DRIFT_SCHEMA_NAME);
+    expect(req.schemaName).toBe('DriftVerdict');
+    expect(req.maxTokens).toBe(200);
+    const md = req.metadata as Record<string, string> | undefined;
+    expect(md).toBeDefined();
+    expect(md!.workspace_id).toBe(workspaceId);
+    expect(md!.sweep_run_id).toBe(SWEEP_RUN_ID);
+  });
+
+  it('happy path: SURFACE_FYI flows through', async () => {
+    fleetAiEval.mockResolvedValue({
+      decision: 'SURFACE_FYI',
+      reasoning: 'informational drift only',
+    });
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+    const result = await runDriftReasoning(
+      { entityId: projectId, signals, ctx: adminCtx(), traceMetadata: traceMetadata() },
+      graph
+    );
+    expect(result.available).toBe(true);
+    if (result.available) {
+      expect(result.verdict.decision).toBe('SURFACE_FYI');
+    }
+  });
+
+  it('happy path: SUPPRESS flows through (entry point does not filter — sweep decides)', async () => {
+    fleetAiEval.mockResolvedValue({
+      decision: 'SUPPRESS',
+      reasoning: 'signals do not represent meaningful drift',
+    });
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+    const result = await runDriftReasoning(
+      { entityId: projectId, signals, ctx: adminCtx(), traceMetadata: traceMetadata() },
+      graph
+    );
+    expect(result.available).toBe(true);
+    if (result.available) {
+      expect(result.verdict.decision).toBe('SUPPRESS');
+    }
+  });
+
+  it('ai_unavailable degrades to {available: false}', async () => {
+    fleetAiEval.mockResolvedValue({ error: 'ai_unavailable' });
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+    const result = await runDriftReasoning(
+      { entityId: projectId, signals, ctx: adminCtx(), traceMetadata: traceMetadata() },
+      graph
+    );
+    expect(result.available).toBe(false);
+  });
+
+  it('ai_parse_error degrades to {available: false}', async () => {
+    fleetAiEval.mockResolvedValue({ error: 'ai_parse_error' });
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+    const result = await runDriftReasoning(
+      { entityId: projectId, signals, ctx: adminCtx(), traceMetadata: traceMetadata() },
+      graph
+    );
+    expect(result.available).toBe(false);
+  });
+
+  it('graph invoke throws (non-FleetAiError) → {available: false} via try/catch', async () => {
+    fleetAiEval.mockImplementation(async () => {
+      throw new Error('underlying graph throw');
+    });
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+    const result = await runDriftReasoning(
+      { entityId: projectId, signals, ctx: adminCtx(), traceMetadata: traceMetadata() },
+      graph
+    );
+    expect(result.available).toBe(false);
+  });
+
+  it('timeout: a never-resolving model call hits the wall-clock and returns {available: false}', async () => {
+    // Shrink the timeout so the test runs in finite time. Restored by beforeEach.
+    setDriftGraphTimeoutMsForTests(100);
+    fleetAiEval.mockImplementation(
+      () => new Promise(() => { /* never resolves */ })
+    );
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+
+    const start = Date.now();
+    const result = await runDriftReasoning(
+      { entityId: projectId, signals, ctx: adminCtx(), traceMetadata: traceMetadata() },
+      graph
+    );
+    const elapsed = Date.now() - start;
+    expect(result.available).toBe(false);
+    // Promise.race resolves shortly after the 100ms timer fires.
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  it('trace metadata flows into graph.invoke RunnableConfig.metadata', async () => {
+    fleetAiEval.mockResolvedValue({
+      decision: 'SURFACE_FYI',
+      reasoning: 'informational',
+    });
+    const graph = compileGraph({
+      checkpointer: newCheckpointer(),
+      reason: { availableOverride: true },
+    });
+    const invokeSpy = vi.spyOn(graph, 'invoke');
+
+    await runDriftReasoning(
+      { entityId: projectId, signals, ctx: adminCtx(), traceMetadata: traceMetadata() },
+      graph
+    );
+
+    expect(invokeSpy).toHaveBeenCalledTimes(1);
+    const callArgs = invokeSpy.mock.calls[0]!;
+    const runConfig = callArgs[1] as { metadata?: Record<string, string> };
+    expect(runConfig.metadata).toBeDefined();
+    expect(runConfig.metadata!.workspace_id).toBe(workspaceId);
+    expect(runConfig.metadata!.sweep_run_id).toBe(SWEEP_RUN_ID);
+    expect(runConfig.metadata!.environment).toBeDefined();
+    invokeSpy.mockRestore();
+  });
+
+  it('cross-workspace isolation: ctx scoped to a different workspace → {available: false} and LLM not called', async () => {
+    // Spin up a second workspace; the projectId from ws-A is invisible to ws-B's ctx.
+    const wsB = await pool.query<{ id: string }>(
+      `INSERT INTO workspaces (name) VALUES ('U3 Drift WS B') RETURNING id`
+    );
+    const wsBId = wsB.rows[0]!.id;
+    try {
+      const otherCtx: FleetContext = {
+        workspaceId: wsBId,
+        userId: SYSTEM_USER_ID,
+        isAdmin: true,
+      };
+
+      const graph = compileGraph({
+        checkpointer: newCheckpointer(),
+        reason: { availableOverride: true },
+      });
+
+      const result = await runDriftReasoning(
+        { entityId: projectId, signals, ctx: otherCtx, traceMetadata: traceMetadata() },
+        graph
+      );
+
+      expect(result.available).toBe(false);
+      // The focal is invisible cross-workspace, so the reason node degrades before
+      // ever invoking the LLM. Asserts the fetch-node visibility guard fires.
+      expect(fleetAiEval).not.toHaveBeenCalled();
+    } finally {
+      await pool.query(`DELETE FROM workspaces WHERE id = $1`, [wsBId]);
+    }
+  });
+
+  it('sentinel userId + isAdmin: true reads a workspace-private project authored by another user', async () => {
+    // Seed a fresh workspace + a second user; the second user authors a
+    // workspace-visibility project. The admin sentinel ctx (different userId)
+    // must still be able to read it via VISIBILITY_FILTER_SQL's admin
+    // short-circuit, and the LLM must be reached.
+    const ws = await pool.query<{ id: string }>(
+      `INSERT INTO workspaces (name) VALUES ('U3 Drift Admin WS') RETURNING id`
+    );
+    const wsAdminId = ws.rows[0]!.id;
+    const otherUser = await pool.query<{ id: string }>(
+      `INSERT INTO users (email, password_hash, name)
+       VALUES ('other-drift@ship.local','h','OtherDrift') RETURNING id`
+    );
+    const otherUserId = otherUser.rows[0]!.id;
+    await pool.query(
+      `INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1,$2,'member')`,
+      [wsAdminId, otherUserId]
+    );
+    const proj = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, properties, visibility, created_by)
+       VALUES ($1,'project','Other-owned project',
+               '{"plan":"Ship the thing","target_date":null}'::jsonb,
+               'workspace', $2)
+       RETURNING id`,
+      [wsAdminId, otherUserId]
+    );
+    const otherProjectId = proj.rows[0]!.id;
+
+    try {
+      fleetAiEval.mockResolvedValue({
+        decision: 'SURFACE_ACT',
+        reasoning: 'admin sees the focal and the model reasoned',
+      });
+
+      const graph = compileGraph({
+        checkpointer: newCheckpointer(),
+        reason: { availableOverride: true },
+      });
+
+      const result = await runDriftReasoning(
+        {
+          entityId: otherProjectId,
+          signals,
+          ctx: {
+            workspaceId: wsAdminId,
+            userId: SYSTEM_USER_ID,
+            isAdmin: true,
+          },
+          traceMetadata: traceMetadata(),
+        },
+        graph
+      );
+
+      expect(result.available).toBe(true);
+      if (result.available) {
+        expect(result.verdict.decision).toBe('SURFACE_ACT');
+      }
+      // Confirms reasonDrift was actually reached (LLM call fired).
+      expect(fleetAiEval).toHaveBeenCalledTimes(1);
+    } finally {
+      await pool.query(`DELETE FROM workspaces WHERE id = $1`, [wsAdminId]);
     }
   });
 });
