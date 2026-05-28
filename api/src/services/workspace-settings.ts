@@ -25,6 +25,7 @@ import { pool } from '../db/client.js';
 /** Typed shape of the `fleetgraph` namespace within `workspaces.settings`. */
 export interface FleetgraphSettings {
   sweepEnabled: boolean;
+  llmVerdictsEnabled: boolean;
 }
 
 /**
@@ -49,16 +50,22 @@ export async function getWorkspaceSettings(
 
 /**
  * Returns the FleetGraph-namespaced subset of the workspace settings, typed.
- * Missing keys default to `{ sweepEnabled: false }` — the sweep is opt-in.
+ * Missing keys default to `{ sweepEnabled: false, llmVerdictsEnabled: false }`
+ * — both features are opt-in. Both reads use a strict `=== true` check to
+ * defend against stray non-boolean values accidentally enabling either flag.
  */
 export async function getFleetgraphSettings(
   workspaceId: string
 ): Promise<FleetgraphSettings> {
   const settings = await getWorkspaceSettings(workspaceId);
-  const fleetgraph = (settings as { fleetgraph?: { sweep_enabled?: unknown } })
-    .fleetgraph;
+  const fleetgraph = (
+    settings as {
+      fleetgraph?: { sweep_enabled?: unknown; llm_verdicts_enabled?: unknown };
+    }
+  ).fleetgraph;
   const sweepEnabled = fleetgraph?.sweep_enabled === true;
-  return { sweepEnabled };
+  const llmVerdictsEnabled = fleetgraph?.llm_verdicts_enabled === true;
+  return { sweepEnabled, llmVerdictsEnabled };
 }
 
 /**
@@ -79,15 +86,57 @@ export async function setFleetgraphSweepEnabled(
   enabled: boolean
 ): Promise<FleetgraphSettings> {
   await pool.query(
+    // Deep-merge pattern (||) instead of jsonb_set. jsonb_set with
+    // create_missing=true only creates LEAF keys when the immediate parent
+    // exists; a fresh workspace has settings='{}' so settings.fleetgraph
+    // doesn't exist and jsonb_set silently returns the original value.
+    // The double `||` merges both the top-level (preserve unrelated keys)
+    // AND the fleetgraph sub-object (preserve the sibling key).
     `UPDATE workspaces
-        SET settings = jsonb_set(
-              COALESCE(settings, '{}'::jsonb),
-              '{fleetgraph,sweep_enabled}',
-              $1::jsonb,
-              true
+        SET settings = COALESCE(settings, '{}'::jsonb) || jsonb_build_object(
+              'fleetgraph',
+              COALESCE(settings->'fleetgraph', '{}'::jsonb)
+                || jsonb_build_object('sweep_enabled', $1::jsonb)
             )
       WHERE id = $2`,
     [JSON.stringify(enabled), workspaceId]
   );
-  return { sweepEnabled: enabled };
+  // Lean return: report the just-set value alongside a default-false for
+  // the OTHER key. The PATCH route handler does a final `getFleetgraphSettings`
+  // read to surface the truly-combined state when callers need both flags
+  // (e.g. partial PATCH responses).
+  return { sweepEnabled: enabled, llmVerdictsEnabled: false };
+}
+
+/**
+ * Sets `settings.fleetgraph.llm_verdicts_enabled` to the given boolean.
+ *
+ * Mirrors `setFleetgraphSweepEnabled` exactly — single-statement `jsonb_set`
+ * with `create_missing = true`, COALESCE on a potentially-NULL settings
+ * column, deep-path write that preserves any sibling key (notably
+ * `sweep_enabled`) and any unrelated top-level namespaces.
+ *
+ * Returns the lean just-set view (matching `setFleetgraphSweepEnabled`).
+ * The PATCH route handler is responsible for re-reading via
+ * `getFleetgraphSettings` when it needs the truly-combined response.
+ */
+export async function setFleetgraphLlmVerdictsEnabled(
+  workspaceId: string,
+  enabled: boolean
+): Promise<FleetgraphSettings> {
+  await pool.query(
+    // Deep-merge pattern (||) — see setFleetgraphSweepEnabled for rationale.
+    // jsonb_set with create_missing=true does NOT create intermediate
+    // objects; a fresh workspace's settings='{}' means settings.fleetgraph
+    // must be created via `||` merge to avoid a silent no-op write.
+    `UPDATE workspaces
+        SET settings = COALESCE(settings, '{}'::jsonb) || jsonb_build_object(
+              'fleetgraph',
+              COALESCE(settings->'fleetgraph', '{}'::jsonb)
+                || jsonb_build_object('llm_verdicts_enabled', $1::jsonb)
+            )
+      WHERE id = $2`,
+    [JSON.stringify(enabled), workspaceId]
+  );
+  return { sweepEnabled: false, llmVerdictsEnabled: enabled };
 }

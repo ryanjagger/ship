@@ -12,13 +12,34 @@
  * associated-with-project.md).
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { pool } from '../../db/client.js';
 import {
   sweepWorkspaceDrift,
   SweepInProgressError,
 } from './sweep.js';
 import { listInsights } from './insight.js';
+import { setFleetgraphLlmVerdictsEnabled } from '../workspace-settings.js';
+
+// ─── LLM-call mock plumbing ─────────────────────────────────────────────
+// We mock `generateDriftVerdict` (the verdictGenerator export sweep.ts
+// directly imports) rather than `evaluateStructured` (the transitive
+// dependency through verdictGenerator). vitest's module mock propagates
+// to the SUT's direct imports reliably; the transitive-mock path proved
+// fragile against the langsmith-wrapped fleet-ai module graph.
+const { mockGenerateDriftVerdict } = vi.hoisted(() => ({
+  mockGenerateDriftVerdict: vi.fn(),
+}));
+
+vi.mock('./verdictGenerator.js', async () => {
+  const actual = await vi.importActual<typeof import('./verdictGenerator.js')>(
+    './verdictGenerator.js'
+  );
+  return {
+    ...actual,
+    generateDriftVerdict: mockGenerateDriftVerdict,
+  };
+});
 
 // ─── Fixtures ───────────────────────────────────────────────────────────
 
@@ -227,6 +248,109 @@ describe('C4: sweep against a workspace with no projects', () => {
       created: 0,
       refreshed: 0,
       skipped: 0,
+      suppressed: 0,
+      degraded: false,
     });
+  });
+});
+
+// ─── C5 — LLM verdicts ENABLED + SUPPRESS: no insight rows created ────
+
+describe('C5: parallel sweeps with LLM SUPPRESS — no insight rows created', () => {
+  it('both observe suppressed:1 (or 0 + lock-busy); zero open insight rows', async () => {
+    await clearInsightsForWorkspace(workspaceId);
+    await setFleetgraphLlmVerdictsEnabled(workspaceId, true);
+    try {
+      mockGenerateDriftVerdict.mockReset();
+      // generateDriftVerdict returns a VerdictOutput-shaped object — the
+      // sweep reads .verdict.decision === 'SUPPRESS' to short-circuit.
+      mockGenerateDriftVerdict.mockResolvedValue({
+        verdict: {
+          decision: 'SUPPRESS',
+          reasoning: 'noise-level drift, not worth surfacing',
+        },
+        degraded: false,
+        source: 'llm',
+      });
+
+      const settled = await Promise.allSettled([
+        sweepWorkspaceDrift(workspaceId),
+        sweepWorkspaceDrift(workspaceId),
+      ]);
+
+      const fulfilled = settled.filter(
+        (s): s is PromiseFulfilledResult<Awaited<ReturnType<typeof sweepWorkspaceDrift>>> =>
+          s.status === 'fulfilled'
+      );
+      const rejected = settled.filter((s) => s.status === 'rejected');
+
+      // Exactly one sweep wins the advisory lock; the other 409s.
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(
+        SweepInProgressError
+      );
+      expect(mockGenerateDriftVerdict).toHaveBeenCalled();
+      expect(fulfilled[0]!.value.suppressed).toBe(1);
+      expect(fulfilled[0]!.value.created).toBe(0);
+
+      // Zero insight rows exist in the DB for this workspace.
+      const rows = await pool.query(
+        `SELECT id FROM documents
+           WHERE document_type = 'insight'
+             AND workspace_id = $1`,
+        [workspaceId]
+      );
+      expect(rows.rowCount).toBe(0);
+    } finally {
+      await setFleetgraphLlmVerdictsEnabled(workspaceId, false);
+      mockGenerateDriftVerdict.mockReset();
+    }
+  });
+});
+
+// ─── C6 — LLM verdicts ENABLED + fallback: degraded:true, deterministic source ─
+
+describe('C6: sweep with LLM fallback — degraded:true + deterministic source', () => {
+  it('tick result degraded:true; persisted insight evidence.verdict_source = deterministic', async () => {
+    await clearInsightsForWorkspace(workspaceId);
+    await setFleetgraphLlmVerdictsEnabled(workspaceId, true);
+    try {
+      mockGenerateDriftVerdict.mockReset();
+      // Simulate the fallback path: verdict generator returns degraded:true
+      // with source='deterministic' (real prod behavior on FleetAiError).
+      // We provide a synthetic deterministic verdict that the sweep persists.
+      mockGenerateDriftVerdict.mockImplementation((_input, fallback) =>
+        Promise.resolve({
+          verdict: fallback,
+          degraded: true,
+          source: 'deterministic',
+        })
+      );
+
+      const result = await sweepWorkspaceDrift(workspaceId);
+
+      expect(mockGenerateDriftVerdict).toHaveBeenCalled();
+      expect(result.degraded).toBe(true);
+      expect(result.created).toBe(1);
+      expect(result.suppressed).toBe(0);
+
+      // Inspect the persisted insight's evidence blob.
+      const row = await pool.query<{ verdict_source: string; sweep_run_id: string }>(
+        `SELECT properties->'fleetgraph_insight'->'evidence'->>'verdict_source' AS verdict_source,
+                properties->'fleetgraph_insight'->'evidence'->>'sweep_run_id' AS sweep_run_id
+           FROM documents
+           WHERE document_type = 'insight'
+             AND workspace_id = $1
+             AND properties->'fleetgraph_insight'->>'state' = 'open'`,
+        [workspaceId]
+      );
+      expect(row.rowCount).toBe(1);
+      expect(row.rows[0]!.verdict_source).toBe('deterministic');
+      expect(row.rows[0]!.sweep_run_id).toBeTruthy();
+    } finally {
+      await setFleetgraphLlmVerdictsEnabled(workspaceId, false);
+      mockGenerateDriftVerdict.mockReset();
+    }
   });
 });

@@ -13,15 +13,34 @@ export const FleetgraphSettingsSchema = z
     sweepEnabled: z.boolean().openapi({
       description: 'Whether the per-workspace drift sweep is enabled.',
     }),
+    llmVerdictsEnabled: z.boolean().openapi({
+      description:
+        'Whether the sweep uses LLM-generated verdicts (vs the deterministic templated verdict). Independent of sweepEnabled.',
+    }),
   })
   .openapi('FleetgraphSettings');
 
 registry.register('FleetgraphSettings', FleetgraphSettingsSchema);
 
+/**
+ * PATCH body — partial update. Either `sweepEnabled`, `llmVerdictsEnabled`,
+ * or both may be supplied. At least one key MUST be present; an empty body
+ * is rejected with 400 via the `.refine()` below. Independence between the
+ * keys is by design — admins can flip one without disturbing the other.
+ */
 export const FleetgraphSettingsUpdateBodySchema = z
   .object({
-    sweepEnabled: z.boolean(),
+    sweepEnabled: z.boolean().optional(),
+    llmVerdictsEnabled: z.boolean().optional(),
   })
+  .refine(
+    (body) =>
+      body.sweepEnabled !== undefined || body.llmVerdictsEnabled !== undefined,
+    {
+      message:
+        'At least one of sweepEnabled or llmVerdictsEnabled must be provided.',
+    }
+  )
   .openapi('FleetgraphSettingsUpdateBody');
 
 registry.register('FleetgraphSettingsUpdateBody', FleetgraphSettingsUpdateBodySchema);
@@ -48,7 +67,8 @@ registry.registerPath({
   path: '/workspaces/settings/fleetgraph',
   tags: ['Workspaces'],
   summary: 'Update FleetGraph settings for the current workspace',
-  description: 'Workspace-admin only. Toggles the per-workspace sweep gate.',
+  description:
+    'Workspace-admin only. Accepts a partial body to toggle the sweep gate, the LLM-verdicts gate, or both independently. At least one field is required (empty body returns 400).',
   request: {
     body: {
       content: {

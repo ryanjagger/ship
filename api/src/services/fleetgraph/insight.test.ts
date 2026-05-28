@@ -44,6 +44,7 @@ import {
   listInsights,
   countInsights,
   getInsight,
+  getInsightByIdentity,
   InsightStateRaceError,
   type CreateOrRefreshInsightArgs,
 } from './insight.js';
@@ -954,5 +955,113 @@ describe('countInsights — visibility-scoped count', () => {
     });
     const sql = String(mockPoolQuery.mock.calls[0]![0]);
     expect(sql).not.toMatch(/'fleetgraph_insight'->>'state' = /);
+  });
+});
+
+// ─── getInsightByIdentity tests ─────────────────────────────────────────
+// Service-internal probe used by the sweep to short-circuit the LLM call
+// when an OPEN insight with a matching input_hash already exists.
+// Mocked-pool tests verify SQL SHAPE and PARAMETER ORDER; no visibility
+// filter and no JOIN are involved.
+
+describe('getInsightByIdentity — service-internal probe', () => {
+  // Happy path: an OPEN row is returned with the {id, state, inputHash} shape.
+  it('returns {id, state:"open", inputHash} when an OPEN row exists', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ id: 'insight-1', state: 'open', input_hash: 'hash-v1' }],
+      rowCount: 1,
+    });
+    const out = await getInsightByIdentity('ws-1', 'subj-1', 'project_drift');
+    expect(out).toEqual({ id: 'insight-1', state: 'open', inputHash: 'hash-v1' });
+
+    // SQL shape: documents-only query, no JOIN, no visibility filter.
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/FROM documents/);
+    expect(sql).not.toMatch(/document_associations/);
+    expect(sql).not.toMatch(/VISIBILITY/i);
+    expect(sql).not.toMatch(/visibility = 'workspace'/);
+    // Workspace + type + subject + kind + soft-delete predicates all present.
+    expect(sql).toMatch(/workspace_id = \$1/);
+    expect(sql).toMatch(/document_type = 'insight'/);
+    expect(sql).toMatch(/'subject_id' = \$2/);
+    expect(sql).toMatch(/'kind' = \$3/);
+    expect(sql).toMatch(/archived_at IS NULL/);
+    expect(sql).toMatch(/deleted_at IS NULL/);
+    // ORDER BY puts OPEN row first.
+    expect(sql).toMatch(/ORDER BY[\s\S]*'state' = 'open'\)\s+DESC/);
+    expect(sql).toMatch(/LIMIT 1/);
+
+    // Params match the call signature exactly.
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params).toEqual(['ws-1', 'subj-1', 'project_drift']);
+  });
+
+  // No row at all → null.
+  it('returns null when no insight row exists for the identity', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsightByIdentity('ws-1', 'subj-missing', 'project_drift');
+    expect(out).toBeNull();
+  });
+
+  // Only a resolved row exists (no OPEN row). The ORDER BY pushes it last,
+  // but since it's the only row LIMIT 1 returns it. Sweep callers only act
+  // when state==='open', so returning the resolved row is benign.
+  it('returns the resolved row when no OPEN row exists', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ id: 'insight-resolved', state: 'resolved', input_hash: 'hash-old' }],
+      rowCount: 1,
+    });
+    const out = await getInsightByIdentity('ws-1', 'subj-1', 'project_drift');
+    expect(out).toEqual({
+      id: 'insight-resolved',
+      state: 'resolved',
+      inputHash: 'hash-old',
+    });
+  });
+
+  // Both OPEN and resolved rows exist → ORDER BY pulls the OPEN row first.
+  // (Postgres applies the ORDER BY; the mock simulates that by returning the
+  // OPEN row as the first/only row given LIMIT 1.)
+  it('ORDER BY surfaces the OPEN row first when both states are present', async () => {
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [{ id: 'insight-open', state: 'open', input_hash: 'hash-v2' }],
+      rowCount: 1,
+    });
+    const out = await getInsightByIdentity('ws-1', 'subj-1', 'project_drift');
+    expect(out!.state).toBe('open');
+    expect(out!.id).toBe('insight-open');
+
+    // Verify the ORDER BY clause actually privileges OPEN — guards against
+    // someone removing the (state='open') DESC ordering and breaking the
+    // partial-unique-index-backed "OPEN row if any" guarantee.
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/'state' = 'open'\)\s+DESC/);
+  });
+
+  // Cross-workspace isolation: the SQL constrains workspace_id = $1, so a
+  // query against ws-B will not find a row that lives in ws-A. The mock
+  // simulates this by returning [] when the parameter doesn't match.
+  it('cross-workspace isolation: ws-B query does not return a ws-A row', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsightByIdentity('ws-B', 'subj-1', 'project_drift');
+    expect(out).toBeNull();
+
+    const params = mockPoolQuery.mock.calls[0]![1] as unknown[];
+    expect(params[0]).toBe('ws-B');
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/workspace_id = \$1/);
+  });
+
+  // Deleted/archived rows are excluded by the WHERE clause. The SQL shape
+  // test above already asserts the predicates; this test asserts the
+  // resulting behavior at the call boundary.
+  it('excludes archived and soft-deleted rows via WHERE predicates', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    const out = await getInsightByIdentity('ws-1', 'subj-deleted', 'project_drift');
+    expect(out).toBeNull();
+
+    const sql = String(mockPoolQuery.mock.calls[0]![0]);
+    expect(sql).toMatch(/archived_at IS NULL/);
+    expect(sql).toMatch(/deleted_at IS NULL/);
   });
 });

@@ -47,7 +47,7 @@
  *     `last_changed_at` every tick.
  */
 
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../db/client.js';
 import {
@@ -57,10 +57,14 @@ import {
 import { computeProjectDrift, type DriftInput } from '../drift/computeProjectDrift.js';
 import {
   createOrRefreshInsight,
+  getInsightByIdentity,
   type CreateOrRefreshInsightArgs,
 } from './insight.js';
+import { getFleetgraphSettings } from '../workspace-settings.js';
+import { generateDriftVerdict } from './verdictGenerator.js';
 import type {
   Drift,
+  DriftSignal,
   InsightSeverity,
   InsightVerdict,
   InsightVerdictDecision,
@@ -90,6 +94,14 @@ export interface SweepResult {
    *  (benign subject race — subject vanished between the SELECT and the
    *  upsert's `FOR SHARE` probe). */
   skipped: number;
+  /** Projects where the LLM verdict returned SUPPRESS and the substrate was
+   *  NOT called — the insight was judged not worth surfacing. SUPPRESS does
+   *  NOT touch any existing open insight (conservative default per the plan). */
+  suppressed: number;
+  /** True iff at least one LLM call in this tick fell back to the
+   *  deterministic verdict (provider unavailable, parse error, etc.). The
+   *  "Sweep now" UI surfaces this as a soft warning. */
+  degraded: boolean;
 }
 
 // ─── Lock key derivation ────────────────────────────────────────────────
@@ -104,6 +116,7 @@ export function sweepWorkspaceLockKeyParams(workspaceId: string): string {
 
 interface SweepRow {
   id: string;
+  title: string | null;
   inferred_status: string;
   plan: string | null;
   plan_last_edited_at: string | Date | null;
@@ -172,7 +185,7 @@ async function runSweepLoop(
 ): Promise<SweepResult> {
   const sql = `
     WITH workspace_projects AS (
-      SELECT d.id, d.created_at, d.archived_at, d.properties
+      SELECT d.id, d.title, d.created_at, d.archived_at, d.properties
         FROM documents d
        WHERE d.workspace_id = $1
          AND d.document_type = 'project'
@@ -216,6 +229,7 @@ async function runSweepLoop(
        GROUP BY da.related_id
     )
     SELECT d.id,
+           d.title,
            CASE
              WHEN d.archived_at IS NOT NULL THEN 'archived'
              WHEN d.properties->>'plan_validated' IS NOT NULL THEN 'completed'
@@ -235,10 +249,25 @@ async function runSweepLoop(
   const res = await client.query<SweepRow>(sql, [workspaceId]);
 
   const now = new Date();
+  // Per-tick UUID. Stamped into every insight's evidence + threaded into
+  // every LLM call's LangSmith metadata so "all traces from this tick" is
+  // queryable. Generated even when LLM verdicts are disabled (cheap and
+  // gives a stable cross-ref for the deterministic-only path too).
+  const sweepRunId = randomUUID();
+
+  // Per-workspace LLM toggle. Read once; the value applies to every project
+  // in this tick. Uses the global pool (not the held `client`) — it's a
+  // single-row read on a different table, doesn't need the tx, and avoids
+  // serializing all settings reads behind the sweep's advisory lock.
+  const settings = await getFleetgraphSettings(workspaceId);
+  const llmVerdictsEnabled = settings.llmVerdictsEnabled;
+
   let scanned = 0;
   let created = 0;
   let refreshed = 0;
   let skipped = 0;
+  let suppressed = 0;
+  let degraded = false;
 
   for (const row of res.rows) {
     const inferredStatus = row.inferred_status;
@@ -273,7 +302,11 @@ async function runSweepLoop(
       continue;
     }
 
-    const args = buildInsightArgs({
+    // Build the deterministic-fallback verdict + inputHash + signals
+    // evidence. When LLM verdicts are disabled OR fallback fires this is
+    // the verdict we persist; either way it's also the `inputHash`
+    // producer (the hash is detector-derived, not verdict-derived).
+    const baseArgs = buildInsightArgs({
       workspaceId,
       subjectId: row.id,
       drift,
@@ -284,6 +317,50 @@ async function runSweepLoop(
       incomplete7dAgo,
       now,
     });
+
+    const decision = await buildVerdictForProject({
+      workspaceId,
+      subjectId: row.id,
+      projectTitle: row.title ?? '',
+      signals: drift.signals,
+      deterministicVerdict: baseArgs.verdict,
+      computedInputHash: baseArgs.inputHash,
+      llmVerdictsEnabled,
+      sweepRunId,
+    });
+
+    if (decision.degraded) {
+      degraded = true;
+    }
+
+    if (decision.suppressed) {
+      suppressed++;
+      // SUPPRESS: do NOT call createOrRefreshInsight; do NOT touch any
+      // existing open row. The next tick will re-detect via computeProjectDrift
+      // and re-prompt; if the drift truly clears the existing detector path
+      // returns null and resolution falls out of computeProjectDrift's
+      // ineligibility.
+      // eslint-disable-next-line no-console
+      console.debug(
+        `[sweep] SUPPRESS for ws=${workspaceId} subject=${row.id} source=${decision.source}`
+      );
+      continue;
+    }
+
+    // Stamp source provenance + sweep_run_id into evidence so the UI can
+    // surface "AI" vs "system" later (deferred) and so insights cross-ref
+    // their generating tick.
+    const evidence: Record<string, unknown> = {
+      ...(baseArgs.evidence as Record<string, unknown>),
+      verdict_source: decision.source,
+      sweep_run_id: sweepRunId,
+    };
+
+    const args: CreateOrRefreshInsightArgs = {
+      ...baseArgs,
+      verdict: decision.verdict,
+      evidence,
+    };
 
     const result = await createOrRefreshInsight(args);
     if (result.didCreate) {
@@ -296,7 +373,105 @@ async function runSweepLoop(
     }
   }
 
-  return { workspaceId, scanned, created, refreshed, skipped };
+  return {
+    workspaceId,
+    scanned,
+    created,
+    refreshed,
+    skipped,
+    suppressed,
+    degraded,
+  };
+}
+
+// ─── Verdict routing ────────────────────────────────────────────────────
+
+interface VerdictDecisionInput {
+  workspaceId: string;
+  subjectId: string;
+  projectTitle: string;
+  signals: DriftSignal[];
+  deterministicVerdict: InsightVerdict;
+  computedInputHash: string;
+  llmVerdictsEnabled: boolean;
+  sweepRunId: string;
+}
+
+interface VerdictDecisionOutput {
+  /** The verdict to persist (LLM-generated, or deterministic). */
+  verdict: InsightVerdict;
+  /** Provenance flag for evidence.verdict_source. */
+  source: 'llm' | 'deterministic';
+  /** True iff the LLM call fell back. Tick-level `degraded` ORs from this. */
+  degraded: boolean;
+  /** True iff the LLM verdict was SUPPRESS — caller skips substrate dispatch. */
+  suppressed: boolean;
+}
+
+/**
+ * Decide which verdict to use for one drifting project:
+ *   1. LLM disabled → deterministic (no probe, no LLM call).
+ *   2. LLM enabled, probe finds OPEN row with matching hash → deterministic
+ *      (substrate's no-op refresh handles the write efficiently).
+ *   3. LLM enabled, no probe hit → call generator. SUPPRESS short-circuits;
+ *      otherwise return the LLM verdict (or fallback if generator degraded).
+ *
+ * Never throws — the verdict generator guarantees a VerdictOutput shape, and
+ * a probe SQL failure bubbles up to runSweepLoop's catch via the caller.
+ */
+async function buildVerdictForProject(
+  input: VerdictDecisionInput
+): Promise<VerdictDecisionOutput> {
+  if (!input.llmVerdictsEnabled) {
+    return {
+      verdict: input.deterministicVerdict,
+      source: 'deterministic',
+      degraded: false,
+      suppressed: false,
+    };
+  }
+
+  const existing = await getInsightByIdentity(
+    input.workspaceId,
+    input.subjectId,
+    'project_drift'
+  );
+
+  if (
+    existing &&
+    existing.state === 'open' &&
+    existing.inputHash === input.computedInputHash
+  ) {
+    // eslint-disable-next-line no-console
+    console.debug(
+      `[sweep] hash match for ws=${input.workspaceId} subject=${input.subjectId}; LLM skipped`
+    );
+    return {
+      verdict: input.deterministicVerdict,
+      source: 'deterministic',
+      degraded: false,
+      suppressed: false,
+    };
+  }
+
+  const generated = await generateDriftVerdict(
+    {
+      projectTitle: input.projectTitle,
+      signals: input.signals,
+      workspaceId: input.workspaceId,
+      sweepRunId: input.sweepRunId,
+    },
+    input.deterministicVerdict
+  );
+
+  const suppressed = generated.verdict.decision === 'SUPPRESS';
+
+  return {
+    verdict: generated.verdict,
+    source: generated.source,
+    degraded: generated.degraded,
+    suppressed,
+  };
 }
 
 // ─── Insight payload construction ───────────────────────────────────────
@@ -404,6 +579,7 @@ function canonicalize(value: unknown): string {
 
 export const __testing = {
   buildInsightArgs,
+  buildVerdictForProject,
   computeInputHash,
   dayString,
 };

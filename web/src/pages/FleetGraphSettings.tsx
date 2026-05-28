@@ -12,6 +12,7 @@ import { insightKeys } from '@/hooks/useInsightsQuery';
 
 interface FleetgraphSettings {
   sweepEnabled: boolean;
+  llmVerdictsEnabled: boolean;
 }
 
 interface SweepResult {
@@ -20,7 +21,14 @@ interface SweepResult {
   created: number;
   refreshed: number;
   skipped: number;
+  suppressed: number;
+  degraded: boolean;
 }
+
+type FleetgraphSettingsPatch = {
+  sweepEnabled?: boolean;
+  llmVerdictsEnabled?: boolean;
+};
 
 // ── Query keys ─────────────────────────────────────────────────────────
 
@@ -41,7 +49,7 @@ async function fetchFleetgraphSettings(): Promise<FleetgraphSettings> {
 }
 
 async function updateFleetgraphSettings(
-  body: { sweepEnabled: boolean }
+  body: FleetgraphSettingsPatch
 ): Promise<FleetgraphSettings> {
   const res = await apiPatch('/api/workspaces/settings/fleetgraph', body);
   if (!res.ok) {
@@ -106,7 +114,7 @@ function useUpdateFleetgraphSettingsMutation() {
   return useMutation<
     FleetgraphSettings,
     Error,
-    { sweepEnabled: boolean },
+    FleetgraphSettingsPatch,
     { previous: FleetgraphSettings | undefined }
   >({
     mutationFn: updateFleetgraphSettings,
@@ -115,10 +123,19 @@ function useUpdateFleetgraphSettingsMutation() {
       const previous =
         queryClient.getQueryData<FleetgraphSettings>(fleetgraphSettingsKey);
 
-      // Optimistic flip — UI updates immediately.
-      queryClient.setQueryData<FleetgraphSettings>(fleetgraphSettingsKey, {
-        sweepEnabled: vars.sweepEnabled,
-      });
+      // Optimistic flip — UI updates immediately. Only the keys present in
+      // `vars` are touched, so toggling sweep doesn't disturb the cached
+      // llmVerdictsEnabled value (and vice versa).
+      const base: FleetgraphSettings = previous ?? {
+        sweepEnabled: false,
+        llmVerdictsEnabled: false,
+      };
+      const next: FleetgraphSettings = { ...base };
+      if (vars.sweepEnabled !== undefined) next.sweepEnabled = vars.sweepEnabled;
+      if (vars.llmVerdictsEnabled !== undefined) {
+        next.llmVerdictsEnabled = vars.llmVerdictsEnabled;
+      }
+      queryClient.setQueryData<FleetgraphSettings>(fleetgraphSettingsKey, next);
 
       return { previous };
     },
@@ -173,10 +190,16 @@ export function FleetGraphSettingsPage() {
   }
 
   const sweepEnabled = settingsQuery.data?.sweepEnabled ?? false;
+  const llmVerdictsEnabled = settingsQuery.data?.llmVerdictsEnabled ?? false;
 
   const handleToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isWorkspaceAdmin) return;
     updateMutation.mutate({ sweepEnabled: e.target.checked });
+  };
+
+  const handleLlmToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isWorkspaceAdmin) return;
+    updateMutation.mutate({ llmVerdictsEnabled: e.target.checked });
   };
 
   const handleSweepNow = () => {
@@ -230,6 +253,27 @@ export function FleetGraphSettingsPage() {
                   </span>
                 </label>
 
+                <div className="space-y-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={llmVerdictsEnabled}
+                      onChange={handleLlmToggle}
+                      disabled={updateMutation.isPending}
+                      aria-label="Enable AI verdicts"
+                      className="h-4 w-4 rounded border-border text-accent-text focus:ring-accent/50"
+                    />
+                    <span className="text-sm text-foreground">
+                      Use AI-generated verdicts
+                    </span>
+                  </label>
+                  <p className="text-sm text-muted pl-6">
+                    When enabled, drift insights include reasoning from an AI
+                    model. Adds API costs per detected drift. Disabled = fast
+                    deterministic verdicts.
+                  </p>
+                </div>
+
                 {updateMutation.isError && (
                   <div className="text-sm text-red-500" role="alert">
                     {updateMutation.error?.message ??
@@ -255,11 +299,20 @@ export function FleetGraphSettingsPage() {
                   )}
 
                   {lastSweep && !sweepMutation.isError && (
-                    <div className="text-sm text-muted" role="status">
-                      Last manual sweep: {lastSweep.scanned} scanned,{' '}
-                      {lastSweep.created} created, {lastSweep.refreshed}{' '}
-                      refreshed, {lastSweep.skipped} skipped
-                    </div>
+                    <>
+                      <div className="text-sm text-muted" role="status">
+                        Last manual sweep: {lastSweep.scanned} scanned,{' '}
+                        {lastSweep.created} created, {lastSweep.refreshed}{' '}
+                        refreshed, {lastSweep.suppressed} suppressed,{' '}
+                        {lastSweep.skipped} skipped
+                      </div>
+                      {lastSweep.degraded && (
+                        <div className="text-sm text-amber-500" role="alert">
+                          ⚠ AI fell back to deterministic verdicts for some
+                          projects this run. (Check LangSmith for details.)
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </>

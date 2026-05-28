@@ -27,6 +27,7 @@ const {
   mockSweepWorkspaceDrift,
   mockGetFleetgraphSettings,
   mockSetFleetgraphSweepEnabled,
+  mockSetFleetgraphLlmVerdictsEnabled,
 } = vi.hoisted(() => ({
   adminMode: { value: false },
   mockListInsights: vi.fn(),
@@ -36,6 +37,7 @@ const {
   mockSweepWorkspaceDrift: vi.fn(),
   mockGetFleetgraphSettings: vi.fn(),
   mockSetFleetgraphSweepEnabled: vi.fn(),
+  mockSetFleetgraphLlmVerdictsEnabled: vi.fn(),
 }));
 
 // ─── Module mocks ───────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ vi.mock('../services/fleetgraph/sweep.js', async () => {
 vi.mock('../services/workspace-settings.js', () => ({
   getFleetgraphSettings: mockGetFleetgraphSettings,
   setFleetgraphSweepEnabled: mockSetFleetgraphSweepEnabled,
+  setFleetgraphLlmVerdictsEnabled: mockSetFleetgraphLlmVerdictsEnabled,
 }));
 
 // Real imports — these must come AFTER the mocks.
@@ -164,6 +167,7 @@ beforeEach(() => {
   mockSweepWorkspaceDrift.mockReset();
   mockGetFleetgraphSettings.mockReset();
   mockSetFleetgraphSweepEnabled.mockReset();
+  mockSetFleetgraphLlmVerdictsEnabled.mockReset();
 });
 
 // ─── GET /api/insights ──────────────────────────────────────────────────
@@ -393,37 +397,121 @@ describe('POST /api/insights/sweep', () => {
 
 describe('GET /api/workspaces/settings/fleetgraph', () => {
   it('returns the fleetgraph settings for the current workspace (any member)', async () => {
-    mockGetFleetgraphSettings.mockResolvedValueOnce({ sweepEnabled: true });
+    mockGetFleetgraphSettings.mockResolvedValueOnce({
+      sweepEnabled: true,
+      llmVerdictsEnabled: false,
+    });
     const res = await request(buildApp()).get(
       '/api/workspaces/settings/fleetgraph'
     );
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sweepEnabled: true });
+    expect(res.body).toEqual({ sweepEnabled: true, llmVerdictsEnabled: false });
     expect(mockGetFleetgraphSettings).toHaveBeenCalledWith('ws-123');
   });
 });
 
 describe('PATCH /api/workspaces/settings/fleetgraph', () => {
-  it('admin → 200 + updated settings', async () => {
+  it('admin + {sweepEnabled:true} → 200, only sweep setter called, combined response', async () => {
     adminMode.value = true;
-    mockSetFleetgraphSweepEnabled.mockResolvedValueOnce({ sweepEnabled: true });
+    mockSetFleetgraphSweepEnabled.mockResolvedValueOnce({
+      sweepEnabled: true,
+      llmVerdictsEnabled: false,
+    });
+    // Combined response comes from the post-write read.
+    mockGetFleetgraphSettings.mockResolvedValueOnce({
+      sweepEnabled: true,
+      llmVerdictsEnabled: false,
+    });
     const res = await request(buildApp())
       .patch('/api/workspaces/settings/fleetgraph')
       .send({ sweepEnabled: true });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sweepEnabled: true });
+    expect(res.body).toEqual({ sweepEnabled: true, llmVerdictsEnabled: false });
     expect(mockSetFleetgraphSweepEnabled).toHaveBeenCalledWith('ws-123', true);
+    expect(mockSetFleetgraphLlmVerdictsEnabled).not.toHaveBeenCalled();
+    expect(mockGetFleetgraphSettings).toHaveBeenCalledWith('ws-123');
   });
 
-  it('non-admin → 403', async () => {
+  it('admin + {llmVerdictsEnabled:true} → 200, only LLM setter called, combined response', async () => {
+    adminMode.value = true;
+    mockSetFleetgraphLlmVerdictsEnabled.mockResolvedValueOnce({
+      sweepEnabled: false,
+      llmVerdictsEnabled: true,
+    });
+    // The combined post-write read surfaces both flags (e.g. sweep was
+    // previously on, LLM just turned on).
+    mockGetFleetgraphSettings.mockResolvedValueOnce({
+      sweepEnabled: true,
+      llmVerdictsEnabled: true,
+    });
+    const res = await request(buildApp())
+      .patch('/api/workspaces/settings/fleetgraph')
+      .send({ llmVerdictsEnabled: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sweepEnabled: true, llmVerdictsEnabled: true });
+    expect(mockSetFleetgraphLlmVerdictsEnabled).toHaveBeenCalledWith(
+      'ws-123',
+      true
+    );
+    expect(mockSetFleetgraphSweepEnabled).not.toHaveBeenCalled();
+    expect(mockGetFleetgraphSettings).toHaveBeenCalledWith('ws-123');
+  });
+
+  it('admin + both keys → 200, both setters called, combined response', async () => {
+    adminMode.value = true;
+    mockSetFleetgraphSweepEnabled.mockResolvedValueOnce({
+      sweepEnabled: true,
+      llmVerdictsEnabled: false,
+    });
+    mockSetFleetgraphLlmVerdictsEnabled.mockResolvedValueOnce({
+      sweepEnabled: false,
+      llmVerdictsEnabled: true,
+    });
+    mockGetFleetgraphSettings.mockResolvedValueOnce({
+      sweepEnabled: true,
+      llmVerdictsEnabled: true,
+    });
+    const res = await request(buildApp())
+      .patch('/api/workspaces/settings/fleetgraph')
+      .send({ sweepEnabled: true, llmVerdictsEnabled: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sweepEnabled: true, llmVerdictsEnabled: true });
+    expect(mockSetFleetgraphSweepEnabled).toHaveBeenCalledWith('ws-123', true);
+    expect(mockSetFleetgraphLlmVerdictsEnabled).toHaveBeenCalledWith(
+      'ws-123',
+      true
+    );
+  });
+
+  it('admin + empty body → 400', async () => {
+    adminMode.value = true;
+    const res = await request(buildApp())
+      .patch('/api/workspaces/settings/fleetgraph')
+      .send({});
+    expect(res.status).toBe(400);
+    expect(mockSetFleetgraphSweepEnabled).not.toHaveBeenCalled();
+    expect(mockSetFleetgraphLlmVerdictsEnabled).not.toHaveBeenCalled();
+  });
+
+  it('non-admin → 403 (even with a valid body)', async () => {
     const res = await request(buildApp())
       .patch('/api/workspaces/settings/fleetgraph')
       .send({ sweepEnabled: true });
     expect(res.status).toBe(403);
     expect(mockSetFleetgraphSweepEnabled).not.toHaveBeenCalled();
+    expect(mockSetFleetgraphLlmVerdictsEnabled).not.toHaveBeenCalled();
   });
 
-  it('admin + invalid body → 400', async () => {
+  it('non-admin + llmVerdictsEnabled body → 403', async () => {
+    // Authz gate is independent of which key the body carries.
+    const res = await request(buildApp())
+      .patch('/api/workspaces/settings/fleetgraph')
+      .send({ llmVerdictsEnabled: true });
+    expect(res.status).toBe(403);
+    expect(mockSetFleetgraphLlmVerdictsEnabled).not.toHaveBeenCalled();
+  });
+
+  it('admin + invalid value type → 400', async () => {
     adminMode.value = true;
     const res = await request(buildApp())
       .patch('/api/workspaces/settings/fleetgraph')

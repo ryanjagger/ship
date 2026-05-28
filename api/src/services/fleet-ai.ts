@@ -172,6 +172,18 @@ export interface FleetEvalRequest<T> {
   /** Schema name (OpenAI requires a name for the structured format). */
   schemaName: string;
   maxTokens?: number;
+  /**
+   * Optional per-call metadata forwarded to the LangSmith trace via the SDK
+   * wrappers' second-argument `langsmithExtra.metadata` field (see
+   * `langsmith/wrappers/{openai,anthropic}` — both wrappers accept this
+   * options object on the patched method overloads). Existing callers that
+   * omit this field are unaffected: when undefined, no per-call options are
+   * passed and tracing falls back to wrapper defaults. When LangSmith
+   * tracing is off the metadata is a silent no-op. Best-effort: SDK
+   * adapters silently ignore unknown options, so a future wrapper change
+   * cannot regress the never-throws contract.
+   */
+  metadata?: Record<string, string>;
 }
 
 export function isFleetAiError(x: unknown): x is FleetAiError {
@@ -191,31 +203,49 @@ export async function evaluateStructured<T>(req: FleetEvalRequest<T>): Promise<T
   const model = modelFor(provider);
   const maxTokens = req.maxTokens ?? DEFAULT_MAX_TOKENS;
 
+  // Build the per-call options object only when metadata is provided. The
+  // langsmith wrappers' patched overloads accept `{ langsmithExtra: { metadata } }`
+  // as a second argument; when tracing is off, the unwrapped SDK adapters
+  // silently ignore unknown options, preserving the never-throws contract.
+  const callOptions = req.metadata
+    ? { langsmithExtra: { metadata: req.metadata } }
+    : undefined;
+
   try {
     if (provider === 'openai') {
       const oa = client as OpenAI;
-      const resp = await oa.responses.parse({
-        model,
-        max_output_tokens: maxTokens,
-        input: [
-          { role: 'system', content: req.system },
-          { role: 'user', content: req.user },
-        ],
-        text: { format: zodTextFormat(req.schema, req.schemaName) },
-      });
+      const resp = await oa.responses.parse(
+        {
+          model,
+          max_output_tokens: maxTokens,
+          input: [
+            { role: 'system', content: req.system },
+            { role: 'user', content: req.user },
+          ],
+          text: { format: zodTextFormat(req.schema, req.schemaName) },
+        },
+        // Cast to any: the responses.parse overloads aren't in the public
+        // PatchedOpenAIClient typings (only chat.completions/completions are),
+        // but the underlying wrapper proxy honors langsmithExtra on every
+        // method. Safe at runtime; unknown fields are dropped by the SDK.
+        callOptions as any
+      );
       // Truncation / refusal surface as a null parse.
       const parsed = resp.output_parsed;
       return parsed ?? { error: 'ai_parse_error' };
     }
 
     const an = client as Anthropic;
-    const resp = await an.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system: req.system,
-      messages: [{ role: 'user', content: req.user }],
-      output_config: { format: { type: 'json_schema', schema: toProviderJsonSchema(req.schema) } },
-    });
+    const resp = await an.messages.create(
+      {
+        model,
+        max_tokens: maxTokens,
+        system: req.system,
+        messages: [{ role: 'user', content: req.user }],
+        output_config: { format: { type: 'json_schema', schema: toProviderJsonSchema(req.schema) } },
+      },
+      callOptions as any
+    );
     // A truncated response yields invalid/partial JSON even under the grammar.
     if (resp.stop_reason === 'max_tokens') return { error: 'ai_unavailable' };
     const text = resp.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
