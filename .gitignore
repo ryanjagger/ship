@@ -122,3 +122,6 @@ audit/type-safety/baseline/raw.json
 
 # Compound Engineering local config
 .compound-engineering/*.local.yaml
+
+# LangGraph API
+.langgraph_api

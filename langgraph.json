@@ -1,0 +1,8 @@
+{
+  "node_version": "20",
+  "dependencies": ["./api", "./shared"],
+  "graphs": {
+    "fleetgraph": "./api/src/services/fleetgraph/studio.ts:fleetgraph"
+  },
+  "env": "./api/.env.local"
+}
