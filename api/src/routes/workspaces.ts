@@ -1,9 +1,14 @@
 import { Router, Request, Response } from 'express';
 import type { Router as RouterType } from 'express';
+import { z } from 'zod';
 import { pool } from '../db/client.js';
-import { authMiddleware, workspaceAdminMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed, workspaceAdminMiddleware } from '../middleware/auth.js';
 import { ERROR_CODES, HTTP_STATUS } from '@ship/shared';
 import { logAuditEvent } from '../services/audit.js';
+import {
+  getFleetgraphSettings,
+  setFleetgraphSweepEnabled,
+} from '../services/workspace-settings.js';
 
 const router: RouterType = Router();
 
@@ -139,6 +144,71 @@ router.get('/current', authMiddleware, async (req: Request, res: Response): Prom
     });
   }
 });
+
+// GET /api/workspaces/settings/fleetgraph - Read FleetGraph settings (any member)
+router.get(
+  '/settings/fleetgraph',
+  authMiddleware,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (!assertAuthed(req, res)) return;
+      const settings = await getFleetgraphSettings(req.workspaceId);
+      res.json(settings);
+    } catch (error) {
+      console.error('Get fleetgraph settings error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        error: {
+          code: ERROR_CODES.INTERNAL_ERROR,
+          message: 'Failed to get fleetgraph settings',
+        },
+      });
+    }
+  }
+);
+
+const FleetgraphSettingsBody = z.object({ sweepEnabled: z.boolean() });
+
+// PATCH /api/workspaces/settings/fleetgraph - Update FleetGraph settings (admin only)
+router.patch(
+  '/settings/fleetgraph',
+  authMiddleware,
+  workspaceAdminMiddleware,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (!assertAuthed(req, res)) return;
+      const parsed = FleetgraphSettingsBody.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(HTTP_STATUS.BAD_REQUEST).json({
+          success: false,
+          error: {
+            code: ERROR_CODES.VALIDATION_ERROR,
+            message: 'Invalid body',
+            details: parsed.error.issues.map((i) => ({
+              path: i.path,
+              message: i.message,
+            })),
+          },
+        });
+        return;
+      }
+      const updated = await setFleetgraphSweepEnabled(
+        req.workspaceId,
+        parsed.data.sweepEnabled
+      );
+      res.json(updated);
+    } catch (error) {
+      console.error('Update fleetgraph settings error:', error);
+      res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        error: {
+          code: ERROR_CODES.INTERNAL_ERROR,
+          message: 'Failed to update fleetgraph settings',
+        },
+      });
+    }
+  }
+);
 
 // POST /api/workspaces/:id/switch - Switch to a workspace
 router.post('/:id/switch', authMiddleware, async (req: Request, res: Response): Promise<void> => {

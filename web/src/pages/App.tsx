@@ -41,8 +41,10 @@ import { useFleetGraphAvailability } from '@/hooks/useFleetGraphChat';
 import { useFleetChat } from '@/contexts/FleetChatContext';
 import { useFleetChatEntity } from '@/hooks/useFleetChatEntity';
 import { FleetGraphChat } from '@/components/fleetgraph/FleetGraphChat';
+import { useInsightsCountQuery } from '@/hooks/useInsightsQuery';
+import { InsightsSidebar } from '@/components/insights/InsightsSidebar';
 
-type Mode = 'docs' | 'issues' | 'projects' | 'programs' | 'sprints' | 'team' | 'settings' | 'dashboard' | 'project-context';
+type Mode = 'docs' | 'issues' | 'projects' | 'programs' | 'sprints' | 'team' | 'settings' | 'dashboard' | 'project-context' | 'insights';
 
 export function AppLayout() {
   const { isOpen: fleetChatOpen, entity: fleetEntity, close: closeFleetChat } = useFleetChat();
@@ -196,6 +198,7 @@ export function AppLayout() {
     if (location.pathname.match(/^\/programs\/[^/]+\/sprints/)) return 'sprints';
     if (location.pathname.startsWith('/programs') || location.pathname.startsWith('/feedback')) return 'programs';
     if (location.pathname.startsWith('/team')) return 'team';
+    if (location.pathname.startsWith('/insights')) return 'insights';
     if (location.pathname.startsWith('/settings')) return 'settings';
     return 'dashboard';
   };
@@ -232,6 +235,7 @@ export function AppLayout() {
       case 'programs': navigate('/programs'); break;
       case 'sprints': navigate('/sprints'); break;
       case 'team': navigate('/team'); break;
+      case 'insights': navigate('/insights'); break;
       case 'settings': navigate('/settings'); break;
     }
   };
@@ -412,6 +416,10 @@ export function AppLayout() {
               onClick={() => handleModeClick('team')}
               showBadge={standupDue}
             />
+            <InsightsRailIcon
+              active={activeMode === 'insights'}
+              onClick={() => handleModeClick('insights')}
+            />
           </div>
 
           {/* Expand sidebar button (shows when collapsed) */}
@@ -465,6 +473,7 @@ export function AppLayout() {
                 {activeMode === 'programs' && 'Programs'}
                 {activeMode === 'sprints' && 'Weeks'}
                 {activeMode === 'team' && 'Teams'}
+                {activeMode === 'insights' && 'Insights'}
                 {activeMode === 'settings' && 'Settings'}
                 {activeMode === 'project-context' && 'Project'}
               </h2>
@@ -550,6 +559,9 @@ export function AppLayout() {
               )}
               {activeMode === 'team' && (
                 <TeamSidebar />
+              )}
+              {activeMode === 'insights' && (
+                <InsightsSidebar />
               )}
               {activeMode === 'settings' && (
                 <div className="px-3 py-2 text-sm text-muted">Settings</div>
@@ -668,7 +680,7 @@ export function AskFleetRailButton() {
   );
 }
 
-export function RailIcon({ icon, label, active, onClick, showBadge, disabled, disabledLabel }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showBadge?: boolean; disabled?: boolean; disabledLabel?: string }) {
+export function RailIcon({ icon, label, active, onClick, showBadge, count, disabled, disabledLabel }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showBadge?: boolean; count?: number; disabled?: boolean; disabledLabel?: string }) {
   // When disabled, the tooltip must still explain *why* — so we use
   // `aria-disabled` rather than the native `disabled` attribute (a natively
   // disabled <button> suppresses pointer events in Firefox/Safari, which would
@@ -702,8 +714,44 @@ export function RailIcon({ icon, label, active, onClick, showBadge, disabled, di
         {showBadge && !disabled && (
           <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-orange-500" />
         )}
+        {!disabled && typeof count === 'number' && count > 0 && (
+          <span
+            className="absolute -right-0.5 -top-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-semibold leading-[16px] text-center"
+            aria-label={`${count} open`}
+          >
+            {count > 99 ? '99+' : count}
+          </span>
+        )}
       </button>
     </Tooltip>
+  );
+}
+
+/**
+ * Rail icon for the Insights mode. Fetches the open-insight count for the
+ * current workspace and renders it as a numeric badge on the icon corner
+ * (omitted when count is 0 or the query is still loading).
+ */
+export function InsightsRailIcon({ active, onClick }: { active: boolean; onClick: () => void }) {
+  const { data: count } = useInsightsCountQuery({ state: 'open' });
+  return (
+    <RailIcon
+      icon={<InsightsIcon />}
+      label="Insights"
+      active={active}
+      onClick={onClick}
+      count={count}
+    />
+  );
+}
+
+function InsightsIcon() {
+  // Lightbulb — matches the existing inline-SVG icon style used elsewhere
+  // in the rail (stroke + 24x24 viewBox).
+  return (
+    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+    </svg>
   );
 }
 
