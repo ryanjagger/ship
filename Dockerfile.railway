@@ -1,0 +1,34 @@
+# Railway image: builds the pnpm monorepo from source for GitHub deployments.
+FROM node:20-slim
+
+WORKDIR /app
+
+# Nginx serves the built SPA and proxies API/WebSocket traffic to Node.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nginx \
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -f /etc/nginx/sites-enabled/default
+
+# Pin pnpm to the repo's packageManager field.
+RUN npm install -g pnpm@10.27.0
+
+# Install dependencies first for Docker layer caching. --ignore-scripts skips
+# husky/git hooks that assume a working tree during image builds.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY api/package.json ./api/
+COPY web/package.json ./web/
+COPY shared/package.json ./shared/
+COPY probe/package.json ./probe/
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+COPY . .
+RUN pnpm build:shared \
+ && pnpm --filter @ship/api build \
+ && pnpm --filter @ship/web build
+
+RUN chmod +x scripts/railway-entrypoint.sh
+
+EXPOSE 8080
+
+# Railway injects PORT, DATABASE_URL, SESSION_SECRET, CORS_ORIGIN, NODE_ENV.
+CMD ["./scripts/railway-entrypoint.sh"]

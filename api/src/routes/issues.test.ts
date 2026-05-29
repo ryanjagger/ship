@@ -300,6 +300,104 @@ describe('Issues API', () => {
     })
   })
 
+  describe('GET /api/issues/similar', () => {
+    it('finds open issues with similar titles, excluding self and closed work', async () => {
+      // An open issue that should match
+      const created = await request(app)
+        .post('/api/issues')
+        .set('Cookie', sessionCookie)
+        .set('x-csrf-token', csrfToken)
+        .send({ title: 'Fix login button not responding on mobile' })
+      expect(created.status).toBe(201)
+
+      // A closed issue with a near-identical title — must NOT be returned
+      await request(app)
+        .post('/api/issues')
+        .set('Cookie', sessionCookie)
+        .set('x-csrf-token', csrfToken)
+        .send({ title: 'Fix login button not responding on tablet', state: 'done' })
+
+      // The "in-progress" title the user is typing for a new issue
+      const res = await request(app)
+        .get('/api/issues/similar')
+        .query({ title: 'Fix login button not responding' })
+        .set('Cookie', sessionCookie)
+
+      expect(res.status).toBe(200)
+      expect(res.body.candidates).toBeInstanceOf(Array)
+      const titles = res.body.candidates.map((c: { title: string }) => c.title)
+      expect(titles).toContain('Fix login button not responding on mobile')
+      // Closed (done) issue is not a dedup target
+      expect(titles).not.toContain('Fix login button not responding on tablet')
+      // Shape sanity
+      const match = res.body.candidates.find(
+        (c: { title: string }) => c.title === 'Fix login button not responding on mobile'
+      )
+      expect(match.display_id).toMatch(/^#\d+$/)
+      expect(typeof match.score).toBe('number')
+    })
+
+    it('excludes the issue being edited via ?exclude', async () => {
+      const created = await request(app)
+        .post('/api/issues')
+        .set('Cookie', sessionCookie)
+        .set('x-csrf-token', csrfToken)
+        .send({ title: 'Dashboard chart renders with stale data' })
+      const id = created.body.id
+
+      const res = await request(app)
+        .get('/api/issues/similar')
+        .query({ title: 'Dashboard chart renders with stale data', exclude: id })
+        .set('Cookie', sessionCookie)
+
+      expect(res.status).toBe(200)
+      const ids = res.body.candidates.map((c: { id: string }) => c.id)
+      expect(ids).not.toContain(id)
+    })
+
+    it('returns each issue once even when it belongs to multiple projects', async () => {
+      // Regression: a JOIN to document_associations fanned out one row per
+      // project association, duplicating the issue in the results.
+      const created = await request(app)
+        .post('/api/issues')
+        .set('Cookie', sessionCookie)
+        .set('x-csrf-token', csrfToken)
+        .send({ title: 'Multi project association payment retry' })
+      const id = created.body.id
+
+      // Associate to two projects (one extra beyond the default test project).
+      const secondProject = await pool.query(
+        `INSERT INTO documents (workspace_id, document_type, title, visibility)
+         VALUES ($1, 'project', 'Second Test Program Project', 'workspace') RETURNING id`,
+        [testWorkspaceId]
+      )
+      await pool.query(
+        `INSERT INTO document_associations (document_id, related_id, relationship_type)
+         VALUES ($1, $2, 'project'), ($1, $3, 'project')`,
+        [id, testProjectId, secondProject.rows[0].id]
+      )
+
+      const res = await request(app)
+        .get('/api/issues/similar')
+        .query({ title: 'Multi project association payment retry' })
+        .set('Cookie', sessionCookie)
+
+      expect(res.status).toBe(200)
+      const occurrences = res.body.candidates.filter((c: { id: string }) => c.id === id)
+      expect(occurrences).toHaveLength(1)
+    })
+
+    it('returns empty for titles shorter than 4 characters', async () => {
+      const res = await request(app)
+        .get('/api/issues/similar')
+        .query({ title: 'ab' })
+        .set('Cookie', sessionCookie)
+
+      expect(res.status).toBe(200)
+      expect(res.body.candidates).toEqual([])
+    })
+  })
+
   describe('PATCH /api/issues/:id', () => {
     let testIssueId: string
 

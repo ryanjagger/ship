@@ -88,6 +88,12 @@ interface EditorProps {
   aiScoringAnalysis?: { planAnalysis?: unknown; retroAnalysis?: unknown } | null;
   /** Suffix displayed after the title in the header (e.g., author name) */
   titleSuffix?: string;
+  /**
+   * Render-prop rendered directly below the title input, receiving the live
+   * (in-progress) title. Used for the issue dedup-on-create hint, which must
+   * react to the title as it's typed.
+   */
+  belowTitle?: (liveTitle: string) => React.ReactNode;
 }
 
 type SyncStatus = 'connecting' | 'cached' | 'synced' | 'disconnected';
@@ -183,6 +189,7 @@ export function Editor({
   onContentChange,
   aiScoringAnalysis,
   titleSuffix,
+  belowTitle,
 }: EditorProps) {
   const [title, setTitle] = useState(initialTitle === 'Untitled' ? '' : initialTitle);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -969,6 +976,7 @@ export function Editor({
                 titleReadOnly && "cursor-default"
               )}
             />
+            {belowTitle?.(title)}
             {contentBanner}
             <div
               className="tiptap-wrapper"

@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/application-architecture.md` - Tech stack decisions, deployment, testing strategy
 - `docs/document-model-conventions.md` - Terminology, what becomes a document vs config
 - `docs/sprint-documentation-philosophy.md` - Sprint workflow and required documentation
+- `docs/solutions/*` - documented solutions to past problems (bugs, best practices, workflow patterns), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`). Relevant when implementing or debugging in a documented area.
 
 When in doubt about implementation approach, check these docs first.
 

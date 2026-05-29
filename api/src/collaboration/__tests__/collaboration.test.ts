@@ -3,7 +3,7 @@ import * as Y from 'yjs'
 import * as awarenessProtocol from 'y-protocols/awareness'
 import { WebSocket } from 'ws'
 import { pool } from '../../db/client.js'
-import { handleCollaborationMessage } from '../index.js'
+import { handleCollaborationMessage, canAccessDocumentForCollab, isConnectionRateLimited, recordConnectionAttempt } from '../index.js'
 import crypto from 'crypto'
 
 /**
@@ -432,6 +432,61 @@ describe('Collaboration Server', () => {
       // Cleanup
       await pool.query('DELETE FROM documents WHERE id = $1', [privateDocId])
     })
+
+    it('denies a collab join to a FleetGraph conversation doc (B2)', async () => {
+      // A workspace-visible conversation doc — by visibility alone it WOULD pass,
+      // but canAccessDocumentForCollab must reject it by document_type so a Yjs
+      // persist can never clobber its fleetgraph_* engine state.
+      const convResult = await pool.query(
+        `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by)
+         VALUES ($1, 'conversation', 'Untitled', 'workspace', $2)
+         RETURNING id`,
+        [testWorkspaceId, testUserId]
+      )
+      const conversationDocId = convResult.rows[0].id
+
+      // Even the creator (would otherwise pass) is denied for a conversation doc.
+      const access = await canAccessDocumentForCollab(conversationDocId, testUserId, testWorkspaceId)
+      expect(access).toBe(false)
+
+      // A normal workspace doc still passes (control).
+      const ok = await canAccessDocumentForCollab(testDocId, testUserId, testWorkspaceId)
+      expect(ok).toBe(true)
+
+      await pool.query('DELETE FROM documents WHERE id = $1', [conversationDocId])
+    })
+
+    it('denies a collab join to a FleetGraph insight doc too (T2)', async () => {
+      // The guard rejects BOTH hidden fleetgraph doc types ('conversation' and
+      // 'insight') by document_type, so a Yjs persist can never clobber their
+      // fleetgraph_* engine state — not just the conversation type.
+      //
+      // The properties shape must satisfy the documents_insight_properties_shape
+      // CHECK constraint (migration 046): subject_id, kind, and a valid state
+      // are required on insight rows. created_by is NULL — insights are
+      // system-authored.
+      const insightResult = await pool.query(
+        `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by, properties)
+         VALUES ($1, 'insight', 'Project drift: test', 'workspace', NULL, $2::jsonb)
+         RETURNING id`,
+        [
+          testWorkspaceId,
+          JSON.stringify({
+            fleetgraph_insight: {
+              state: 'open',
+              kind: 'project_drift',
+              subject_id: testWorkspaceId, // any UUID satisfies the CHECK
+            },
+          }),
+        ]
+      )
+      const insightDocId = insightResult.rows[0].id
+
+      const access = await canAccessDocumentForCollab(insightDocId, testUserId, testWorkspaceId)
+      expect(access).toBe(false)
+
+      await pool.query('DELETE FROM documents WHERE id = $1', [insightDocId])
+    })
   })
 
   describe('Rate Limiting', () => {
@@ -451,6 +506,41 @@ describe('Collaboration Server', () => {
     it('should have reasonable message rate limit (50 per second)', () => {
       expect(RATE_LIMIT.MAX_MESSAGES_PER_SECOND).toBe(50)
       expect(RATE_LIMIT.MESSAGE_WINDOW_MS).toBe(1_000)
+    })
+
+    it('rate-limits a remote IP after the connection cap is exceeded', () => {
+      const remoteIp = `203.0.113.${Math.floor(Math.random() * 200)}` // TEST-NET, unique-ish per run
+      for (let i = 0; i < RATE_LIMIT.MAX_CONNECTIONS_PER_IP; i++) {
+        expect(isConnectionRateLimited(remoteIp, remoteIp)).toBe(false)
+        recordConnectionAttempt(remoteIp, remoteIp)
+      }
+      // The (cap+1)-th attempt is now over the limit.
+      expect(isConnectionRateLimited(remoteIp, remoteIp)).toBe(true)
+    })
+
+    it('NEVER rate-limits a genuine loopback PEER (dev: StrictMode + HMR + navigation)', () => {
+      for (const loopback of ['::1', '127.0.0.1', '::ffff:127.0.0.1']) {
+        // Far exceed the cap; a loopback peer is exempt so it must stay allowed,
+        // and recordConnectionAttempt must not accumulate entries for it.
+        for (let i = 0; i < RATE_LIMIT.MAX_CONNECTIONS_PER_IP * 2; i++) {
+          recordConnectionAttempt(loopback, loopback)
+        }
+        expect(isConnectionRateLimited(loopback, loopback)).toBe(false)
+      }
+    })
+
+    it('does NOT exempt a spoofed loopback bucket key when the real peer is remote (XFF-spoof regression)', () => {
+      // Attack shape: remote peer sends `X-Forwarded-For: 127.0.0.1`, so the
+      // bucketKey looks like loopback but the real socket peer is remote. The
+      // exemption keys off peerIp ONLY, so the cap must still apply.
+      const spoofedKey = '127.0.0.1'
+      const remotePeer = `198.51.100.${Math.floor(Math.random() * 200)}` // TEST-NET-2
+      for (let i = 0; i < RATE_LIMIT.MAX_CONNECTIONS_PER_IP; i++) {
+        expect(isConnectionRateLimited(spoofedKey, remotePeer)).toBe(false)
+        recordConnectionAttempt(spoofedKey, remotePeer)
+      }
+      // Bypass is closed: the spoofed-loopback key is still capped.
+      expect(isConnectionRateLimited(spoofedKey, remotePeer)).toBe(true)
     })
 
     it('should use sliding window for rate limiting', () => {

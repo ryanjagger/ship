@@ -37,10 +37,17 @@ import { ActionItemsModal } from '@/components/ActionItemsModal';
 import { AccountabilityBanner } from '@/components/AccountabilityBanner';
 import { ProjectContextSidebar } from '@/components/sidebars/ProjectContextSidebar';
 import { RealtimeStatusIndicator } from '@/components/RealtimeStatusIndicator';
+import { useFleetGraphAvailability } from '@/hooks/useFleetGraphChat';
+import { useFleetChat } from '@/contexts/FleetChatContext';
+import { useFleetChatEntity } from '@/hooks/useFleetChatEntity';
+import { FleetGraphChat } from '@/components/fleetgraph/FleetGraphChat';
+import { useInsightsCountQuery } from '@/hooks/useInsightsQuery';
+import { InsightsSidebar } from '@/components/insights/InsightsSidebar';
 
-type Mode = 'docs' | 'issues' | 'projects' | 'programs' | 'sprints' | 'team' | 'settings' | 'dashboard' | 'project-context';
+type Mode = 'docs' | 'issues' | 'projects' | 'programs' | 'sprints' | 'team' | 'settings' | 'dashboard' | 'project-context' | 'insights';
 
 export function AppLayout() {
+  const { isOpen: fleetChatOpen, entity: fleetEntity, close: closeFleetChat } = useFleetChat();
   const { user, logout, isSuperAdmin, impersonating, endImpersonation } = useAuth();
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const location = useLocation();
@@ -191,6 +198,7 @@ export function AppLayout() {
     if (location.pathname.match(/^\/programs\/[^/]+\/sprints/)) return 'sprints';
     if (location.pathname.startsWith('/programs') || location.pathname.startsWith('/feedback')) return 'programs';
     if (location.pathname.startsWith('/team')) return 'team';
+    if (location.pathname.startsWith('/insights')) return 'insights';
     if (location.pathname.startsWith('/settings')) return 'settings';
     return 'dashboard';
   };
@@ -227,6 +235,7 @@ export function AppLayout() {
       case 'programs': navigate('/programs'); break;
       case 'sprints': navigate('/sprints'); break;
       case 'team': navigate('/team'); break;
+      case 'insights': navigate('/insights'); break;
       case 'settings': navigate('/settings'); break;
     }
   };
@@ -370,8 +379,12 @@ export function AppLayout() {
             )}
           </div>
 
-          {/* Mode icons - ordered by hierarchy: Dashboard → Docs → Programs → Projects → Issues → Teams */}
+          {/* Mode icons - ordered by hierarchy: Ask Fleet (action) → Dashboard → Docs → Programs → Projects → Issues → Teams */}
           <div className="flex flex-1 flex-col items-center gap-1">
+            {/* Ask Fleet is an action (opens a drawer), not a navigation mode —
+                a divider separates it from the mode icons below. */}
+            <AskFleetRailButton />
+            <div className="my-1 h-px w-5 bg-border" aria-hidden="true" />
             <RailIcon
               icon={<DashboardIcon />}
               label="Dashboard"
@@ -402,6 +415,10 @@ export function AppLayout() {
               active={activeMode === 'team'}
               onClick={() => handleModeClick('team')}
               showBadge={standupDue}
+            />
+            <InsightsRailIcon
+              active={activeMode === 'insights'}
+              onClick={() => handleModeClick('insights')}
             />
           </div>
 
@@ -456,6 +473,7 @@ export function AppLayout() {
                 {activeMode === 'programs' && 'Programs'}
                 {activeMode === 'sprints' && 'Weeks'}
                 {activeMode === 'team' && 'Teams'}
+                {activeMode === 'insights' && 'Insights'}
                 {activeMode === 'settings' && 'Settings'}
                 {activeMode === 'project-context' && 'Project'}
               </h2>
@@ -542,6 +560,9 @@ export function AppLayout() {
               {activeMode === 'team' && (
                 <TeamSidebar />
               )}
+              {activeMode === 'insights' && (
+                <InsightsSidebar />
+              )}
               {activeMode === 'settings' && (
                 <div className="px-3 py-2 text-sm text-muted">Settings</div>
               )}
@@ -559,12 +580,26 @@ export function AppLayout() {
           </div>
         </aside>
 
-        {/* Main content */}
-        <main id="main-content" className="flex flex-1 flex-col overflow-hidden" role="main" tabIndex={-1}>
-          <ErrorBoundary>
-            <Outlet />
-          </ErrorBoundary>
-        </main>
+        {/* Main content column: editor above, Fleet chat panel below */}
+        <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+          <main id="main-content" className="flex flex-1 flex-col overflow-hidden min-w-0" role="main" tabIndex={-1}>
+            <ErrorBoundary>
+              <Outlet />
+            </ErrorBoundary>
+          </main>
+
+          {/* Fleet chat bottom panel — sits between left and right sidebars */}
+          {fleetChatOpen && fleetEntity && (
+            <FleetGraphChat
+              key={`${fleetEntity.entityType}:${fleetEntity.entityId}`}
+              open={fleetChatOpen}
+              onClose={closeFleetChat}
+              entityId={fleetEntity.entityId}
+              entityType={fleetEntity.entityType}
+              seedPrompt={fleetEntity.seedPrompt}
+            />
+          )}
+        </div>
 
         {/* Properties sidebar landmark - always present for proper accessibility structure */}
         {/* Portal content from Editor will be rendered here via React Portal */}
@@ -606,23 +641,117 @@ export function AppLayout() {
   );
 }
 
-function RailIcon({ icon, label, active, onClick, showBadge }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showBadge?: boolean }) {
+/**
+ * AskFleetRailButton — persistent "Ask Fleet" entry point at the top of the rail.
+ *
+ * Enabled only when Fleet is configured AND the current page has a focal entity
+ * (Project or Week); greyed elsewhere with a tooltip explaining which condition
+ * failed. Opens the shared chat drawer (FleetChatProvider) seeded with that
+ * entity. Unlike the in-content launcher, this control never disappears.
+ */
+export function AskFleetRailButton() {
+  const { data: available } = useFleetGraphAvailability();
+  const entity = useFleetChatEntity();
+  const { open } = useFleetChat();
+
+  const enabled = available === true && entity !== null;
+
+  // Greyed-state copy distinguishes the two failure reasons. During the
+  // availability probe (available === undefined) we stay neutral ("Ask Fleet")
+  // rather than implying the provider is misconfigured.
+  const disabledLabel =
+    available === false
+      ? 'Fleet is not configured'
+      : available === undefined
+        ? undefined
+        : 'Open a project or week to ask Fleet';
+
   return (
-    <Tooltip content={label} side="right">
+    <RailIcon
+      icon={<img src="/ship.png" alt="" className="h-5 w-5 object-contain" />}
+      label="Ask Fleet"
+      active={false}
+      disabled={!enabled}
+      disabledLabel={disabledLabel}
+      onClick={() => {
+        if (entity) open(entity);
+      }}
+    />
+  );
+}
+
+export function RailIcon({ icon, label, active, onClick, showBadge, count, disabled, disabledLabel }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; showBadge?: boolean; count?: number; disabled?: boolean; disabledLabel?: string }) {
+  // When disabled, the tooltip must still explain *why* — so we use
+  // `aria-disabled` rather than the native `disabled` attribute (a natively
+  // disabled <button> suppresses pointer events in Firefox/Safari, which would
+  // stop the Radix tooltip from ever firing). The button stays hover- and
+  // keyboard-reachable; we guard onClick instead.
+  const effectiveLabel = disabled ? (disabledLabel ?? label) : label;
+  return (
+    <Tooltip content={effectiveLabel} side="right">
       <button
-        onClick={onClick}
+        type="button"
+        onClick={(e) => {
+          if (disabled) {
+            e.preventDefault();
+            return;
+          }
+          onClick();
+        }}
+        aria-disabled={disabled || undefined}
         className={cn(
           'relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
-          active ? 'bg-border text-foreground' : 'text-muted hover:bg-border/50 hover:text-foreground'
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          disabled
+            ? 'cursor-not-allowed text-muted opacity-40'
+            : active
+              ? 'bg-border text-foreground'
+              : 'text-muted hover:bg-border/50 hover:text-foreground'
         )}
-        aria-label={label}
+        aria-label={effectiveLabel}
       >
         {icon}
-        {showBadge && (
+        {showBadge && !disabled && (
           <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-orange-500" />
+        )}
+        {!disabled && typeof count === 'number' && count > 0 && (
+          <span
+            className="absolute -right-0.5 -top-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-semibold leading-[16px] text-center"
+            aria-label={`${count} open`}
+          >
+            {count > 99 ? '99+' : count}
+          </span>
         )}
       </button>
     </Tooltip>
+  );
+}
+
+/**
+ * Rail icon for the Insights mode. Fetches the open-insight count for the
+ * current workspace and renders it as a numeric badge on the icon corner
+ * (omitted when count is 0 or the query is still loading).
+ */
+export function InsightsRailIcon({ active, onClick }: { active: boolean; onClick: () => void }) {
+  const { data: count } = useInsightsCountQuery({ state: 'open' });
+  return (
+    <RailIcon
+      icon={<InsightsIcon />}
+      label="Insights"
+      active={active}
+      onClick={onClick}
+      count={count}
+    />
+  );
+}
+
+function InsightsIcon() {
+  // Lightbulb — matches the existing inline-SVG icon style used elsewhere
+  // in the rail (stroke + 24x24 viewBox).
+  return (
+    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+    </svg>
   );
 }
 
@@ -1193,7 +1322,10 @@ function ProjectsList({
     // Check if viewing any tab of a project that exists in the list
     const projectIds = projects.map(p => p.id);
     if (!projectIds.includes(activeId)) return null;
-    if (path === `/documents/${activeId}`) return 'details';
+    // Mirror getCurrentTab: the bare document root renders the first tab
+    // (Issues), so map it to 'issues' — Details has its own /details path.
+    if (path === `/documents/${activeId}`) return 'issues';
+    if (path === `/documents/${activeId}/details`) return 'details';
     if (path === `/documents/${activeId}/weeks`) return 'weeks';
     if (path === `/documents/${activeId}/issues`) return 'issues';
     if (path === `/documents/${activeId}/retro`) return 'retro';
@@ -1244,7 +1376,10 @@ function ProjectsList({
   // Determine current tab from URL (weeks, issues, retro, or details)
   const getCurrentTab = (projectId: string): string | null => {
     const path = location.pathname;
-    if (path === `/documents/${projectId}`) return 'details';
+    // The bare document root renders the first tab (Issues), so highlight Issues
+    // there — not Details, which now has its own /details path.
+    if (path === `/documents/${projectId}`) return 'issues';
+    if (path === `/documents/${projectId}/details`) return 'details';
     if (path === `/documents/${projectId}/weeks`) return 'weeks';
     if (path === `/documents/${projectId}/issues`) return 'issues';
     if (path === `/documents/${projectId}/retro`) return 'retro';
@@ -1340,16 +1475,16 @@ function ProjectsList({
                 <ul className="ml-6 space-y-0.5 mt-0.5" role="group">
                   <li role="treeitem">
                     <Link
-                      to={`/documents/${project.id}`}
+                      to={`/documents/${project.id}/issues`}
                       className={cn(
                         "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
-                        currentTab === 'details'
+                        currentTab === 'issues'
                           ? 'bg-border/50 text-foreground'
                           : 'text-muted hover:bg-border/30 hover:text-foreground'
                       )}
                     >
-                      <DocIcon />
-                      <span>Details</span>
+                      <IssueIcon />
+                      <span>Issues</span>
                     </Link>
                   </li>
                   <li role="treeitem">
@@ -1368,20 +1503,6 @@ function ProjectsList({
                   </li>
                   <li role="treeitem">
                     <Link
-                      to={`/documents/${project.id}/issues`}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
-                        currentTab === 'issues'
-                          ? 'bg-border/50 text-foreground'
-                          : 'text-muted hover:bg-border/30 hover:text-foreground'
-                      )}
-                    >
-                      <IssueIcon />
-                      <span>Issues</span>
-                    </Link>
-                  </li>
-                  <li role="treeitem">
-                    <Link
                       to={`/documents/${project.id}/retro`}
                       className={cn(
                         "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
@@ -1392,6 +1513,20 @@ function ProjectsList({
                     >
                       <RetroIcon />
                       <span>Retro</span>
+                    </Link>
+                  </li>
+                  <li role="treeitem">
+                    <Link
+                      to={`/documents/${project.id}/details`}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
+                        currentTab === 'details'
+                          ? 'bg-border/50 text-foreground'
+                          : 'text-muted hover:bg-border/30 hover:text-foreground'
+                      )}
+                    >
+                      <DocIcon />
+                      <span>Details</span>
                     </Link>
                   </li>
                 </ul>

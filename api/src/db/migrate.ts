@@ -35,13 +35,32 @@ async function migrate() {
   try {
     console.log('Running database migrations...');
 
-    // Step 1: Run schema.sql for initial setup
+    // ── Phase 1: schema.sql (initial table setup) ──────────────────────────
+    // schema.sql is initial-setup-only and may run against a database that
+    // already has these objects. Tolerate "already exists" HERE — but only
+    // here — and always proceed to the numbered migrations afterwards.
     const schemaPath = join(__dirname, 'schema.sql');
     const schema = readFileSync(schemaPath, 'utf-8');
-    await pool.query(schema);
-    console.log('✅ Schema applied');
+    try {
+      await pool.query(schema);
+      console.log('✅ Schema applied');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('already exists')) {
+        console.log('Database schema already exists, continuing...');
+      } else {
+        console.error('Schema setup failed:', error);
+        process.exit(1);
+      }
+    }
 
-    // Step 2: Create migrations tracking table
+    // ── Phase 2: numbered migrations ───────────────────────────────────────
+    // A failure here is FATAL. It must never be swallowed (e.g. by an
+    // "already exists" check): doing so silently skips every later migration
+    // while the deploy still reports success. Make migrations idempotent
+    // (CREATE ... IF NOT EXISTS) so reruns are no-ops, not errors.
+
+    // Create migrations tracking table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version TEXT PRIMARY KEY,
@@ -49,11 +68,11 @@ async function migrate() {
       )
     `);
 
-    // Step 3: Get list of already-applied migrations
+    // Get list of already-applied migrations
     const appliedResult = await pool.query('SELECT version FROM schema_migrations ORDER BY version');
     const appliedMigrations = new Set(appliedResult.rows.map(r => r.version));
 
-    // Step 4: Find and run pending migrations
+    // Find and run pending migrations
     const migrationsDir = join(__dirname, 'migrations');
     let migrationFiles: string[] = [];
 
@@ -101,14 +120,8 @@ async function migrate() {
     }
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    // "already exists" errors from schema.sql are fine
-    if (errorMessage.includes('already exists')) {
-      console.log('Database schema already exists, continuing...');
-    } else {
-      console.error('Database migration failed:', error);
-      process.exit(1);
-    }
+    console.error('Database migration failed:', error);
+    process.exit(1);
   } finally {
     await pool.end();
   }

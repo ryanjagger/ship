@@ -76,7 +76,20 @@ eb deploy --staged
 ### Apply Database Migration
 ```bash
 DATABASE_URL=$(aws ssm get-parameter --name "/ship/dev/DATABASE_URL" --with-decryption --query "Parameter.Value" --output text)
-psql "$DATABASE_URL" -f api/src/db/schema.sql
+DATABASE_URL="$DATABASE_URL" pnpm --filter @ship/api db:migrate
+```
+
+### Seed Railway Dev Test Data
+```bash
+ENVIRONMENT=dev-railway ALLOW_DEVELOP_DB_SEED=true DATABASE_URL="$DATABASE_URL" pnpm --filter @ship/api db:seed:develop
+```
+
+Railway deploys run this automatically after migrations when the environment
+variables include `ENVIRONMENT=dev-railway` and `ALLOW_DEVELOP_DB_SEED=true`.
+
+Reset only the dedicated demo workspace:
+```bash
+ENVIRONMENT=dev-railway ALLOW_DEVELOP_DB_SEED=true DEVELOP_SEED_RESET=true DATABASE_URL="$DATABASE_URL" pnpm --filter @ship/api db:seed:develop
 ```
 
 ### SSH to Instance

@@ -139,8 +139,31 @@ pnpm dev          # Start everything
 pnpm dev:web      # Start just the web app
 pnpm dev:api      # Start just the API
 pnpm db:seed      # Reset database with sample data
+pnpm db:seed:develop  # Seed guarded dev-railway demo data
 pnpm db:migrate   # Run database migrations
 pnpm test         # Run tests
+```
+
+### Seed Railway Dev Data
+
+Use the guarded develop seed for the deployed Railway `dev-railway` environment. Do not use `pnpm db:seed` against a deployed database.
+
+```bash
+ENVIRONMENT=dev-railway pnpm db:migrate
+ENVIRONMENT=dev-railway ALLOW_DEVELOP_DB_SEED=true pnpm db:seed:develop
+```
+
+Railway deploys run this seed automatically after migrations when the environment has:
+
+```bash
+ENVIRONMENT=dev-railway
+ALLOW_DEVELOP_DB_SEED=true
+```
+
+To rebuild only the dedicated demo workspace:
+
+```bash
+ENVIRONMENT=dev-railway ALLOW_DEVELOP_DB_SEED=true DEVELOP_SEED_RESET=true pnpm db:seed:develop
 ```
 
 ---

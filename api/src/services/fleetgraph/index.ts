@@ -1,0 +1,591 @@
+/**
+ * FleetGraph public entry points (U7).
+ *
+ * Three callers drive the ONE compiled graph:
+ *
+ *   runPlanReview()   — proactive plan-review (U8 calls this from getReview's
+ *                       shell). Runs scope→fetch→reason(structured)→output.
+ *                       No chat, no interrupt. Returns a FleetPlanReview-shaped
+ *                       result so it drops into the existing card/retro contract.
+ *
+ *   runChatTurn()     — on-demand chat (U9 calls this). Seeds from
+ *                       {entityId, entityType, message, history, conversationDocId}.
+ *                       Runs the graph with thread_id=conversationDocId. If it
+ *                       PAUSES at the action node it returns { status:'paused',
+ *                       proposal, threadId }; otherwise { status:'answer', answer }.
+ *
+ *   resumeChatTurn()  — resumes a paused turn with Command({ resume:{approved} })
+ *                       on the same thread_id. approved:true executes the write;
+ *                       approved:false abandons it and continues to an answer.
+ *
+ * ── SIDE-EFFECT ORDERING (resume re-run scope) ──────────────────────────────
+ * The model call lives in the reason node (UPSTREAM of action). On resume,
+ * @langchain/langgraph re-runs ONLY the interrupted action node, NOT upstream
+ * completed nodes (their channel writes are checkpointed), so neither the model
+ * call nor the fetch re-fires. The rate-limit token (U9) and conversation-doc
+ * creation (U9/conversation.ts) sit OUTSIDE the graph and BEFORE the initial
+ * invoke, so resume — which calls the compiled graph with a Command, never the
+ * pre-graph code — cannot re-fire them either. This is proven in graph.test.ts.
+ */
+
+import crypto from 'crypto';
+import { Command } from '@langchain/langgraph';
+import { AIMessageChunk } from '@langchain/core/messages';
+import type { RunnableConfig } from '@langchain/core/runnables';
+import type {
+  FleetPlanReview,
+  FleetHypothesisPiece,
+  FleetDedupReview,
+  FleetDedupMatch,
+  DriftSignal,
+  InsightVerdict,
+} from '@ship/shared';
+import { hasText } from '../fleet-checks.js';
+import { pool as defaultPool } from '../../db/client.js';
+import { ConversationDocCheckpointSaver } from './checkpointer.js';
+import { RUBRIC, BY_WHEN_HINT } from './plan-review-config.js';
+import { findSimilarIssues } from '../issue-dedup.js';
+import type { DedupReviewAi } from './dedup-config.js';
+import { getCompiledGraph, compileGraph } from './graph.js';
+import type { FleetContext, FleetEntityType } from './tools/read.js';
+import type { WriteProposal } from './tools/write.js';
+import type { FleetAnalysis } from './state.js';
+import type { PlanReviewAi, DriftVerdictAi } from './nodes/reason.js';
+import type { InterruptPayload, ResumeValue } from './nodes/action.js';
+
+type CompiledGraph = ReturnType<typeof compileGraph>;
+
+const LANGSMITH_ENV = process.env.ENVIRONMENT ?? 'development';
+
+/**
+ * Clear any persisted checkpoint for a conversation thread (U3 deleteThread).
+ *
+ * The U3 checkpointer is latest-tuple-only and keyed by thread_id (=
+ * conversationId). A leftover checkpoint from a RESOLVED prior turn would make
+ * the next `graph.invoke` on the same thread RESUME from that stale state
+ * (replaying the prior proposal / dropping the new message at the scope node's
+ * `messages.length === 0` guard) instead of running the new message cleanly.
+ *
+ * Each chat turn is a clean graph run: history (when threaded) is carried by the
+ * transcript/`history` param, NOT by checkpoint-accumulated channels. So clearing
+ * the checkpoint after a resolved turn — and before a fresh turn — never loses
+ * intended history. A PAUSED turn intentionally leaves the checkpoint in place
+ * (it is what `resume` needs). Best-effort: a missing/nonexistent thread is a
+ * no-op (the UPDATE matches zero rows).
+ */
+// Module-memoized checkpointer for clearConversationThread — constructed once over
+// the shared pool and reused, rather than allocating a fresh saver per call.
+let _clearCheckpointer: ConversationDocCheckpointSaver | null = null;
+function getClearCheckpointer(): ConversationDocCheckpointSaver {
+  if (!_clearCheckpointer) _clearCheckpointer = new ConversationDocCheckpointSaver(defaultPool);
+  return _clearCheckpointer;
+}
+
+export async function clearConversationThread(conversationId: string): Promise<void> {
+  await getClearCheckpointer().deleteThread(conversationId);
+}
+
+// RUBRIC labels/hints + BY_WHEN_HINT come from the canonical plan-review-config
+// (C2) so the pieces shape is identical to the shipped plan-review.
+
+// ── proactive ────────────────────────────────────────────────────────────────
+
+export interface RunPlanReviewArgs {
+  entityId: string;
+  entityType?: FleetEntityType;
+  ctx: FleetContext;
+}
+
+/**
+ * The proactive result: a FleetPlanReview (the card sub-result) plus the
+ * differentiating diagnosis / next-action (F1/F3). `available` is false when the
+ * provider is unavailable or the model degraded — U8 maps that to "unavailable".
+ */
+export interface RunPlanReviewResult {
+  planReview: FleetPlanReview;
+  /** One-sentence "why is it stuck" diagnosis, when the model produced one. */
+  diagnosis: string | null;
+  /** Recommended next action, when the model produced one. */
+  recommendedNextAction: string | null;
+  /** True when the model contributed (vs. unavailable/degraded). */
+  available: boolean;
+}
+
+export async function runPlanReview(
+  args: RunPlanReviewArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<RunPlanReviewResult> {
+  const entityType = args.entityType ?? 'project';
+  // Proactive has no conversation thread and never pauses. Use a random UUID as
+  // a transient thread_id: it is a valid uuid (the checkpointer casts the join
+  // key to uuid) that matches NO documents row, so getTuple returns undefined
+  // (fresh run) and put/UPDATE matches zero rows (no persistence). Single-shot.
+  const config: RunnableConfig = {
+    configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV },
+  };
+
+  const final = await graph.invoke(
+    { mode: 'plan_review', entityId: args.entityId, entityType, ctx: args.ctx },
+    config
+  );
+
+  const analysis = final.analysis as FleetAnalysis | null;
+  const ai = (analysis?.planReview as PlanReviewAi | undefined) ?? undefined;
+
+  // Build the FleetPlanReview from the structured AI output, mirroring the
+  // shipped plan-review mapping exactly (so U8's card contract is unchanged).
+  if (ai && analysis?.aiAvailable) {
+    const metIds = new Set(ai.criteria.filter((c) => c.met).map((c) => c.id));
+    const aiPieces: FleetHypothesisPiece[] = RUBRIC.map((r) => ({
+      id: r.id,
+      label: r.label,
+      met: metIds.has(r.id),
+      hint: r.hint,
+    }));
+    const focal = final.fetched?.focal ?? null;
+    const byWhenMet = hasText(focal?.properties.targetDate ?? null);
+    const pieces: FleetHypothesisPiece[] = [
+      ...aiPieces,
+      { id: 'by_when', label: 'By when', met: byWhenMet, hint: BY_WHEN_HINT },
+    ];
+    const planReview: FleetPlanReview = {
+      status: pieces.every((p) => p.met) ? 'looks_testable' : 'needs_work',
+      pieces,
+      suggested_rewrite: ai.suggested_rewrite.trim() || null,
+      ai_available: true,
+    };
+    return {
+      planReview,
+      diagnosis: ai.diagnosis.trim() || null,
+      recommendedNextAction: ai.recommended_next_action.trim() || null,
+      available: true,
+    };
+  }
+
+  // No focal / no plan / model unavailable / degraded → unavailable plan review.
+  const focal = final.fetched?.focal ?? null;
+  const noPlan = !focal || !hasText(focal.properties.plan);
+  const planReview: FleetPlanReview = {
+    status: noPlan ? 'no_plan' : 'needs_work',
+    pieces: [],
+    suggested_rewrite: null,
+    ai_available: false,
+  };
+  return { planReview, diagnosis: null, recommendedNextAction: null, available: false };
+}
+
+// ── dedup (on-demand, graph-backed duplicate verdict) ────────────────────────
+
+export interface RunDedupReviewArgs {
+  /** The in-progress issue title the author is typing. */
+  draftTitle: string;
+  /** The draft issue's id — excluded from candidates AND the graph entityId. */
+  excludeId: string;
+  ctx: FleetContext;
+}
+
+/**
+ * Two-stage dedup verdict. Stage 1 retrieves pg_trgm candidates (cheap, no
+ * model). Stage 2 runs the SAME compiled graph in `dedup` mode
+ * (scope→fetch→reason(structured)→output) so the model judges which candidates
+ * are TRUE duplicates and why. Short-circuits WITHOUT a model call when there
+ * are no candidates. Like runPlanReview it uses a transient random thread_id
+ * (no conversation, never pauses) and never throws — a degraded model yields a
+ * verdict-less result (candidates only).
+ */
+export async function runDedupReview(
+  args: RunDedupReviewArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<FleetDedupReview> {
+  // Stage 1: cheap, visibility-scoped pg_trgm candidate retrieval.
+  const candidates = await findSimilarIssues({
+    ctx: args.ctx,
+    title: args.draftTitle,
+    excludeId: args.excludeId,
+  });
+
+  // Nothing similar ⇒ nothing to judge. Short-circuit before any model call.
+  if (candidates.length === 0) {
+    return { candidates: [], matches: [], summary: null, recommendation: null, ai_available: false };
+  }
+
+  // Stage 2: judge through the graph. Transient thread_id (no persistence).
+  const config: RunnableConfig = {
+    configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV },
+  };
+  const final = await graph.invoke(
+    {
+      mode: 'dedup',
+      entityId: args.excludeId,
+      entityType: 'issue',
+      ctx: args.ctx,
+      draftTitle: args.draftTitle,
+      candidates,
+    },
+    config
+  );
+
+  const analysis = final.analysis as FleetAnalysis | null;
+  const ai = (analysis?.dedupReview as DedupReviewAi | undefined) ?? undefined;
+
+  // Model unavailable / degraded → return the candidates with no verdict so the
+  // client can still show the (stage-1) possible-duplicate list.
+  if (!ai || !analysis?.aiAvailable) {
+    return { candidates, matches: [], summary: null, recommendation: null, ai_available: false };
+  }
+
+  // Map the model's 1-based candidate indexes back to candidates; drop any
+  // out-of-range index defensively (a hallucinated index references nothing).
+  const matches: FleetDedupMatch[] = ai.duplicates
+    .map((d): FleetDedupMatch | null => {
+      const candidate = candidates[d.index - 1];
+      if (!candidate) return null;
+      return { candidate, confidence: d.confidence, reason: d.reason };
+    })
+    .filter((m): m is FleetDedupMatch => m !== null);
+
+  return {
+    candidates,
+    matches,
+    summary: ai.summary.trim() || null,
+    recommendation: ai.recommendation.trim() || null,
+    ai_available: true,
+  };
+}
+
+// ── drift (proactive, sweep-triggered drift verdict) ─────────────────────────
+
+/**
+ * Single wall-clock timeout (ms) around the entire `graph.invoke` for drift.
+ * Exported so tests can override via {@link setDriftGraphTimeoutMsForTests}.
+ * Drift is hourly cron — generous wall-clock, no per-node budgets.
+ */
+export const DRIFT_GRAPH_TIMEOUT_MS = 60_000;
+
+let driftGraphTimeoutMs: number = DRIFT_GRAPH_TIMEOUT_MS;
+
+/**
+ * Test-only seam. Lets graph.test.ts shrink the wall-clock to assert the
+ * timeout path in finite time without mutating the exported constant.
+ */
+export function setDriftGraphTimeoutMsForTests(ms: number): void {
+  driftGraphTimeoutMs = ms;
+}
+
+/**
+ * Thrown internally by `runDriftReasoning` when the wall-clock fires before
+ * `graph.invoke` resolves. Caller does not see it — it is caught and mapped to
+ * `{available: false}` like every other failure. Exported so tests can
+ * discriminate timeout from generic throws.
+ *
+ * CAVEAT: Promise.race does not cancel the in-flight LLM call — it just stops
+ * awaiting. The graph (and its model SDK call) continues executing in the
+ * background until completion or failure. Connection-pool resources release on
+ * completion. If observed in practice, follow-up adds AbortController wiring.
+ */
+export class DriftGraphTimeoutError extends Error {
+  constructor() {
+    super('Drift graph run exceeded timeout');
+    this.name = 'DriftGraphTimeoutError';
+  }
+}
+
+export interface RunDriftReasoningArgs {
+  entityId: string;
+  signals: DriftSignal[];
+  ctx: FleetContext;
+  /**
+   * Trace metadata forwarded to BOTH `RunnableConfig.metadata` (LangChain
+   * auto-trace root) and the drift reason branch's `evaluateStructured.metadata`
+   * (per-SDK-call wrapped span). Caller (sweep) sets exactly
+   * `{workspace_id, sweep_run_id}` — both UUIDs.
+   */
+  traceMetadata?: Record<string, string>;
+}
+
+export type RunDriftReasoningResult =
+  | { available: true; verdict: InsightVerdict }
+  | { available: false };
+
+/**
+ * Drive the compiled graph end-to-end for a single drifting project and lift
+ * the model's `{decision, reasoning}` verdict.
+ *
+ * Contract:
+ *   - Never throws. Any error (timeout, graph throw, missing verdict, degraded
+ *     analysis) returns `{available: false}`; sweep applies its deterministic
+ *     fallback.
+ *   - Service-principal expected: `args.ctx.userId` is the sentinel SYSTEM_USER_ID
+ *     and `args.ctx.isAdmin: true`, giving workspace-wide read access via
+ *     VISIBILITY_FILTER_SQL's existing admin short-circuit. `args.ctx.workspaceId`
+ *     scopes the run to one workspace.
+ *   - Timeout caveat: `Promise.race` does NOT cancel an in-flight LLM call. The
+ *     graph continues in the background after we stop awaiting it; the pool
+ *     connection releases on completion. See {@link DriftGraphTimeoutError}.
+ */
+export async function runDriftReasoning(
+  args: RunDriftReasoningArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<RunDriftReasoningResult> {
+  const runConfig: RunnableConfig = {
+    configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV, ...(args.traceMetadata ?? {}) },
+  };
+
+  const initialState = {
+    mode: 'drift' as const,
+    entityId: args.entityId,
+    entityType: 'project' as const,
+    ctx: args.ctx,
+    driftSignals: args.signals,
+    traceMetadata: args.traceMetadata ?? null,
+  };
+
+  let timerId: NodeJS.Timeout | undefined;
+  try {
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timerId = setTimeout(() => reject(new DriftGraphTimeoutError()), driftGraphTimeoutMs);
+    });
+    const final = (await Promise.race([
+      graph.invoke(initialState, runConfig),
+      timeoutPromise,
+    ])) as Record<string, unknown>;
+    if (timerId) clearTimeout(timerId);
+
+    const analysis = final.analysis as FleetAnalysis | null;
+    const dr = analysis?.driftReview as DriftVerdictAi | undefined;
+    if (!dr || final.degraded === true || analysis?.aiAvailable !== true) {
+      return { available: false };
+    }
+    return {
+      available: true,
+      verdict: { decision: dr.decision, reasoning: dr.reasoning },
+    };
+  } catch (err) {
+    if (timerId) clearTimeout(timerId);
+    const errName = err instanceof Error ? err.name : 'Unknown';
+    const errMessage = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[fleetgraph] runDriftReasoning failed (workspace=${args.ctx.workspaceId}): ${errName}: ${errMessage}`
+    );
+    return { available: false };
+  }
+}
+
+// ── chat ───────────────────────────────────────────────────────────────────
+
+export interface ChatHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface RunChatTurnArgs {
+  conversationDocId: string;
+  entityId: string;
+  entityType: FleetEntityType;
+  message: string;
+  ctx: FleetContext;
+  /** Prior transcript (U9 supplies; threaded into the message channel). */
+  history?: ChatHistoryEntry[];
+}
+
+export type ChatTurnResult =
+  | { status: 'answer'; answer: string; threadId: string; executed?: unknown }
+  | { status: 'paused'; proposal: WriteProposal; threadId: string };
+
+function chatConfig(conversationDocId: string): RunnableConfig {
+  return {
+    configurable: { thread_id: conversationDocId, checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV },
+  };
+}
+
+interface InterruptEntry {
+  value: InterruptPayload;
+}
+
+function interpretResult(
+  threadId: string,
+  final: Record<string, unknown>
+): ChatTurnResult {
+  // A paused run surfaces the interrupt(s) on the invoke RESULT under the
+  // `__interrupt__` key (verified against @langchain/langgraph 1.x). This is the
+  // canonical, checkpointer-agnostic signal — preferred over re-reading state.
+  const interrupts = final.__interrupt__ as InterruptEntry[] | undefined;
+  if (interrupts && interrupts.length > 0) {
+    const payload = interrupts[0]!.value;
+    return { status: 'paused', proposal: payload.proposal, threadId };
+  }
+  return {
+    status: 'answer',
+    answer: (final.answer as string) ?? '',
+    threadId,
+    executed: final.executed,
+  };
+}
+
+/**
+ * Run one chat turn. Returns an answer, or pauses with a proposal awaiting
+ * confirmation. U9 streams the turn (this returns the resolved final/interrupt
+ * shape; U9 wraps `graph.stream` for token streaming — the same compiled graph
+ * + config). The thread_id IS the conversation doc id (the checkpointer join key).
+ */
+export async function runChatTurn(
+  args: RunChatTurnArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<ChatTurnResult> {
+  const config = chatConfig(args.conversationDocId);
+  const final = await graph.invoke(
+    {
+      mode: 'chat',
+      entityId: args.entityId,
+      entityType: args.entityType,
+      ctx: args.ctx,
+      conversationDocId: args.conversationDocId,
+      message: args.message,
+    },
+    config
+  );
+  return interpretResult(args.conversationDocId, final as Record<string, unknown>);
+}
+
+// ── streaming (U9) ───────────────────────────────────────────────────────────
+
+/**
+ * A streamed chat event. U9's SSE route serializes these as SSE frames; U10
+ * parses them client-side:
+ *   - `token`: an incremental chunk of the assistant's prose answer.
+ *   - `final`: the turn resolved with an answer (terminal).
+ *   - `paused`: the graph paused awaiting confirmation; carries the proposal
+ *     (terminal — the client surfaces a confirm/decline UI and calls the
+ *     confirm endpoint, which resumes on the same thread_id).
+ */
+export type ChatStreamEvent =
+  | { type: 'token'; token: string }
+  | { type: 'final'; answer: string; threadId: string; executed?: unknown }
+  | { type: 'paused'; proposal: WriteProposal; threadId: string };
+
+export interface StreamChatTurnArgs extends RunChatTurnArgs {
+  /** Abort signal wired to the client connection close (U9 route). */
+  signal?: AbortSignal;
+}
+
+/**
+ * Stream one chat turn token-by-token. Reuses the SAME compiled graph instance as
+ * runChatTurn (default `getCompiledGraph()`) so the U3 checkpointer + thread_id
+ * config are shared — there is exactly ONE compiled graph in the process. We
+ * stream with `streamMode: ['messages','values']`:
+ *   - `messages` chunks carry per-token model output (the chat prose answer).
+ *   - `values` chunks carry full state; the final one bears `__interrupt__` (when
+ *     paused) or the finalized `answer`.
+ *
+ * The terminal event is derived from the LAST `values` payload (the canonical,
+ * checkpointer-agnostic signal, matching runChatTurn's `__interrupt__` detection)
+ * rather than from token accumulation, so a tool-call turn (no prose tokens) that
+ * pauses still yields the proposal. `config.signal` carries the abort signal so a
+ * client disconnect aborts the run.
+ */
+export async function* streamChatTurn(
+  args: StreamChatTurnArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): AsyncGenerator<ChatStreamEvent> {
+  const config: RunnableConfig = {
+    ...chatConfig(args.conversationDocId),
+    signal: args.signal,
+  };
+
+  // Clear any stale checkpoint left by a RESOLVED prior turn before this fresh
+  // run, so the new message runs cleanly instead of resuming stale graph state.
+  // (A PAUSED prior turn is gated upstream by the route's isPending 409, so we
+  // never reach here with a legitimately pending checkpoint to preserve.)
+  // Best-effort, matching the other three clearConversationThread sites: a DB
+  // blip here must not fail the whole turn after the user message was already
+  // persisted + the rate-limit token billed.
+  await clearConversationThread(args.conversationDocId).catch((err) =>
+    console.warn(
+      '[fleetgraph] start-of-turn clear failed (non-fatal):',
+      err instanceof Error ? err.message : err
+    )
+  );
+
+  let lastValues: Record<string, unknown> | undefined;
+
+  const stream = await graph.stream(
+    {
+      mode: 'chat',
+      entityId: args.entityId,
+      entityType: args.entityType,
+      ctx: args.ctx,
+      conversationDocId: args.conversationDocId,
+      message: args.message,
+    },
+    { ...config, streamMode: ['messages', 'values'] }
+  );
+
+  for await (const chunk of stream) {
+    // With multiple stream modes, each chunk is [mode, payload].
+    const [mode, payload] = chunk as [string, unknown];
+    if (mode === 'messages') {
+      // payload is [messageChunk, metadata]; only AI message chunks carry prose
+      // tokens. HumanMessage (added by the scope node) is also streamed here and
+      // must be skipped — otherwise the user's question echoes into the assistant
+      // bubble before the real response arrives.
+      const [msg] = payload as [unknown, unknown];
+      if (!(msg instanceof AIMessageChunk)) continue;
+      const text = typeof (msg as AIMessageChunk).content === 'string' ? (msg as AIMessageChunk).content as string : '';
+      if (text) yield { type: 'token', token: text };
+    } else if (mode === 'values') {
+      lastValues = payload as Record<string, unknown>;
+    }
+  }
+
+  const result = interpretResult(args.conversationDocId, lastValues ?? {});
+  if (result.status === 'paused') {
+    // PAUSED: keep the checkpoint — `resume` needs it.
+    yield { type: 'paused', proposal: result.proposal, threadId: result.threadId };
+  } else {
+    // RESOLVED with a terminal answer: clear the checkpoint so a SECOND turn on
+    // this conversation runs fresh and never resumes this turn's stale state.
+    // Best-effort: a clear failure must not fail the answer the client already
+    // received, so we swallow it (the start-of-turn clear is the backstop).
+    await clearConversationThread(args.conversationDocId).catch(() => {});
+    yield {
+      type: 'final',
+      answer: result.answer,
+      threadId: result.threadId,
+      executed: result.executed,
+    };
+  }
+}
+
+export interface ResumeChatTurnArgs {
+  conversationDocId: string;
+  approved: boolean;
+}
+
+/**
+ * Resume a paused chat turn. Sends Command({ resume:{approved} }) on the same
+ * thread_id. approved:true executes the confirmed write (exactly the surfaced
+ * proposal); approved:false abandons it. Returns the resolved answer.
+ */
+export async function resumeChatTurn(
+  args: ResumeChatTurnArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<ChatTurnResult> {
+  const config = chatConfig(args.conversationDocId);
+  const resume: ResumeValue = { approved: args.approved };
+  const final = await graph.invoke(new Command({ resume }), config);
+  const result = interpretResult(args.conversationDocId, final as Record<string, unknown>);
+  // A resumed turn ALWAYS resolves (confirm executes; decline abandons) — there
+  // is no second interrupt. Clear the checkpoint so the conversation is clean for
+  // the next turn (and a double-confirm cannot re-enter a stale paused state).
+  // Best-effort: a clear failure must not fail the already-committed write.
+  if (result.status !== 'paused') {
+    await clearConversationThread(args.conversationDocId).catch(() => {});
+  }
+  return result;
+}
+
+export { getCompiledGraph, compileGraph } from './graph.js';

@@ -12,6 +12,8 @@ import {
   type BelongsToEntry,
 } from '../utils/document-crud.js';
 import { broadcastToUser } from '../collaboration/index.js';
+import { createIssueCore, patchIssueCore, runIssueSideEffects } from '../services/issues-service.js';
+import { findSimilarIssues } from '../services/issue-dedup.js';
 
 type RouterType = ReturnType<typeof Router>;
 const router: RouterType = Router();
@@ -417,6 +419,36 @@ router.get('/by-ticket/:number', authMiddleware, async (req: Request, res: Respo
   }
 });
 
+// Find similar open issues by title (Fleet "dedup-on-create", stage 1).
+// The issue editor calls this as the title is typed to surface possible
+// duplicates before another near-identical issue is filed. This is the cheap,
+// deterministic pg_trgm pass; the reasoned verdict over these candidates is
+// stage 2 (POST /api/fleetgraph/dedup-review). Retrieval lives in
+// services/issue-dedup.ts so both stages judge the EXACT same candidate set.
+// GET /api/issues/similar?title=...&exclude=<id>
+// MUST be declared before the '/:id' routes below so it isn't captured as an id.
+router.get('/similar', authMiddleware, async (req: Request, res: Response) => {
+  if (!assertAuthed(req, res)) return;
+  try {
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
+    const title = ((req.query.title as string) || '').trim();
+    const excludeId = (req.query.exclude as string) || null;
+
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const candidates = await findSimilarIssues({
+      ctx: { workspaceId, userId, isAdmin },
+      title,
+      excludeId,
+    });
+
+    res.json({ candidates });
+  } catch (err) {
+    console.error('Find similar issues error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get sub-issues (children) of an issue
 router.get('/:id/children', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -578,99 +610,12 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
-    const {
-      title,
-      state,
-      priority,
-      assignee_id,
-      belongs_to,
-      source,
-      due_date,
-      is_system_generated,
-      accountability_target_id,
-      accountability_type,
-    } = parsed.data;
-
-    await client.query('BEGIN');
-
-    // Use advisory lock to serialize ticket number generation per workspace
-    // This prevents race conditions where concurrent requests get the same MAX value
-    // The lock key is derived from workspace_id (first 15 hex chars as bigint)
-    const workspaceIdHex = req.workspaceId.replace(/-/g, '').substring(0, 15);
-    const lockKey = parseInt(workspaceIdHex, 16);
-    await client.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
-
-    // Now safely get next ticket number - we hold the lock until transaction ends
-    const ticketResult = await client.query(
-      `SELECT COALESCE(MAX(ticket_number), 0) + 1 as next_number
-       FROM documents
-       WHERE workspace_id = $1 AND document_type = 'issue'`,
-      [req.workspaceId]
-    );
-    const ticketNumber = ticketResult.rows[0].next_number;
-
-    // Build properties JSONB
-    const properties = {
-      state: state || 'backlog',
-      priority: priority || 'medium',
-      source: source || 'internal',
-      assignee_id: assignee_id || null,
-      rejection_reason: null,
-      // Accountability fields for action_items issues
-      due_date: due_date || null,
-      is_system_generated: is_system_generated || false,
-      accountability_target_id: accountability_target_id || null,
-      accountability_type: accountability_type || null,
-    };
-
-    const result = await client.query(
-      `INSERT INTO documents (workspace_id, document_type, title, properties, ticket_number, created_by)
-       VALUES ($1, 'issue', $2, $3, $4, $5)
-       RETURNING *`,
-      [req.workspaceId, title, JSON.stringify(properties), ticketNumber, req.userId]
-    );
-
-    const newIssueId = result.rows[0].id;
-
-    // Create associations from belongs_to in a single round-trip via unnest().
-    if (belongs_to.length > 0) {
-      await client.query(
-        `INSERT INTO document_associations (document_id, related_id, relationship_type)
-         SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
-         ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
-        [newIssueId, belongs_to.map(a => a.id), belongs_to.map(a => a.type)]
-      );
-    }
-
-    await client.query('COMMIT');
-
-    // Auto-complete sprint_issues accountability when first issue is created in a sprint
-    const sprintAssociations = belongs_to.filter(bt => bt.type === 'sprint');
-    for (const sprintAssoc of sprintAssociations) {
-      // Check if this is the first issue in the sprint
-      const issueCountResult = await pool.query(
-        `SELECT COUNT(*) as count FROM document_associations
-         WHERE related_id = $1 AND relationship_type = 'sprint'`,
-        [sprintAssoc.id]
-      );
-      const issueCount = parseInt(issueCountResult.rows[0].count, 10);
-
-      // Broadcast celebration when first issue is added to sprint
-      if (issueCount === 1) {
-        broadcastToUser(req.userId, 'accountability:updated', { type: 'week_issues', targetId: sprintAssoc.id });
-      }
-    }
-
-    // Get the belongs_to associations with display info
-    const belongsToResult = await getBelongsToAssociations(newIssueId);
-
-    const row = result.rows[0];
-    const issue = extractIssueFromRow(row);
-    res.status(201).json({
-      ...issue,
-      display_id: `#${ticketNumber}`,
-      belongs_to: belongsToResult,
-    });
+    // Core mutation extracted to issues-service so the FleetGraph write tools
+    // share the exact same load-then-mutate logic (no privileged write path).
+    const ctx = { workspaceId: req.workspaceId, userId: req.userId, isAdmin: false };
+    const outcome = await createIssueCore(client, ctx, parsed.data);
+    await runIssueSideEffects(outcome.sideEffects);
+    res.status(outcome.status).json(outcome.body);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Create issue error:', err);
@@ -695,319 +640,15 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
-    // Get visibility context for filtering
+    // Core mutation extracted to issues-service so the FleetGraph write tools
+    // share the exact same load-then-mutate logic (visibility-scoped, no agent
+    // bypass). The route preserves its prior actor source (claude metadata).
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
-
-    // Get full existing issue for history tracking (with visibility check)
-    const existing = await client.query(
-      `SELECT id, title, properties
-       FROM documents
-       WHERE id = $1 AND workspace_id = $2 AND document_type = 'issue'
-         AND ${VISIBILITY_FILTER_SQL('documents', '$3', '$4')}`,
-      [id, workspaceId, userId, isAdmin]
-    );
-
-    if (existing.rows.length === 0) {
-      res.status(404).json({ error: 'Issue not found' });
-      return;
-    }
-
-    const existingIssue = existing.rows[0];
-    const currentProps = existingIssue.properties || {};
-    const updates: string[] = [];
-    const values: any[] = [];
-    let paramIndex = 1;
-
-    const data = parsed.data;
-
-    // Validate: estimate required when assigning to a sprint via belongs_to
-    if (data.belongs_to) {
-      const hasSprintAssociation = data.belongs_to.some(bt => bt.type === 'sprint');
-      if (hasSprintAssociation) {
-        const effectiveEstimate = data.estimate !== undefined ? data.estimate : currentProps.estimate;
-        if (!effectiveEstimate) {
-          res.status(400).json({ error: 'Estimate is required before assigning to a week' });
-          return;
-        }
-      }
-    }
-
-    // Check for incomplete children when closing parent
-    const isClosingIssue = data.state && (data.state === 'done' || data.state === 'cancelled');
-    const wasNotClosed = currentProps.state !== 'done' && currentProps.state !== 'cancelled';
-
-    if (isClosingIssue && wasNotClosed) {
-      // Check if this issue has any children via junction table
-      const childrenResult = await client.query(
-        `SELECT d.id, d.title, d.ticket_number, d.properties->>'state' as state
-         FROM documents d
-         JOIN document_associations da ON da.document_id = d.id
-         WHERE da.related_id = $1
-           AND da.relationship_type = 'parent'
-           AND d.workspace_id = $2
-           AND d.document_type = 'issue'`,
-        [id, workspaceId]
-      );
-
-      // Filter to incomplete children
-      const incompleteChildren = childrenResult.rows.filter(
-        child => child.state !== 'done' && child.state !== 'cancelled'
-      );
-
-      if (incompleteChildren.length > 0 && !data.confirm_orphan_children) {
-        // Return warning with incomplete children details
-        res.status(409).json({
-          error: 'incomplete_children',
-          message: `This issue has ${incompleteChildren.length} incomplete sub-issue(s). Closing it will remove their parent association.`,
-          incomplete_children: incompleteChildren.map(child => ({
-            id: child.id,
-            title: child.title,
-            ticket_number: child.ticket_number,
-            state: child.state,
-          })),
-          confirm_action: 'Set confirm_orphan_children: true to proceed',
-        });
-        return;
-      }
-
-      // If confirmed, orphan the children by removing their parent associations
-      if (incompleteChildren.length > 0 && data.confirm_orphan_children) {
-        await client.query(
-          `DELETE FROM document_associations
-           WHERE related_id = $1
-             AND relationship_type = 'parent'`,
-          [id]
-        );
-      }
-    }
-
-    // Track changes for history
-    const changes: Array<{ field: string; oldValue: string | null; newValue: string | null }> = [];
-
-    // Handle title update (regular column)
-    if (data.title !== undefined && data.title !== existingIssue.title) {
-      updates.push(`title = $${paramIndex++}`);
-      values.push(data.title);
-      changes.push({ field: 'title', oldValue: existingIssue.title, newValue: data.title });
-    }
-
-    // Handle properties updates
-    const newProps = { ...currentProps };
-    let propsChanged = false;
-
-    if (data.state !== undefined && data.state !== currentProps.state) {
-      changes.push({ field: 'state', oldValue: currentProps.state || null, newValue: data.state });
-      newProps.state = data.state;
-      propsChanged = true;
-
-      // Update status timestamps based on state change
-      const timestampUpdates = getTimestampUpdates(currentProps.state || null, data.state);
-      for (const [col, expr] of Object.entries(timestampUpdates)) {
-        updates.push(`${col} = ${expr}`);
-      }
-    }
-    if (data.priority !== undefined && data.priority !== currentProps.priority) {
-      changes.push({ field: 'priority', oldValue: currentProps.priority || null, newValue: data.priority });
-      newProps.priority = data.priority;
-      propsChanged = true;
-    }
-    if (data.assignee_id !== undefined && data.assignee_id !== currentProps.assignee_id) {
-      changes.push({ field: 'assignee_id', oldValue: currentProps.assignee_id || null, newValue: data.assignee_id });
-      newProps.assignee_id = data.assignee_id;
-      propsChanged = true;
-    }
-    if (data.estimate !== undefined && data.estimate !== currentProps.estimate) {
-      changes.push({ field: 'estimate', oldValue: currentProps.estimate?.toString() || null, newValue: data.estimate?.toString() || null });
-      newProps.estimate = data.estimate;
-      propsChanged = true;
-    }
-
-    // Store Claude metadata in properties for attribution tracking
-    if (data.claude_metadata) {
-      newProps.claude_metadata = {
-        ...data.claude_metadata,
-        updated_at: new Date().toISOString(),
-      };
-      propsChanged = true;
-    }
-
-    // Track the index in values array for properties (for later updates after carryover)
-    let propsValueIndex = -1;
-    if (propsChanged) {
-      updates.push(`properties = $${paramIndex++}`);
-      propsValueIndex = values.length;
-      values.push(JSON.stringify(newProps));
-    }
-
-    // Handle belongs_to association updates via junction table
-    let belongsToChanged = false;
-    let oldBelongsTo: BelongsToEntry[] = [];
-    let newBelongsTo: BelongsToEntry[] = [];
-
-    if (data.belongs_to !== undefined) {
-      // Get existing associations for comparison
-      oldBelongsTo = await getBelongsToAssociations(id);
-      newBelongsTo = data.belongs_to;
-
-      // Compare to see if associations changed
-      const oldIds = oldBelongsTo.map(bt => `${bt.type}:${bt.id}`).sort().join(',');
-      const newIds = newBelongsTo.map(bt => `${bt.type}:${bt.id}`).sort().join(',');
-
-      if (oldIds !== newIds) {
-        belongsToChanged = true;
-
-        // Track carryover when moving from a completed sprint while issue is not done
-        const oldSprintAssoc = oldBelongsTo.find(bt => bt.type === 'sprint');
-        const newSprintAssoc = newBelongsTo.find(bt => bt.type === 'sprint');
-
-        if (oldSprintAssoc && newSprintAssoc && oldSprintAssoc.id !== newSprintAssoc.id && currentProps.state !== 'done') {
-          // Check if the old sprint is completed (based on end date)
-          const oldSprintResult = await client.query(
-            `SELECT properties->>'sprint_number' as sprint_number, w.sprint_start_date
-             FROM documents d
-             JOIN workspaces w ON d.workspace_id = w.id
-             WHERE d.id = $1 AND d.document_type = 'sprint'`,
-            [oldSprintAssoc.id]
-          );
-
-          if (oldSprintResult.rows[0]) {
-            const sprintNumber = parseInt(oldSprintResult.rows[0].sprint_number, 10);
-            const rawStartDate = oldSprintResult.rows[0].sprint_start_date;
-            const sprintDuration = 7; // 1-week sprints
-
-            let startDate: Date;
-            if (rawStartDate instanceof Date) {
-              startDate = new Date(Date.UTC(rawStartDate.getFullYear(), rawStartDate.getMonth(), rawStartDate.getDate()));
-            } else if (typeof rawStartDate === 'string') {
-              startDate = new Date(rawStartDate + 'T00:00:00Z');
-            } else {
-              startDate = new Date();
-            }
-
-            // Calculate sprint end date
-            const sprintEndDate = new Date(startDate);
-            sprintEndDate.setUTCDate(sprintEndDate.getUTCDate() + (sprintNumber * sprintDuration) - 1);
-
-            // If the old sprint has ended, mark this as a carryover
-            if (new Date() > sprintEndDate) {
-              newProps.carryover_from_sprint_id = oldSprintAssoc.id;
-              propsChanged = true;
-            }
-          }
-        } else if (oldSprintAssoc && !newSprintAssoc) {
-          // Removing from sprint clears carryover
-          delete newProps.carryover_from_sprint_id;
-          propsChanged = true;
-        }
-
-        // Log belongs_to change
-        changes.push({
-          field: 'belongs_to',
-          oldValue: JSON.stringify(oldBelongsTo.map(bt => ({ id: bt.id, type: bt.type }))),
-          newValue: JSON.stringify(newBelongsTo.map(bt => ({ id: bt.id, type: bt.type }))),
-        });
-      }
-    }
-
-    // Re-check if properties changed (carryover may have been updated)
-    if (propsChanged && propsValueIndex === -1) {
-      // Properties weren't added yet, add now
-      updates.push(`properties = $${paramIndex++}`);
-      propsValueIndex = values.length;
-      values.push(JSON.stringify(newProps));
-    } else if (propsChanged && propsValueIndex >= 0) {
-      // Update the existing properties value at the tracked index
-      values[propsValueIndex] = JSON.stringify(newProps);
-    }
-
-    if (updates.length === 0 && !belongsToChanged) {
-      res.status(400).json({ error: 'No fields to update' });
-      return;
-    }
-
-    await client.query('BEGIN');
-
-    // Log all changes to history (within transaction)
-    const automatedBy = data.claude_metadata?.updated_by;
-    for (const change of changes) {
-      await logDocumentChange(id!, change.field, change.oldValue, change.newValue, req.userId, automatedBy, client);
-    }
-
-    // If we have document updates, do the UPDATE
-    if (updates.length > 0) {
-      updates.push(`updated_at = now()`);
-
-      await client.query(
-        `UPDATE documents SET ${updates.join(', ')} WHERE id = $${paramIndex} AND workspace_id = $${paramIndex + 1}`,
-        [...values, id, req.workspaceId]
-      );
-    }
-
-    // Handle belongs_to association updates in junction table
-    if (belongsToChanged) {
-      // Delete all existing associations for this document
-      await client.query(
-        `DELETE FROM document_associations WHERE document_id = $1`,
-        [id]
-      );
-
-      // Insert new associations in a single round-trip via unnest().
-      if (newBelongsTo.length > 0) {
-        await client.query(
-          `INSERT INTO document_associations (document_id, related_id, relationship_type)
-           SELECT $1::uuid, unnest($2::uuid[]), unnest($3::text[])::relationship_type
-           ON CONFLICT (document_id, related_id, relationship_type) DO NOTHING`,
-          [id, newBelongsTo.map(a => a.id), newBelongsTo.map(a => a.type)]
-        );
-      }
-    }
-
-    // Fetch the updated issue
-    const result = await client.query(
-      `SELECT * FROM documents WHERE id = $1 AND workspace_id = $2`,
-      [id, req.workspaceId]
-    );
-
-    await client.query('COMMIT');
-
-    // Post-commit operations (non-transactional)
-
-    // Check if a NEW sprint association was added and this is the first issue in that sprint
-    if (belongsToChanged) {
-      const oldSprintIds = oldBelongsTo.filter(bt => bt.type === 'sprint').map(bt => bt.id);
-      const newSprintIds = newBelongsTo.filter(bt => bt.type === 'sprint').map(bt => bt.id);
-      const addedSprintIds = newSprintIds.filter(sprintId => !oldSprintIds.includes(sprintId));
-
-      for (const sprintId of addedSprintIds) {
-        const issueCountResult = await pool.query(
-          `SELECT COUNT(*) as count FROM document_associations
-           WHERE related_id = $1 AND relationship_type = 'sprint'`,
-          [sprintId]
-        );
-        const issueCount = parseInt(issueCountResult.rows[0].count, 10);
-
-        if (issueCount === 1) {
-          broadcastToUser(req.userId, 'accountability:updated', { type: 'week_issues', targetId: sprintId });
-        }
-      }
-    }
-
-    const row = result.rows[0];
-    const displayId = `#${row.ticket_number}`;
-
-    const issue = extractIssueFromRow(row);
-    const belongsTo = await getBelongsToAssociations(id);
-
-    // Broadcast accountability update when an action item issue is completed
-    if (isClosingIssue && wasNotClosed) {
-      const props = row.properties || {};
-      if (props.source === 'action_items') {
-        const assigneeId = props.assignee_id || req.userId;
-        broadcastToUser(assigneeId, 'accountability:updated', { issueId: id, state: data.state });
-      }
-    }
-
-    res.json({ ...issue, display_id: displayId, belongs_to: belongsTo });
+    const ctx = { workspaceId, userId, isAdmin };
+    const actorSource = parsed.data.claude_metadata?.updated_by;
+    const outcome = await patchIssueCore(client, ctx, id, parsed.data, actorSource);
+    await runIssueSideEffects(outcome.sideEffects);
+    res.status(outcome.status).json(outcome.body);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Update issue error:', err);

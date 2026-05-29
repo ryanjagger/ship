@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db/client.js';
 import { z } from 'zod';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, assertAuthed } from '../middleware/auth.js';
+import { postCommentCore } from '../services/comments-service.js';
 
 type RouterType = ReturnType<typeof Router>;
 
@@ -56,6 +57,7 @@ documentCommentsRouter.get('/:id/comments', authMiddleware, async (req: Request,
 // POST /api/documents/:id/comments
 documentCommentsRouter.post('/:id/comments', authMiddleware, async (req: Request, res: Response) => {
   try {
+    if (!assertAuthed(req, res)) return;
     const { id: documentId } = req.params;
     const userId = req.userId;
     const workspaceId = req.workspaceId;
@@ -66,61 +68,11 @@ documentCommentsRouter.post('/:id/comments', authMiddleware, async (req: Request
       return;
     }
 
-    const { comment_id, content, parent_id } = parsed.data;
-
-    // Verify document exists
-    const docCheck = await pool.query(
-      'SELECT id FROM documents WHERE id = $1 AND workspace_id = $2',
-      [documentId, workspaceId]
-    );
-    if (docCheck.rows.length === 0) {
-      res.status(404).json({ error: 'Document not found' });
-      return;
-    }
-
-    // If replying, verify parent exists and belongs to same document
-    if (parent_id) {
-      const parentCheck = await pool.query(
-        'SELECT id FROM comments WHERE id = $1 AND document_id = $2',
-        [parent_id, documentId]
-      );
-      if (parentCheck.rows.length === 0) {
-        res.status(404).json({ error: 'Parent comment not found' });
-        return;
-      }
-    }
-
-    const result = await pool.query(
-      `INSERT INTO comments (document_id, comment_id, parent_id, author_id, workspace_id, content)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [documentId, comment_id, parent_id || null, userId, workspaceId, content]
-    );
-
-    const comment = result.rows[0];
-
-    // Get author info
-    const authorResult = await pool.query(
-      'SELECT id, name, email FROM users WHERE id = $1',
-      [userId]
-    );
-    const author = authorResult.rows[0];
-
-    res.status(201).json({
-      id: comment.id,
-      document_id: comment.document_id,
-      comment_id: comment.comment_id,
-      parent_id: comment.parent_id,
-      content: comment.content,
-      resolved_at: comment.resolved_at,
-      author: {
-        id: author.id,
-        name: author.name,
-        email: author.email,
-      },
-      created_at: comment.created_at,
-      updated_at: comment.updated_at,
-    });
+    // Core mutation extracted to comments-service so the FleetGraph
+    // `post_comment` write tool shares the exact same logic (no agent bypass).
+    const ctx = { workspaceId, userId, isAdmin: false };
+    const outcome = await postCommentCore(pool, ctx, documentId as string, parsed.data);
+    res.status(outcome.status).json(outcome.body);
   } catch (err) {
     console.error('Create comment error:', err);
     res.status(500).json({ error: 'Internal server error' });

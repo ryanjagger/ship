@@ -85,6 +85,16 @@ export const ProjectResponseSchema = z.object({
   inferred_status: z.enum(['active', 'planned', 'completed', 'backlog', 'archived']).openapi({
     description: 'Status computed from sprint relationships',
   }),
+  // Drift — derived on-read; null for ineligible (non active/planned) projects
+  drift: z.object({
+    isDrifting: z.boolean(),
+    signals: z.array(z.object({
+      type: z.enum(['idle', 'stale_plan', 'rising_incomplete_work']),
+      reason: z.string(),
+    })),
+  }).nullable().openapi({
+    description: 'Computed drift signals for active/planned projects; null otherwise',
+  }),
   // Counts
   sprint_count: z.number().int(),
   issue_count: z.number().int(),
