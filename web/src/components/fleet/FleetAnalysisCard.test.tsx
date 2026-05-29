@@ -143,6 +143,29 @@ describe('FleetAnalysisCard — retro variant (R15: advisory only)', () => {
     expect(screen.queryByText('Validated')).toBeNull();
   });
 
+  it('no plan → shows the add-a-plan helper, NOT the provider message', () => {
+    renderCard(
+      <FleetAnalysisCard
+        variant="retro"
+        review={review({ plan: { status: 'no_plan', pieces: [], ai_available: false }, retro: { ai_available: false } })}
+      />
+    );
+    expect(screen.getByText(/Fleet recommends a retro outcome once the project has a plan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/requires an AI provider/i)).toBeNull();
+    expect(screen.queryByText('Recommended outcome')).toBeNull(); // advisory box suppressed
+  });
+
+  it('plan present but AI unavailable → still shows the provider message', () => {
+    renderCard(
+      <FleetAnalysisCard
+        variant="retro"
+        review={review({ plan: { status: 'needs_work' }, retro: { ai_available: false } })}
+      />
+    );
+    expect(screen.getByText(/requires an AI provider/i)).toBeInTheDocument();
+    expect(screen.queryByText(/once the project has a plan/i)).toBeNull();
+  });
+
   it('renders the diagnosis and recommended next step when present', () => {
     renderCard(
       <FleetAnalysisCard

@@ -50,6 +50,8 @@ const RECOMMENDATION_LABELS: Record<FleetRecommendation, string> = {
 
 const PLAN_HELPER_TEXT =
   'Use /plan to write the project plan as a testable bet: what will change, for whom, by how much, and by when.';
+const RETRO_NO_PLAN_TEXT =
+  'Fleet recommends a retro outcome once the project has a plan to evaluate. Add one with /plan, then revisit.';
 const TESTABLE_BET_TEXT =
   'A good hypothesis is a testable bet: what will change, for whom, by how much, and by when.';
 
@@ -270,8 +272,16 @@ function RetroPanel({
   applyError?: boolean;
 }) {
   const rec = review.retro_recommendation;
+  // A retro recommendation needs a plan to evaluate. When the project has none,
+  // getReview returns it unavailable — surface the real reason instead of
+  // wrongly blaming the AI provider (the plan-review card already shows "No Plan").
+  const noPlan = review.plan_review.status === 'no_plan';
   return (
     <CardShell title="Fleet Recommendation" freshness={formatRelative(rec.computed_at)} onRefresh={onRefresh} isRefreshing={isRefreshing} refreshError={refreshError}>
+      {noPlan ? (
+        <p className="text-xs text-muted">{RETRO_NO_PLAN_TEXT}</p>
+      ) : (
+        <>
       {/* Advisory, read-only — deliberately not the green/red human control. */}
       <div className="rounded-md border border-border bg-border/20 px-3 py-2">
         <div className="text-xs font-medium uppercase tracking-wide text-muted">Recommended outcome</div>
@@ -327,6 +337,8 @@ function RetroPanel({
 
       {!rec.ai_available && (
         <p className="mt-3 text-xs text-muted">Fleet recommendation requires an AI provider — contact your admin.</p>
+      )}
+        </>
       )}
     </CardShell>
   );
