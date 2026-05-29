@@ -196,10 +196,11 @@ export function ProjectRetro({ projectId }: ProjectRetroProps) {
           <div className="w-72 border-l border-border p-4 overflow-y-auto">
             <h3 className="text-sm font-medium text-foreground mb-4">Retrospective Properties</h3>
 
-            {/* Fleet advisory recommendation — read-only, sits beside the human
-                Validated/Invalidated control below but never sets it. */}
+            {/* Fleet advisory recommendation. Fleet proposes; applying its
+                suggested outcome is an explicit, confirmed user action that sets
+                plan_validated, then re-syncs this form via fetchRetro. */}
             <div className="mb-6">
-              <FleetReviewContainer projectId={projectId} variant="retro" />
+              <FleetReviewContainer projectId={projectId} variant="retro" onApplied={fetchRetro} />
             </div>
 
             {/* Plan Validation */}

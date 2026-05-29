@@ -35,6 +35,8 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import type {
   FleetPlanReview,
   FleetHypothesisPiece,
+  FleetRetroRecommendation,
+  FleetProposedAction,
   FleetDedupReview,
   FleetDedupMatch,
   DriftSignal,
@@ -46,6 +48,7 @@ import { ConversationDocCheckpointSaver } from './checkpointer.js';
 import { RUBRIC, BY_WHEN_HINT } from './plan-review-config.js';
 import { findSimilarIssues } from '../issue-dedup.js';
 import type { DedupReviewAi } from './dedup-config.js';
+import type { RetroRecAi } from './retro-config.js';
 import { getCompiledGraph, compileGraph } from './graph.js';
 import type { FleetContext, FleetEntityType } from './tools/read.js';
 import type { WriteProposal } from './tools/write.js';
@@ -173,6 +176,90 @@ export async function runPlanReview(
     ai_available: false,
   };
   return { planReview, diagnosis: null, recommendedNextAction: null, available: false };
+}
+
+// ── retro recommendation (proactive, graph-backed advisory verdict) ──────────
+
+export interface RunRetroRecommendationArgs {
+  entityId: string;
+  entityType?: FleetEntityType;
+  ctx: FleetContext;
+}
+
+/**
+ * Drive the compiled graph in `retro` mode and lift the advisory recommendation
+ * into a `FleetRetroRecommendation` (the Project Retro panel contract). Mirrors
+ * `runPlanReview`: a transient random thread_id (no conversation, never pauses),
+ * single-shot, never throws — a degraded model yields an `ai_available: false`
+ * result identical to `unavailableRetroRecommendation()` so `getReview`'s
+ * persistence gate (`retroRec.ai_available`) is unchanged.
+ *
+ * Unlike the prior direct `evaluateStructured` call, the graph path emits a
+ * named, nested LangSmith trace (scope → fetch → reason → ChatAnthropic) carrying
+ * `feature: 'retro_recommendation'` + `projectId` metadata, so retro runs are
+ * filterable instead of surfacing as anonymous root spans.
+ */
+export async function runRetroRecommendation(
+  args: RunRetroRecommendationArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<FleetRetroRecommendation> {
+  const entityType = args.entityType ?? 'project';
+  const config: RunnableConfig = {
+    configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV, projectId: args.entityId, feature: 'retro_recommendation' },
+    runName: 'fleet.retro_recommendation',
+  };
+
+  const final = await graph.invoke(
+    { mode: 'retro', entityId: args.entityId, entityType, ctx: args.ctx },
+    config
+  );
+
+  const analysis = final.analysis as FleetAnalysis | null;
+  const ai = (analysis?.retroReview as RetroRecAi | undefined) ?? undefined;
+
+  if (ai && analysis?.aiAvailable) {
+    return {
+      recommendation: ai.recommendation,
+      explanation: ai.explanation,
+      evidence_found: ai.evidence_found,
+      evidence_missing: ai.evidence_missing,
+      suggested_conclusion: ai.suggested_conclusion.trim() || null,
+      diagnosis: ai.diagnosis.trim() || null,
+      recommended_next_action: ai.recommended_next_action.trim() || null,
+      proposed_action: proposedActionFor(ai.recommendation),
+      ai_available: true,
+    };
+  }
+
+  // Model unavailable / degraded / focal not visible → unavailable retro rec
+  // (shape matches fleet-service.ts's unavailableRetroRecommendation()).
+  return {
+    recommendation: 'insufficient_evidence',
+    explanation: 'Fleet recommendation requires a configured AI provider.',
+    evidence_found: [],
+    evidence_missing: [],
+    suggested_conclusion: null,
+    diagnosis: null,
+    recommended_next_action: null,
+    proposed_action: null,
+    ai_available: false,
+  };
+}
+
+/**
+ * Derive the confirmable outcome write from the advisory recommendation. Fleet
+ * proposes; the user confirms via the Apply endpoint. `insufficient_evidence`
+ * proposes nothing — there is no outcome to commit yet.
+ */
+function proposedActionFor(rec: RetroRecAi['recommendation']): FleetProposedAction | null {
+  if (rec === 'validated_recommended') {
+    return { kind: 'set_plan_validated', plan_validated: true, summary: 'Mark this plan validated and close the retro.' };
+  }
+  if (rec === 'invalidated_recommended') {
+    return { kind: 'set_plan_validated', plan_validated: false, summary: 'Mark this plan invalidated and close the retro.' };
+  }
+  return null;
 }
 
 // ── dedup (on-demand, graph-backed duplicate verdict) ────────────────────────

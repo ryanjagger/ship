@@ -41,7 +41,7 @@ import type { FetchNodeOutput } from './nodes/fetch.js';
 import type { WriteProposal, ExecuteResult } from './tools/write.js';
 import type { FleetDedupCandidate, DriftSignal } from '@ship/shared';
 
-export type FleetMode = 'plan_review' | 'chat' | 'dedup' | 'drift';
+export type FleetMode = 'plan_review' | 'chat' | 'dedup' | 'drift' | 'retro';
 
 /** The structured analysis the reasoning node produces (mode-shaped). */
 export interface FleetAnalysis {
@@ -63,6 +63,11 @@ export interface FleetAnalysis {
    * runDriftReasoning boundary.
    */
   driftReview?: unknown;
+  /**
+   * For retro: the structured retro recommendation the entry point lifts into a
+   * FleetRetroRecommendation-shaped result. Opaque to the graph.
+   */
+  retroReview?: unknown;
   /** True when the model contributed (vs. a neutral-degraded path). */
   aiAvailable: boolean;
 }

@@ -4,23 +4,21 @@ import crypto from 'crypto';
 
 // Mock the AI provider so route tests never hit a real model. Default:
 // unavailable (deterministic-only). Individual tests flip availability.
-const { isFleetAiAvailable, evaluateStructured, checkFleetRefreshRateLimit, runPlanReview } = vi.hoisted(() => ({
+const { isFleetAiAvailable, checkFleetRefreshRateLimit, runPlanReview, runRetroRecommendation } = vi.hoisted(() => ({
   isFleetAiAvailable: vi.fn(() => false),
-  evaluateStructured: vi.fn(),
   checkFleetRefreshRateLimit: vi.fn(() => true),
-  // R13: plan-review runs through the graph. Mock that boundary so the route
-  // test exercises the real getReview shell (cache + DB + jsonb_set) without a
-  // real provider/model.
+  // R13: BOTH AI compute paths run through the graph. Mock those boundaries so
+  // the route test exercises the real getReview shell (cache + DB + jsonb_set)
+  // without a real provider/model.
   runPlanReview: vi.fn(),
+  runRetroRecommendation: vi.fn(),
 }));
 vi.mock('../services/fleet-ai.js', () => ({
   isFleetAiAvailable,
-  evaluateStructured,
   checkFleetRefreshRateLimit,
   checkFleetReviewRateLimit: () => true,
-  isFleetAiError: (x: unknown) => typeof x === 'object' && x !== null && 'error' in x,
 }));
-vi.mock('../services/fleetgraph/index.js', () => ({ runPlanReview }));
+vi.mock('../services/fleetgraph/index.js', () => ({ runPlanReview, runRetroRecommendation }));
 
 import { createApp } from '../app.js';
 import { pool } from '../db/client.js';
@@ -28,12 +26,17 @@ import { generateOpenAPIDocument } from '../openapi/registry.js';
 import '../openapi/schemas/index.js'; // ensure Fleet paths register
 
 const RUBRIC_IDS = ['what_changes', 'by_how_much', 'for_whom'];
-const retroAi = {
-  recommendation: 'insufficient_evidence',
+// The graph's lifted FleetRetroRecommendation output, available.
+const retroRec = {
+  recommendation: 'insufficient_evidence' as const,
   explanation: 'x',
-  evidence_found: [],
+  evidence_found: [] as string[],
   evidence_missing: ['No actual impact'],
-  suggested_conclusion: '',
+  suggested_conclusion: null as string | null,
+  diagnosis: 'evidence is thin' as string | null,
+  recommended_next_action: 'record actual impact' as string | null,
+  proposed_action: null as null | { kind: 'set_plan_validated'; plan_validated: boolean; summary: string },
+  ai_available: true as const,
 };
 // The graph's FleetPlanReview output (already mapped), available (4/4 pieces).
 function graphPlanReviewResult() {
@@ -52,9 +55,9 @@ function graphPlanReviewResult() {
 }
 function wireAiAvailable() {
   isFleetAiAvailable.mockReturnValue(true);
-  // plan-review via graph; retro still via evaluateStructured.
+  // Both AI compute paths run through the graph (mocked boundaries).
   runPlanReview.mockResolvedValue(graphPlanReviewResult());
-  evaluateStructured.mockImplementation(() => Promise.resolve(retroAi));
+  runRetroRecommendation.mockResolvedValue(retroRec);
 }
 
 describe('Fleet plan-review API', () => {
@@ -125,6 +128,7 @@ describe('Fleet plan-review API', () => {
     isFleetAiAvailable.mockReturnValue(false);
     checkFleetRefreshRateLimit.mockReturnValue(true);
     runPlanReview.mockReset();
+    runRetroRecommendation.mockReset();
     await pool.query(`DELETE FROM documents WHERE workspace_id = $1 AND document_type IN ('project','issue')`, [workspaceId]);
     projectId = (await pool.query(
       `INSERT INTO documents (workspace_id, document_type, title, created_by, parent_id, visibility, properties)
@@ -155,9 +159,9 @@ describe('Fleet plan-review API', () => {
     expect(res.body.retro_recommendation.ai_available).toBe(false);
     expect(res.body.retro_recommendation.evidence_found).toEqual([]);
     expect(res.body.retro_recommendation.evidence_missing).toEqual([]);
-    // No provider → neither the graph nor evaluateStructured is invoked.
+    // No provider → neither the graph nor runRetroRecommendation is invoked.
     expect(runPlanReview).not.toHaveBeenCalled();
-    expect(evaluateStructured).not.toHaveBeenCalled();
+    expect(runRetroRecommendation).not.toHaveBeenCalled();
   });
 
   it('GET on nonexistent project → 404', async () => {
@@ -180,10 +184,10 @@ describe('Fleet plan-review API', () => {
     wireAiAvailable();
     await request(app).get(`/api/projects/${projectId}/fleet/plan-review`).set('Cookie', sessionCookie).expect(200);
     expect(runPlanReview.mock.calls.length).toBe(1); // R13: plan via graph
-    expect(evaluateStructured.mock.calls.length).toBe(1); // retro via evaluateStructured
+    expect(runRetroRecommendation.mock.calls.length).toBe(1); // retro via runRetroRecommendation
     await request(app).get(`/api/projects/${projectId}/fleet/plan-review`).set('Cookie', sessionCookie).expect(200);
     expect(runPlanReview.mock.calls.length).toBe(1); // unchanged → served from cache
-    expect(evaluateStructured.mock.calls.length).toBe(1); // unchanged → served from cache
+    expect(runRetroRecommendation.mock.calls.length).toBe(1); // unchanged → served from cache
   });
 
   it('POST refresh past the rate limit → 429 and no model call', async () => {
@@ -195,21 +199,21 @@ describe('Fleet plan-review API', () => {
       .set('x-csrf-token', csrfToken);
     expect(res.status).toBe(429);
     expect(runPlanReview).not.toHaveBeenCalled();
-    expect(evaluateStructured).not.toHaveBeenCalled();
+    expect(runRetroRecommendation).not.toHaveBeenCalled();
   });
 
   it('POST refresh forces a re-run even after a cached GET', async () => {
     wireAiAvailable();
     await request(app).get(`/api/projects/${projectId}/fleet/plan-review`).set('Cookie', sessionCookie).expect(200);
     expect(runPlanReview.mock.calls.length).toBe(1); // plan via graph
-    expect(evaluateStructured.mock.calls.length).toBe(1); // retro
+    expect(runRetroRecommendation.mock.calls.length).toBe(1); // retro
     const res = await request(app)
       .post(`/api/projects/${projectId}/fleet/plan-review/refresh`)
       .set('Cookie', sessionCookie)
       .set('x-csrf-token', csrfToken);
     expect(res.status).toBe(200);
     expect(runPlanReview.mock.calls.length).toBe(2); // forced re-run of plan via graph
-    expect(evaluateStructured.mock.calls.length).toBe(2); // forced re-run of retro
+    expect(runRetroRecommendation.mock.calls.length).toBe(2); // forced re-run of retro
   });
 
   it('POST refresh for a non-visible project → 404 (cross-workspace, no leak)', async () => {
@@ -220,12 +224,49 @@ describe('Fleet plan-review API', () => {
       .set('x-csrf-token', otherCsrfToken);
     expect(res.status).toBe(404);
     expect(runPlanReview).not.toHaveBeenCalled();
-    expect(evaluateStructured).not.toHaveBeenCalled();
+    expect(runRetroRecommendation).not.toHaveBeenCalled();
   });
 
-  it('OpenAPI document includes both Fleet paths', () => {
+  it('POST retro/apply sets plan_validated via the audited write path', async () => {
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/fleet/retro/apply`)
+      .set('Cookie', sessionCookie)
+      .set('x-csrf-token', csrfToken)
+      .send({ plan_validated: true });
+    expect(res.status).toBe(201);
+    // The project document now carries the applied outcome.
+    const check = await pool.query(`SELECT properties->>'plan_validated' as pv FROM documents WHERE id = $1`, [projectId]);
+    expect(check.rows[0].pv).toBe('true');
+    // Audited as an agent-initiated write under the user's own permissions.
+    const audit = await pool.query(
+      `SELECT details FROM audit_logs WHERE resource_id = $1 AND action = 'project.update' ORDER BY created_at DESC LIMIT 1`,
+      [projectId]
+    );
+    expect(audit.rows[0]?.details?.agent_initiated).toBe(true);
+  });
+
+  it('POST retro/apply for a non-visible project → 404 (no cross-workspace write)', async () => {
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/fleet/retro/apply`)
+      .set('Cookie', otherSessionCookie)
+      .set('x-csrf-token', otherCsrfToken)
+      .send({ plan_validated: true });
+    expect(res.status).toBe(404);
+  });
+
+  it('POST retro/apply with an invalid body → 400', async () => {
+    const res = await request(app)
+      .post(`/api/projects/${projectId}/fleet/retro/apply`)
+      .set('Cookie', sessionCookie)
+      .set('x-csrf-token', csrfToken)
+      .send({ plan_validated: 'yes' });
+    expect(res.status).toBe(400);
+  });
+
+  it('OpenAPI document includes the Fleet paths', () => {
     const doc = generateOpenAPIDocument();
     expect(doc.paths['/projects/{id}/fleet/plan-review']?.get).toBeTruthy();
     expect(doc.paths['/projects/{id}/fleet/plan-review/refresh']?.post).toBeTruthy();
+    expect(doc.paths['/projects/{id}/fleet/retro/apply']?.post).toBeTruthy();
   });
 });

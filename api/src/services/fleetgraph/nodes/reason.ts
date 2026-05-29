@@ -59,6 +59,13 @@ import {
   buildDedupUserContent,
   type DedupReviewAi,
 } from '../dedup-config.js';
+import {
+  retroRecAiSchema,
+  RETRO_SYSTEM_PROMPT,
+  RETRO_SCHEMA_NAME,
+  buildRetroUserContent,
+  type RetroRecAi,
+} from '../retro-config.js';
 import type { FetchNodeOutput } from './fetch.js';
 import type { FleetGraphStateType, FleetGraphUpdate, FleetAnalysis } from '../state.js';
 
@@ -287,6 +294,9 @@ export function makeReasonNode(deps: ReasonNodeDeps = {}) {
     if (state.mode === 'plan_review') {
       return reasonProactive(fetched, deps);
     }
+    if (state.mode === 'retro') {
+      return reasonRetro(fetched, deps);
+    }
     if (state.mode === 'drift') {
       return reasonDrift(state, fetched, deps);
     }
@@ -318,6 +328,38 @@ async function reasonProactive(
   const analysis: FleetAnalysis = {
     text: ai.diagnosis,
     planReview: ai,
+    aiAvailable: true,
+  };
+  return { analysis };
+}
+
+/**
+ * RETRO: structured call via fleet-ai.ts's `evaluateStructured` — the SAME SDK
+ * path the shipped retro recommendation used (preserving the zod-v3/v4 Anthropic
+ * workaround). The model reviews the plan, success criteria, issue breakdown,
+ * monetary impact, and retro narrative (all from the fetch snapshot) and returns
+ * an advisory `validated` / `invalidated` / `insufficient_evidence` recommendation
+ * the entry point lifts into a `FleetRetroRecommendation`. Never throws — a blip
+ * degrades to neutral. Fleet only advises; it never sets `plan_validated`.
+ */
+async function reasonRetro(
+  fetched: FetchNodeOutput,
+  _deps: ReasonNodeDeps
+): Promise<FleetGraphUpdate> {
+  const ai = await evaluateStructuredViaFleetAi<RetroRecAi>({
+    system: RETRO_SYSTEM_PROMPT,
+    user: buildRetroUserContent(fetched),
+    schema: retroRecAiSchema,
+    schemaName: RETRO_SCHEMA_NAME,
+  });
+
+  if (isFleetAiError(ai)) {
+    return neutralDegrade('Retro recommendation is temporarily unavailable.');
+  }
+
+  const analysis: FleetAnalysis = {
+    text: ai.explanation,
+    retroReview: ai,
     aiAvailable: true,
   };
   return { analysis };

@@ -10,9 +10,10 @@
  * (ProjectDetailsTab / ProjectRetro) supplies them from useFleetReview.
  */
 
+import { useState } from 'react';
 import { cn } from '@/lib/cn';
 import { Tooltip } from '@/components/ui/Tooltip';
-import type { FleetReviewResponse, FleetStatus, FleetRecommendation } from '@ship/shared';
+import type { FleetReviewResponse, FleetStatus, FleetRecommendation, FleetProposedAction } from '@ship/shared';
 
 interface FleetAnalysisCardProps {
   variant: 'details' | 'retro';
@@ -23,6 +24,12 @@ interface FleetAnalysisCardProps {
   /** True when the last refresh mutation failed (e.g. 429 rate limit). */
   refreshError?: boolean;
   onRefresh?: () => void;
+  /** Retro only: apply the Fleet-recommended outcome (sets plan_validated). */
+  onApplyOutcome?: (planValidated: boolean) => void;
+  /** True while the apply mutation is in flight. */
+  isApplying?: boolean;
+  /** True when the last apply mutation failed. */
+  applyError?: boolean;
 }
 
 const STATUS_LABELS: Record<FleetStatus, string> = {
@@ -134,6 +141,9 @@ export function FleetAnalysisCard({
   isRefreshing = false,
   refreshError = false,
   onRefresh,
+  onApplyOutcome,
+  isApplying = false,
+  applyError = false,
 }: FleetAnalysisCardProps) {
   const title = variant === 'retro' ? 'Fleet Recommendation' : 'Fleet — Plan Review';
 
@@ -169,7 +179,15 @@ export function FleetAnalysisCard({
   if (!review) return null;
 
   return variant === 'retro' ? (
-    <RetroPanel review={review} onRefresh={onRefresh} isRefreshing={isRefreshing} refreshError={refreshError} />
+    <RetroPanel
+      review={review}
+      onRefresh={onRefresh}
+      isRefreshing={isRefreshing}
+      refreshError={refreshError}
+      onApplyOutcome={onApplyOutcome}
+      isApplying={isApplying}
+      applyError={applyError}
+    />
   ) : (
     <DetailsCard review={review} onRefresh={onRefresh} isRefreshing={isRefreshing} refreshError={refreshError} />
   );
@@ -239,11 +257,17 @@ function RetroPanel({
   onRefresh,
   isRefreshing,
   refreshError,
+  onApplyOutcome,
+  isApplying,
+  applyError,
 }: {
   review: FleetReviewResponse;
   onRefresh?: () => void;
   isRefreshing?: boolean;
   refreshError?: boolean;
+  onApplyOutcome?: (planValidated: boolean) => void;
+  isApplying?: boolean;
+  applyError?: boolean;
 }) {
   const rec = review.retro_recommendation;
   return (
@@ -253,7 +277,24 @@ function RetroPanel({
         <div className="text-xs font-medium uppercase tracking-wide text-muted">Recommended outcome</div>
         <div className="mt-1 text-sm font-semibold text-foreground">{RECOMMENDATION_LABELS[rec.recommendation]}</div>
         {rec.explanation && <p className="mt-1 text-xs text-muted">{rec.explanation}</p>}
+        {rec.diagnosis && <p className="mt-2 text-xs italic text-muted">{rec.diagnosis}</p>}
       </div>
+
+      {rec.recommended_next_action && (
+        <div className="mt-3">
+          <div className="text-xs font-medium text-muted">Recommended next step</div>
+          <p className="mt-1 text-xs text-foreground">{rec.recommended_next_action}</p>
+        </div>
+      )}
+
+      {rec.proposed_action && onApplyOutcome && (
+        <ProposedActionControl
+          action={rec.proposed_action}
+          onApply={onApplyOutcome}
+          isApplying={isApplying}
+          applyError={applyError}
+        />
+      )}
 
       {rec.evidence_found.length > 0 && (
         <div className="mt-3">
@@ -288,5 +329,62 @@ function RetroPanel({
         <p className="mt-3 text-xs text-muted">Fleet recommendation requires an AI provider — contact your admin.</p>
       )}
     </CardShell>
+  );
+}
+
+/**
+ * The confirmable "apply the recommended outcome" control. Fleet only proposes;
+ * the user explicitly confirms before plan_validated is written. A two-step
+ * confirm guards the state change (R15: this is distinct from, and routes
+ * through, the human outcome control). The transient confirm toggle is local UI
+ * state; the recommendation + apply handler still arrive via props.
+ */
+function ProposedActionControl({
+  action,
+  onApply,
+  isApplying,
+  applyError,
+}: {
+  action: FleetProposedAction;
+  onApply: (planValidated: boolean) => void;
+  isApplying?: boolean;
+  applyError?: boolean;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div className="mt-3 rounded-md border border-dashed border-border px-3 py-2">
+      <div className="text-xs font-medium text-muted">Suggested action</div>
+      <p className="mt-1 text-xs text-foreground">{action.summary}</p>
+      {!confirming ? (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          disabled={isApplying}
+          className="mt-2 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+        >
+          Apply
+        </button>
+      ) : (
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onApply(action.plan_validated)}
+            disabled={isApplying}
+            className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+          >
+            {isApplying ? 'Applying…' : 'Confirm'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            disabled={isApplying}
+            className="text-xs text-muted hover:text-foreground disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {applyError && <p className="mt-2 text-xs text-yellow-600">Couldn’t apply — try again in a moment.</p>}
+    </div>
   );
 }

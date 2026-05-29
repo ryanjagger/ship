@@ -16,6 +16,7 @@ import { ConversationDocCheckpointSaver } from './checkpointer.js';
 import { compileGraph } from './graph.js';
 import {
   runPlanReview,
+  runRetroRecommendation,
   runChatTurn,
   resumeChatTurn,
   runDedupReview,
@@ -214,6 +215,81 @@ describe('proactive plan-review (R1, R2)', () => {
     expect(result.available).toBe(false);
     expect(result.planReview.ai_available).toBe(false);
     // graph did not throw; checkpoint not orphaned (no row for transient thread).
+  });
+});
+
+// ── retro recommendation (graph retro mode) ──────────────────────────────────
+
+describe('retro recommendation (graph retro mode)', () => {
+  beforeEach(() => {
+    fleetAiEval.mockReset();
+  });
+
+  const RETRO_AI = {
+    recommendation: 'validated_recommended',
+    explanation: 'Criteria met and impact recorded.',
+    evidence_found: ['Completed the admin flow issue'],
+    evidence_missing: [],
+    suggested_conclusion: 'Validated: the bet held.',
+    diagnosis: 'Strong completion signal.',
+    recommended_next_action: 'Record the actual impact and close.',
+  };
+
+  it('runs scope→fetch→reason→output, lifts the enriched recommendation + proposed action', async () => {
+    const capture: { system?: string; user?: string } = {};
+    fleetAiEval.mockImplementation(async (req: { system: string; user: string }) => {
+      capture.system = req.system;
+      capture.user = req.user;
+      return RETRO_AI;
+    });
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+
+    const result = await runRetroRecommendation({ entityId: projectId, entityType: 'project', ctx }, graph);
+
+    expect(result.ai_available).toBe(true);
+    expect(result.recommendation).toBe('validated_recommended');
+    expect(result.diagnosis).toBe('Strong completion signal.');
+    expect(result.recommended_next_action).toContain('actual impact');
+    // validated → proposes setting plan_validated = true (the confirmable write).
+    expect(result.proposed_action).toEqual({
+      kind: 'set_plan_validated',
+      plan_validated: true,
+      summary: expect.stringContaining('validated'),
+    });
+
+    // Richer evidence: the retro prompt folds in the issue breakdown, a recent
+    // activity window, and the people roster — not just the flat plan signals.
+    expect(capture.user).toContain('<issues done="0" cancelled="0" active="1">');
+    expect(capture.user).toContain('Wire up the new admin flow'); // the active issue
+    expect(capture.user).toContain('<activity');
+    expect(capture.user).toContain('<people>');
+  });
+
+  it('invalidated_recommended proposes plan_validated:false', async () => {
+    fleetAiEval.mockResolvedValue({ ...RETRO_AI, recommendation: 'invalidated_recommended' });
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRetroRecommendation({ entityId: projectId, entityType: 'project', ctx }, graph);
+    expect(result.proposed_action).toEqual({
+      kind: 'set_plan_validated',
+      plan_validated: false,
+      summary: expect.stringContaining('invalidated'),
+    });
+  });
+
+  it('insufficient_evidence proposes no action', async () => {
+    fleetAiEval.mockResolvedValue({ ...RETRO_AI, recommendation: 'insufficient_evidence' });
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRetroRecommendation({ entityId: projectId, entityType: 'project', ctx }, graph);
+    expect(result.recommendation).toBe('insufficient_evidence');
+    expect(result.proposed_action).toBeNull();
+  });
+
+  it('a model error degrades to unavailable (ai_available:false, no proposed action)', async () => {
+    fleetAiEval.mockResolvedValue({ error: 'ai_unavailable' });
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRetroRecommendation({ entityId: projectId, entityType: 'project', ctx }, graph);
+    expect(result.ai_available).toBe(false);
+    expect(result.proposed_action).toBeNull();
   });
 });
 

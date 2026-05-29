@@ -33,6 +33,9 @@ function retroRec(o: Partial<FleetRetroRecommendation> = {}): FleetRetroRecommen
     evidence_found: ['2 completed issues'],
     evidence_missing: ['No actual impact recorded'],
     suggested_conclusion: null,
+    diagnosis: null,
+    recommended_next_action: null,
+    proposed_action: null,
     ai_available: true,
     ...o,
   };
@@ -138,6 +141,45 @@ describe('FleetAnalysisCard — retro variant (R15: advisory only)', () => {
     renderCard(<FleetAnalysisCard variant="retro" review={review({ retro: { recommendation: 'validated_recommended' } })} />);
     expect(screen.getByText('Leans validated')).toBeInTheDocument();
     expect(screen.queryByText('Validated')).toBeNull();
+  });
+
+  it('renders the diagnosis and recommended next step when present', () => {
+    renderCard(
+      <FleetAnalysisCard
+        variant="retro"
+        review={review({ retro: { diagnosis: 'The actual impact was never recorded.', recommended_next_action: 'Record the actual impact, then close.' } })}
+      />
+    );
+    expect(screen.getByText('The actual impact was never recorded.')).toBeInTheDocument();
+    expect(screen.getByText('Recommended next step')).toBeInTheDocument();
+    expect(screen.getByText('Record the actual impact, then close.')).toBeInTheDocument();
+  });
+
+  it('does not render the Apply control without a proposed_action', () => {
+    renderCard(<FleetAnalysisCard variant="retro" review={review()} onApplyOutcome={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
+  });
+
+  it('Apply requires an explicit confirm, then calls onApplyOutcome with plan_validated', () => {
+    const onApplyOutcome = vi.fn();
+    renderCard(
+      <FleetAnalysisCard
+        variant="retro"
+        review={review({
+          retro: {
+            recommendation: 'validated_recommended',
+            proposed_action: { kind: 'set_plan_validated', plan_validated: true, summary: 'Mark this plan validated and close the retro.' },
+          },
+        })}
+        onApplyOutcome={onApplyOutcome}
+      />
+    );
+    // First click reveals the confirm step — it does NOT fire the write yet.
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onApplyOutcome).not.toHaveBeenCalled();
+    // Confirm fires the write with the proposed value.
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    expect(onApplyOutcome).toHaveBeenCalledWith(true);
   });
 });
 

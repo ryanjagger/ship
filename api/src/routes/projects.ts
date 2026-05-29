@@ -8,6 +8,8 @@ import { checkDocumentCompleteness } from '../utils/extractHypothesis.js';
 import { logDocumentChange, getLatestDocumentFieldHistory } from '../utils/document-crud.js';
 import { broadcastToUser } from '../collaboration/index.js';
 import { getReview } from '../services/fleet-service.js';
+import { patchProjectRetroCore } from '../services/projects-service.js';
+import { buildPatchProjectProposal, executeProposal } from '../services/fleetgraph/tools/write.js';
 import { checkFleetRefreshRateLimit } from '../services/fleet-ai.js';
 import { computeProjectDrift } from '../services/drift/computeProjectDrift.js';
 import { driftIssueAggregates, driftPlanLastEditedAt } from '../services/drift/driftSql.js';
@@ -1296,82 +1298,21 @@ router.post('/:id/retro', authMiddleware, async (req: Request, res: Response) =>
     // Get visibility context for filtering
     const { isAdmin } = await getVisibilityContext(userId, workspaceId);
 
-    // Verify project exists and user can access it
-    const existing = await pool.query<IdPropertiesRow>(
-      `SELECT id, properties FROM documents
-       WHERE id = $1 AND workspace_id = $2 AND document_type = 'project'
-         AND ${VISIBILITY_FILTER_SQL('documents', '$3', '$4')}`,
-      [id, workspaceId, userId, isAdmin]
+    // Shared core: visibility-checked load → key-preserving properties merge →
+    // UPDATE (+ optional content) → audit → re-query. Identical behavior to the
+    // prior inline logic; the Fleet retro Apply action reuses the same core.
+    const result = await patchProjectRetroCore(
+      pool,
+      { workspaceId, userId, isAdmin },
+      id as string,
+      parsed.data
     );
 
-    const existingRetroRow = existing.rows[0];
-    if (!existingRetroRow) {
-      res.status(404).json({ error: 'Project not found' });
-      return;
+    if (result.status === 201) {
+      // Broadcast celebration when project retro is completed.
+      broadcastToUser(userId, 'accountability:updated', { type: 'project_retro', targetId: id as string });
     }
-
-    const currentProps: ProjectProperties = existingRetroRow.properties || {};
-    const { plan_validated, monetary_impact_actual, success_criteria, next_steps, content } = parsed.data;
-
-    // Update properties with retro data
-    const newProps: ProjectProperties = {
-      ...currentProps,
-      plan_validated: plan_validated ?? currentProps.plan_validated,
-      monetary_impact_actual: monetary_impact_actual ?? currentProps.monetary_impact_actual,
-      success_criteria: success_criteria ?? currentProps.success_criteria,
-      next_steps: next_steps ?? currentProps.next_steps,
-    };
-
-    // Update project with retro properties and optional content
-    const updates: string[] = ['properties = $1', 'updated_at = now()'];
-    const values: SqlParam[] = [JSON.stringify(newProps)];
-
-    if (content) {
-      updates.push('content = $2');
-      values.push(JSON.stringify(content));
-    }
-
-    await pool.query(
-      `UPDATE documents SET ${updates.join(', ')}
-       WHERE id = $${values.length + 1} AND workspace_id = $${values.length + 2} AND document_type = 'project'`,
-      [...values, id, workspaceId]
-    );
-
-    // Broadcast celebration when project retro is completed
-    broadcastToUser(userId, 'accountability:updated', { type: 'project_retro', targetId: id as string });
-
-    // Log initial retro content to document_history for approval workflow tracking
-    if (content) {
-      await logDocumentChange(
-        id as string,
-        'retro_content',
-        null,
-        JSON.stringify(content),
-        userId
-      );
-    }
-
-    // Re-query to get updated data
-    const result = await pool.query<ProjectFullRow>(
-      `SELECT id, title, content, properties FROM documents WHERE id = $1`,
-      [id]
-    );
-
-    const updatedRow = result.rows[0];
-    if (!updatedRow) {
-      res.status(500).json({ error: 'Project disappeared during update' });
-      return;
-    }
-    const updatedProps: ProjectProperties = updatedRow.properties || {};
-    res.status(201).json({
-      is_draft: false,
-      plan_validated: updatedProps.plan_validated,
-      monetary_impact_expected: updatedProps.monetary_impact_expected || null,
-      monetary_impact_actual: updatedProps.monetary_impact_actual || null,
-      success_criteria: updatedProps.success_criteria || [],
-      next_steps: updatedProps.next_steps || null,
-      content: updatedRow.content || {},
-    });
+    res.status(result.status).json(result.body);
   } catch (err) {
     console.error('Create project retro error:', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -1426,6 +1367,38 @@ router.post('/:id/fleet/plan-review/refresh', authMiddleware, async (req: Reques
     res.json(review);
   } catch (err) {
     console.error('Fleet plan-review refresh error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/projects/:id/fleet/retro/apply - apply the Fleet-recommended outcome
+const fleetRetroApplySchema = z.object({ plan_validated: z.boolean() });
+router.post('/:id/fleet/retro/apply', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!assertAuthed(req, res)) return;
+    const { id } = req.params;
+    const userId = req.userId;
+    const workspaceId = req.workspaceId;
+
+    const parsed = fleetRetroApplySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
+      return;
+    }
+
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    // Route the user-confirmed outcome through the graph's audited write path:
+    // build the contentHash-stamped proposal and execute it under the user's own
+    // permissions (agent_initiated, approved_by the user). A non-visible project
+    // returns 404 — the same denial the user would get directly.
+    const proposal = buildPatchProjectProposal({ id, plan_validated: parsed.data.plan_validated });
+    const outcome = await executeProposal({ workspaceId, userId, isAdmin }, proposal);
+    if (outcome.status === 201) {
+      broadcastToUser(userId, 'accountability:updated', { type: 'project_retro', targetId: id as string });
+    }
+    res.status(outcome.status).json(outcome.body);
+  } catch (err) {
+    console.error('Fleet retro apply error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -98,6 +98,12 @@ export interface FocalEntity {
     priority: string | null;
     /** Issue: assignee person document id (not content-derived; no escaping needed). */
     assigneeId: string | null;
+    /** Project/week: retro success criteria (each escaped). Empty for issues. */
+    successCriteria: string[];
+    /** Project/week: expected monetary impact, coerced to an escaped string. */
+    monetaryImpactExpected: string | null;
+    /** Project/week: actual monetary impact, coerced to an escaped string. */
+    monetaryImpactActual: string | null;
   };
 }
 
@@ -191,6 +197,9 @@ export async function fetchFocal(
         state: escapeContent((props.state as string | undefined) ?? null) || null,
         priority: escapeContent((props.priority as string | undefined) ?? null) || null,
         assigneeId: (props.assignee_id as string | undefined) ?? null,
+        successCriteria: [],
+        monetaryImpactExpected: null,
+        monetaryImpactActual: null,
       },
     };
   }
@@ -208,6 +217,18 @@ export async function fetchFocal(
       state: null,
       priority: null,
       assigneeId: null,
+      // Retro signals. success_criteria is an array of strings; the monetary
+      // fields are JSONB-sourced and can arrive as numbers, so coerce to string
+      // BEFORE escaping (escapeContent calls .replace, which throws on a number).
+      successCriteria: Array.isArray(props.success_criteria)
+        ? (props.success_criteria as unknown[])
+            .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+            .map((c) => escapeContent(c))
+        : [],
+      monetaryImpactExpected:
+        escapeContent(props.monetary_impact_expected == null ? null : String(props.monetary_impact_expected)) || null,
+      monetaryImpactActual:
+        escapeContent(props.monetary_impact_actual == null ? null : String(props.monetary_impact_actual)) || null,
     },
   };
 }
