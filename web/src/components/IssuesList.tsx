@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatDate } from '@/lib/date-utils';
 import { ArchiveIcon } from '@/components/icons/ArchiveIcon';
 import { KanbanBoard } from '@/components/KanbanBoard';
+import { RelatedIssuesView } from '@/components/fleet/RelatedIssuesView';
 import { SelectableList, RowRenderProps, UseSelectionReturn } from '@/components/SelectableList';
 import { BulkActionBar } from '@/components/BulkActionBar';
 import { DocumentListToolbar } from '@/components/DocumentListToolbar';
@@ -1229,7 +1230,15 @@ export function IssuesList({
       ) : null}
 
       {/* Content */}
-      {viewMode === 'kanban' ? (
+      {viewMode === 'related' ? (
+        <div className="flex-1 overflow-auto pb-20">
+          <RelatedIssuesView
+            issues={filteredIssues}
+            applyFilter={Boolean(stateFilter || programFilter || projectFilter || sprintFilter)}
+            onIssueClick={(id) => navigate(`/documents/${id}`)}
+          />
+        </div>
+      ) : viewMode === 'kanban' ? (
         <KanbanBoard
           issues={filteredIssues}
           onUpdateIssue={handleUpdateIssue}

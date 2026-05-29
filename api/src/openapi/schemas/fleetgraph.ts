@@ -207,6 +207,64 @@ registry.registerPath({
   },
 });
 
+// ── related-groups (theme-group the open-issue set) ──────────────────────────
+
+const FleetIssueGroupCandidateSchema = z
+  .object({
+    id: UuidSchema,
+    title: z.string(),
+    ticket_number: z.number().int(),
+    display_id: z.string(),
+    state: z.string(),
+    priority: z.string(),
+    assignee_name: z.string().nullable(),
+    project_title: z.string().nullable(),
+    updated_at: z.string(),
+    body: z.string().nullable().openapi({ description: 'Truncated plain-text description, or null.' }),
+  })
+  .openapi('FleetIssueGroupCandidate');
+
+const FleetIssueGroupSchema = z
+  .object({
+    label: z.string().openapi({ description: 'Short theme label for the group.' }),
+    memberIds: z.array(UuidSchema).openapi({ description: 'Issue ids in this group (≥2).' }),
+    reason: z.string(),
+  })
+  .openapi('FleetIssueGroup');
+
+const FleetIssueGroupingResultSchema = z
+  .object({
+    candidates: z.array(FleetIssueGroupCandidateSchema),
+    groups: z.array(FleetIssueGroupSchema),
+    ungroupedIds: z.array(UuidSchema),
+    summary: z.string().nullable(),
+    ai_available: z.boolean(),
+    analyzed_count: z.number().int(),
+    truncated: z.boolean().openapi({ description: 'True when open issues exceeded the analysis cap.' }),
+  })
+  .openapi('FleetIssueGroupingResult');
+
+registry.register('FleetIssueGroupingResult', FleetIssueGroupingResultSchema);
+
+registry.registerPath({
+  method: 'get',
+  path: '/fleetgraph/related-groups',
+  tags: ['Fleet'],
+  summary: 'Theme-group the workspace\'s open issues',
+  description:
+    "Powers the Issues page \"Related\" view. Runs FleetGraph `related` mode: fetches the requesting user's visible OPEN issues (recency-capped, with truncated descriptions) and has the model cluster them by shared theme/work area into groups (≥2 members each), leaving one-offs ungrouped. Read-only and workspace-wide (no request body). Provider-gated and rate-limited per user; results are cached server-side per issue-set fingerprint. Degrades to a candidates-only payload (ai_available:false) when the model is unavailable — the client then renders a flat list.",
+  responses: {
+    200: {
+      description: 'Theme groups + the analyzed candidates + the ungrouped bucket',
+      content: { 'application/json': { schema: FleetIssueGroupingResultSchema } },
+    },
+    401: { description: 'Unauthenticated' },
+    429: { description: 'Fleet rate limit exceeded' },
+    500: { description: 'Internal server error' },
+    503: { description: 'No AI provider configured' },
+  },
+});
+
 registry.registerPath({
   method: 'get',
   path: '/fleetgraph/conversations/{id}',

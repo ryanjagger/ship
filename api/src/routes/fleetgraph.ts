@@ -46,7 +46,7 @@ import { z } from 'zod';
 import { authMiddleware, assertAuthed } from '../middleware/auth.js';
 import { getVisibilityContext, isWorkspaceAdmin } from '../middleware/visibility.js';
 import { isFleetGraphAvailable } from '../services/fleetgraph/model.js';
-import { streamChatTurn, resumeChatTurn, runDedupReview, type ChatStreamEvent } from '../services/fleetgraph/index.js';
+import { streamChatTurn, resumeChatTurn, runDedupReview, runRelatedGroups, type ChatStreamEvent } from '../services/fleetgraph/index.js';
 import { fetchFocal, type FleetEntityType } from '../services/fleetgraph/tools/read.js';
 import {
   createConversation,
@@ -371,6 +371,40 @@ router.post('/dedup-review', authMiddleware, async (req: Request, res: Response)
     res.json(review);
   } catch (err) {
     console.error('FleetGraph dedup-review error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── GET /related-groups — theme-group the workspace's open issues ────────────
+// Powers the Issues page "Related" view. Read-only and workspace-wide: the
+// server fetches the requesting user's visible open issues itself (no request
+// body) and runs the FleetGraph `related` mode to cluster them by theme. Runs
+// automatically when the view opens, so results are cached server-side per
+// issue-set fingerprint and on the client (react-query); still rate-limited and
+// provider-gated. Degrades to a candidates-only payload (the client renders a
+// flat list) when the model is unavailable.
+router.get('/related-groups', authMiddleware, async (req: Request, res: Response) => {
+  if (!assertAuthed(req, res)) return;
+  if (!assertProviderAvailable(res)) return;
+
+  const userId = req.userId;
+  const workspaceId = req.workspaceId;
+
+  try {
+    // Rate-limit the (potential) model call (shared limiter with chat/dedup —
+    // each spends a turn). A whole-workspace grouping is one expensive turn.
+    if (!checkFleetChatRateLimit(userId)) {
+      res.status(429).json({ error: 'Too many Fleet requests. Please try again later.' });
+      return;
+    }
+
+    const { isAdmin } = await getVisibilityContext(userId, workspaceId);
+    const ctx = { workspaceId, userId, isAdmin };
+
+    const result = await runRelatedGroups({ ctx });
+    res.json(result);
+  } catch (err) {
+    console.error('FleetGraph related-groups error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

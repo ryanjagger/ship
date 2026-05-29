@@ -39,9 +39,9 @@ import type { FleetContext } from './tools/read.js';
 import type { FleetEntityType } from './tools/read.js';
 import type { FetchNodeOutput } from './nodes/fetch.js';
 import type { WriteProposal, ExecuteResult } from './tools/write.js';
-import type { FleetDedupCandidate, DriftSignal } from '@ship/shared';
+import type { FleetDedupCandidate, FleetIssueGroupCandidate, DriftSignal } from '@ship/shared';
 
-export type FleetMode = 'plan_review' | 'chat' | 'dedup' | 'drift' | 'retro';
+export type FleetMode = 'plan_review' | 'chat' | 'dedup' | 'drift' | 'retro' | 'related';
 
 /** The structured analysis the reasoning node produces (mode-shaped). */
 export interface FleetAnalysis {
@@ -68,6 +68,11 @@ export interface FleetAnalysis {
    * FleetRetroRecommendation-shaped result. Opaque to the graph.
    */
   retroReview?: unknown;
+  /**
+   * For related: the structured theme-grouping the entry point lifts into a
+   * FleetIssueGroupingResult-shaped result. Opaque to the graph.
+   */
+  relatedReview?: unknown;
   /** True when the model contributed (vs. a neutral-degraded path). */
   aiAvailable: boolean;
 }
@@ -98,6 +103,12 @@ export const FleetGraphState = Annotation.Root({
   // candidates the reason node judges for true duplication. Both REPLACE.
   draftTitle: Annotation<string>({ reducer: replace<string>(), default: () => '' }),
   candidates: Annotation<FleetDedupCandidate[]>({ reducer: replace<FleetDedupCandidate[]>(), default: () => [] }),
+
+  // ── related input (seeded once by the entry point) ──
+  // The whole open-issue set to group by theme (fetched OUTSIDE the graph, like
+  // dedup's candidates). The related reason branch judges this list directly and
+  // does NOT depend on a focal entity. REPLACE.
+  issueSet: Annotation<FleetIssueGroupCandidate[]>({ reducer: replace<FleetIssueGroupCandidate[]>(), default: () => [] }),
 
   // ── drift input (seeded once by the entry point) ──
   /**
