@@ -93,7 +93,16 @@ beforeAll(async () => {
   projectId = await insertDoc({
     type: 'project',
     title: 'Reduce activation time',
-    properties: { plan: 'Cut activation from 6 to 3 min', status: 'active', target_date: '2026-09-30' },
+    properties: {
+      plan: 'Cut activation from 6 to 3 min',
+      status: 'active',
+      target_date: '2026-09-30',
+      success_criteria: ['Median activation under 3 min', 'No regressions'],
+      // A JSONB-sourced NUMBER — the projection must coerce it to a string
+      // before escaping (escapeContent calls .replace, which throws on a number).
+      monetary_impact_expected: 30000,
+      monetary_impact_actual: '25k saved',
+    },
     content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Project narrative body.' }] }] },
   });
   await associate(projectId, programId, 'program');
@@ -167,6 +176,11 @@ describe('R7: read tools return focal entity + associations for a visible projec
     expect(focal!.body).toContain('Project narrative body.');
     expect(focal!.properties.plan).toContain('Cut activation');
     expect(focal!.properties.targetDate).toBe('2026-09-30');
+    // Retro signals projection (used by the FleetGraph retro mode).
+    expect(focal!.properties.successCriteria).toEqual(['Median activation under 3 min', 'No regressions']);
+    // A JSONB number is coerced to a string (no .replace crash) and escaped.
+    expect(focal!.properties.monetaryImpactExpected).toBe('30000');
+    expect(focal!.properties.monetaryImpactActual).toBe('25k saved');
   });
 
   it('fetchFocal resolves a week (entityType week → sprint document)', async () => {

@@ -47,3 +47,30 @@ export function useRefreshFleetReview(projectId: string | undefined) {
     },
   });
 }
+
+/**
+ * Apply the Fleet-recommended retro outcome (sets plan_validated under the
+ * user's own permissions, audited as agent-initiated). This is the explicit
+ * human confirmation of Fleet's advisory recommendation — Fleet only proposes.
+ */
+export function useApplyFleetRetro(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (planValidated: boolean): Promise<void> => {
+      const res = await apiPost(`/api/projects/${projectId}/fleet/retro/apply`, {
+        plan_validated: planValidated,
+      });
+      if (!res.ok) {
+        const error = new Error('Failed to apply Fleet recommendation') as Error & { status: number };
+        error.status = res.status;
+        throw error;
+      }
+    },
+    onSettled: () => {
+      if (!projectId) return;
+      // The outcome lives on the project document; refresh the review + detail.
+      queryClient.invalidateQueries({ queryKey: projectKeys.fleet(projectId) });
+      queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
+    },
+  });
+}

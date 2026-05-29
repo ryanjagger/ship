@@ -43,6 +43,18 @@ export interface FleetPlanReview {
   computed_at?: string;
 }
 
+// A confirmable write Fleet proposes the user apply to close the retro. Fleet
+// stays advisory: it proposes, the human confirms (the write executes under the
+// user's own permissions, audited as agent_initiated). Today the only action is
+// setting the retro outcome (plan_validated).
+export interface FleetProposedAction {
+  kind: 'set_plan_validated';
+  // The value the confirmed write would set on the project.
+  plan_validated: boolean;
+  // Human-readable one-liner for the confirm UI.
+  summary: string;
+}
+
 // Retro recommendation sub-result (Project Retro panel).
 export interface FleetRetroRecommendation {
   recommendation: FleetRecommendation;
@@ -51,6 +63,15 @@ export interface FleetRetroRecommendation {
   evidence_missing: string[];
   // Short suggested retro conclusion (advisory).
   suggested_conclusion: string | null;
+  // One-sentence diagnosis of why the evidence is/isn't sufficient. Null when
+  // the model did not contribute (unavailable / degraded).
+  diagnosis: string | null;
+  // A single concrete next action to take before closing the retro. Null when
+  // the model did not contribute.
+  recommended_next_action: string | null;
+  // The confirmable outcome write Fleet suggests, or null (insufficient evidence
+  // proposes nothing, and the unavailable result carries none).
+  proposed_action: FleetProposedAction | null;
   ai_available: boolean;
   computed_at?: string;
 }
