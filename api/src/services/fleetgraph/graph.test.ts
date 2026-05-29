@@ -257,12 +257,13 @@ describe('retro recommendation (graph retro mode)', () => {
       summary: expect.stringContaining('validated'),
     });
 
-    // Richer evidence: the retro prompt folds in the issue breakdown, a recent
-    // activity window, and the people roster — not just the flat plan signals.
+    // The retro prompt carries the issue breakdown (hashed evidence). It must
+    // NOT include the activity/people blocks — those are unhashed, so feeding
+    // them would make the retroHash cache stale on a new comment/roster change.
     expect(capture.user).toContain('<issues done="0" cancelled="0" active="1">');
     expect(capture.user).toContain('Wire up the new admin flow'); // the active issue
-    expect(capture.user).toContain('<activity');
-    expect(capture.user).toContain('<people>');
+    expect(capture.user).not.toContain('<activity');
+    expect(capture.user).not.toContain('<people>');
   });
 
   it('invalidated_recommended proposes plan_validated:false', async () => {
