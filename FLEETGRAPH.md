@@ -45,37 +45,39 @@ Yes — that's the target, and the scheduled half has shipped. Events handle cha
 ## Graph Diagram
 ```mermaid
 flowchart TD
-    subgraph inputs[Four entry inputs — all seed the ONE graph]
+    subgraph inputs[Entry inputs — all seed the ONE graph]
         P["proactive plan-review<br/>{ mode: 'plan_review', entityId, entityType, ctx }<br/>→ runPlanReview()"]
         C["chat<br/>{ mode: 'chat', entityId, entityType, message, ctx, history }<br/>→ runChatTurn() / streamChatTurn() / resumeChatTurn()"]
         D["dedup (on-demand, as author types a title)<br/>{ mode: 'dedup', entityId=draft, entityType: 'issue', draftTitle, candidates, ctx }<br/>→ runDedupReview() — stage-1 pg_trgm candidates fetched OUTSIDE the graph;<br/>short-circuits with NO model call when there are none"]
         DR["drift (sweep cron, service-principal ctx)<br/>{ mode: 'drift', entityId=project, driftSignals, ctx, traceMetadata }<br/>→ runDriftReasoning() — 60s wall-clock race; verdict feeds the insight sweep"]
+        R["related (on-demand, Issues page 'Related' view)<br/>{ mode: 'related', issueSet, ctx }<br/>→ runRelatedGroups() — open-issue set fetched OUTSIDE the graph (like dedup);<br/>short-circuits with NO model call when < 2 issues; result cached"]
     end
 
     P --> SCOPE
     C --> SCOPE
     D --> SCOPE
     DR --> SCOPE
+    R --> SCOPE
 
     START([START]) -.-> SCOPE
     SCOPE["scope<br/>seed state from input · resolve FleetContext<br/>(week → document_type='sprint')"]
     FETCH["fetch<br/>parallel reads via FleetContext-scoped, visibility-filtered tools:<br/>focal doc+body · associations · people/roles · recent standups/comments/status<br/>(consolidated traversal — one snapshot, no per-entity N+1)"]
-    REASON["reason — branches by mode<br/><b>plan_review / dedup / drift:</b> fleet-ai.ts structured call (zod-v3 Anthropic path) → structured payload<br/>&nbsp;&nbsp;plan_review (+ fleet-checks signals) → FleetPlanReview · dedup → duplicate verdict · drift → {decision, reasoning}<br/><b>chat:</b> bound chat model (.bindTools = propose_* WRITE-ONLY tools; context pre-fetched, single turn) → answer, maybe one propose_* call<br/><i>dedup is dispatched BEFORE the focal guard (it judges draftTitle vs candidates, not the focal's deep context)</i>"]
+    REASON["reason — branches by mode<br/><b>plan_review / dedup / drift / related:</b> fleet-ai.ts structured call (zod-v3 Anthropic path) → structured payload<br/>&nbsp;&nbsp;plan_review (+ fleet-checks signals) → FleetPlanReview · dedup → duplicate verdict · drift → {decision, reasoning} · related → theme groups<br/><b>chat:</b> bound chat model (.bindTools = propose_* WRITE-ONLY tools; context pre-fetched, single turn) → answer, maybe one propose_* call<br/><i>dedup and related are dispatched BEFORE the focal guard (they judge a LIST — candidates / the issue set — not the focal's deep context)</i>"]
     POLICY{"policyRoute<br/><i>conditional edge — NOT a node</i><br/>route by proposal presence (policy.ts)"}
-    OUTPUT["output<br/><b>chat:</b> streamed/answer turn<br/><b>plan_review / dedup / drift:</b> structured result lifted by the entry point"]
+    OUTPUT["output<br/><b>chat:</b> streamed/answer turn<br/><b>plan_review / dedup / drift / related:</b> structured result lifted by the entry point"]
     ACTION["action<br/>interrupt(proposal) ⏸  → return to caller<br/>— on resume, executeProposal runs AFTER interrupt() —"]
     ENDN([END])
 
     SCOPE --> FETCH --> REASON
     REASON -.->|"addConditionalEdges(reason, policyRoute)"| POLICY
-    POLICY -->|"'output': no write proposed<br/>(chat answer / plan-review / dedup / drift verdict)"| OUTPUT
+    POLICY -->|"'output': no write proposed<br/>(chat answer / plan-review / dedup / drift / related verdict)"| OUTPUT
     POLICY -->|"'action': write proposed — CHAT ONLY<br/>(create_issue / update_issue / post_comment)"| ACTION
     OUTPUT --> ENDN
     ACTION -->|paused| PAUSE[["⏸ pause — return proposal + thread_id to caller"]]
     PAUSE -->|"resume: Command({ resume: { approved } })"| ACTION
     ACTION -->|"approved → write executed (audited)<br/>declined → abandoned"| ENDN
 
-    CKPT[("custom JSONB checkpointer<br/>properties.fleetgraph_checkpoint<br/>on the conversation document<br/>(latest-tuple-only)<br/>— chat only; the 3 structured modes use a<br/>transient random thread_id → no persistence, never pause")]
+    CKPT[("custom JSONB checkpointer<br/>properties.fleetgraph_checkpoint<br/>on the conversation document<br/>(latest-tuple-only)<br/>— chat only; the structured modes use a<br/>transient random thread_id → no persistence, never pause")]
     ACTION -.persists paused state.-> CKPT
     CKPT -.restores on resume.-> ACTION
 ```
@@ -87,7 +89,8 @@ flowchart TD
             ├─ chat:        { mode:'chat', entityId, message, history }  (runChatTurn / streamChatTurn / resumeChatTurn)
  trigger ───┤
             ├─ dedup:       { mode:'dedup', draftTitle, candidates }     (runDedupReview — stage-1 pg_trgm OUTSIDE graph)
-            └─ drift:       { mode:'drift', entityId, driftSignals }     (runDriftReasoning — sweep cron, 60s race)
+            ├─ drift:       { mode:'drift', entityId, driftSignals }     (runDriftReasoning — sweep cron, 60s race)
+            └─ related:     { mode:'related', issueSet }                 (runRelatedGroups — open-issue set OUTSIDE graph; cached)
                   │
                   ▼
             scope        seed state · resolve FleetContext (week→sprint)
@@ -96,9 +99,9 @@ flowchart TD
             fetch        parallel visibility-scoped reads → one merged context snapshot
                   │
                   ▼
-            reason       plan_review / dedup / drift → fleet-ai structured (zod-v3 Anthropic path)
-                  │      chat                        → bound chat model (propose_* WRITE-ONLY; context pre-fetched)
-                  │      (dedup dispatched before the focal guard)
+            reason       plan_review / dedup / drift / related → fleet-ai structured (zod-v3 Anthropic path)
+                  │      chat                                  → bound chat model (propose_* WRITE-ONLY; context pre-fetched)
+                  │      (dedup + related dispatched before the focal guard — they judge a list)
                   ▼
             policyRoute ──────────┐   ← conditional edge (policy.ts), not a node
               │ (no write)        │ (write proposed — CHAT ONLY)
@@ -162,10 +165,19 @@ update it as each case lands.
         - **Stage 1** (cheap, per-keystroke, no model): `pg_trgm` over `documents.title` (GIN index mig 038, 0.3 threshold), workspace open issues the user can see, debounced ~350ms → ≤5 candidates. **Stage 2** (`dedup` mode, graph-backed): model judges true duplicates vs merely similar → per-match confidence + reason + recommendation; degrades to candidates-only if the provider is unavailable; no model call when zero candidates. Why a graph case: the judgement is reasoning `pg_trgm` cannot do
     - **Human Decides**
         - Open an existing issue instead of filing a duplicate, run the Fleet check, or dismiss. Read-only verdict; a `propose_link` / `propose_merge` action via the HITL flow is a future extension
+6) Related-Issue Grouping (✅ Shipped — on-demand AI grouping of the open-issue set on the Issues page)
+    - **Role**
+        - Any user triaging the backlog (PM / Engineer)
+    - **Trigger**
+        - On-demand: switching the global Issues page (`/issues`) to the new **Related** view mode. Grouping runs automatically when the view opens, and is cached client-side (react-query) and server-side (in-memory, keyed on the visibility-scoped issue-set fingerprint, ~5-min TTL) so re-opening doesn't re-run the model. Backed by the graph's `related` mode (`runRelatedGroups` → `GET /api/fleetgraph/related-groups`). Hidden when no AI provider is configured.
+    - **Agent Detects / Produces**
+        - Fetches the workspace's visibility-scoped **open** issues (recency-capped at 120, each with a truncated description), then the model clusters them by shared theme / work area into groups (≥2 members each, one group per issue) with a short label + a one-sentence reason, plus an "Ungrouped" bucket. The *clustering generalization* of dedup-on-create: dedup judges one draft title vs candidates; this judges the whole open-issue list at once. References issues by 1-based index (mapped back to ids server-side, out-of-range dropped). Degrades to a flat list when the provider is unavailable. Read-only — no writes, **no persistence** (ephemeral result + table-free in-memory cache, consistent with the unified-document model)
+    - **Human Decides**
+        - Navigate to the grouped issues, spot duplicate or scattered related work, and triage/merge manually. The active state-filter tabs and project/program/sprint filters narrow the displayed groups (the grouping is computed globally, then intersected with the current view)
 
 
 ## Trigger Model
-**Hybrid** - Using cron job for a scheduled sweep every 4 minutes, detecting Project Drifts and creating Insight notifications without any user interaction. On-demand trigger by user for Project Plan Reviews, Issue Deduplification, Project Retro Assistance, and Issue Deduplication.
+**Hybrid** - Using cron job for a scheduled sweep every 4 minutes, detecting Project Drifts and creating Insight notifications without any user interaction. On-demand trigger by user for Project Plan Reviews, Issue Dedup-on-Create, Project Retro Assistance, "What should I do next?" chat, and Related-Issue Grouping (the Issues page "Related" view).
 
 
 ## Test Cases
@@ -175,13 +187,14 @@ update it as each case lands.
 | 1 | Project Plan Review | A project with a `plan` field populated (and optionally a Target Date), viewed on its Fleet review surface — or a plan edited, then reopened/refreshed to recompute. | `plan_review` mode (`runPlanReview` → `getReview`) judges the plan as a testable hypothesis against the rubric (`what_changes` / `by_how_much` / `for_whom` / `by_when`), returning a per-piece met/unmet checklist, an overall status (`looks_testable` / `needs_work` / `no_plan`), a one-sentence diagnosis + recommended next action, and a suggested rewrite; degrades to "unavailable" when the model is down or there is no plan. Advisory only — the agent never edits the plan. | [LangSmith](https://smith.langchain.com/public/e4087b06-44ed-4177-be51-bac82871e86a/r) |
 | 2 | Project Drift Detection | A project whose plan was last edited >N days ago, with open issues and no recent activity, in a workspace with `sweep_enabled=true` (and `FLEETGRAPH_SWEEP_ENABLED=true`). | The every-4-minutes sweep detects drift (`computeProjectDrift`), `drift` mode returns `SURFACE_ACT`/`SURFACE_FYI` with reasoning, and an `insight` document is created (severity, summary, evidence) surfaced on the Insights page + count badge. A re-run with unchanged state is a hash-cache no-op refresh. | [LangSmith](https://smith.langchain.com/public/73c69c64-78ff-4319-89f3-44b78acf6283/r) |
 | 3 | "What should I do next?" | An issue with a state/priority/assignee, a parent project, sibling issues, and recent comments; user clicks "What should I do next?" (seeded chat). | A grounded next action plus blockers/risks, missing context, and suggested state/priority/assignee updates — all offered through the `propose_*` / confirm HITL flow, nothing auto-applied. | [LangSmith](https://smith.langchain.com/public/55e12a75-2c93-4efa-a720-ef1670545d0c/r) |
-| 4 | Retro Assistant | A weekly retro page (plan items + evidence) or a project retro page loaded. | Weekly: a completeness score + per-plan-item coverage/evidence feedback (`analyzeRetro`). Project: a `validated` / `invalidated` / `insufficient_evidence` recommendation with evidence found/missing and a suggested conclusion (`buildRetroRecommendation`). Advisory only — the human still sets `plan_validated`. | [LangSmith](https://smith.langchain.com/public/d185c378-2431-42b7-ae83-bfea0ae4eb1d/r) |
+| 4 | Retro Assistant | A weekly retro page (plan items + evidence) or a project retro page loaded. | Weekly: a completeness score + per-plan-item coverage/evidence feedback (`analyzeRetro`). Project: a `validated` / `invalidated` / `insufficient_evidence` recommendation with evidence found/missing and a suggested conclusion (`buildRetroRecommendation`). Advisory only — the human still sets `plan_validated`. | [LangSmith](https://smith.langchain.com/public/79e4b475-1d03-4da8-b044-cb52132ee001/r) |
 | 5 | Issue Dedup-on-Create | In a workspace with existing open issues, the author types an issue title similar to an existing one, then clicks "Ask Fleet if these are duplicates". | Stage 1: `pg_trgm` candidates listed under the title (≤5). Stage 2 (`dedup` mode): per-match true-duplicate verdict with confidence + reason and a recommendation; degrades to candidates-only if the provider is unavailable; no model call when there are zero candidates. | [LangSmith](https://smith.langchain.com/public/ca43d6af-81f8-43bd-885c-2907a50d70bc/rw) |
+| 6 | Related-Issue Grouping | A workspace with ≥2 open issues and a provider configured; the user opens the Issues page (`/issues`) and switches to the **Related** view. | `related` mode (`runRelatedGroups`) fetches the visibility-scoped open-issue set (recency-capped, with truncated bodies) and the model clusters them into theme groups (≥2 members, one group per issue, label + reason) plus an "Ungrouped" bucket; 1-based indexes mapped back to ids (out-of-range dropped); short-circuits with no model call when <2 issues; degrades to a flat list when the provider is unavailable. Result cached (client + in-memory server). Read-only, no persistence. | [LangSmith](https://smith.langchain.com/public/182c28d5-7dfc-4d31-b79f-1f0640320ebd/r) |
 
 # Architecture Decisions
-**Framework choice — one compiled LangGraph `StateGraph`, four modes.** A single graph serves all four entry inputs (`plan_review`, `chat`, `dedup`, `drift`); the trigger differs, the graph does not. Chosen over four bespoke pipelines so context-fetching, visibility scoping, checkpointing, and the HITL path are written and tested once. LangGraph specifically (over a hand-rolled state machine) for its built-in interrupt/resume — which is what makes the confirm-before-write flow durable across a process restart.
+**Framework choice — one compiled LangGraph `StateGraph`, many modes.** A single graph serves every entry input (`plan_review`, `chat`, `dedup`, `drift`, `retro`, `related`); the trigger differs, the graph does not. Chosen over bespoke per-mode pipelines so context-fetching, visibility scoping, checkpointing, and the HITL path are written and tested once. LangGraph specifically (over a hand-rolled state machine) for its built-in interrupt/resume — which is what makes the confirm-before-write flow durable across a process restart. Adding a mode is the established extension pattern: `dedup`, `retro`, and `related` were each added as a `FleetMode` + a `reason*` branch + a `run*` entry point, reusing scope/fetch/output unchanged.
 
-**Node design — `scope → fetch → reason → policyRoute → action | output`.** `scope` seeds state and resolves the `FleetContext`; `fetch` does one consolidated, visibility-filtered, parallel read (no per-entity N+1); `reason` branches by mode (structured `evaluateStructured` call for `plan_review`/`dedup`/`drift`, bound chat model for `chat`). `policyRoute` is a pure conditional **edge**, not a node (the former no-op `policy` node was removed) — it routes to `action` only when a write proposal exists, so only `chat` ever reaches the interrupt. Keeping routing in a pure function makes the low-risk-vs-write classification unit-testable without driving the whole graph.
+**Node design — `scope → fetch → reason → policyRoute → action | output`.** `scope` seeds state and resolves the `FleetContext`; `fetch` does one consolidated, visibility-filtered, parallel read (no per-entity N+1); `reason` branches by mode (structured `evaluateStructured` call for `plan_review`/`dedup`/`drift`/`retro`/`related`, bound chat model for `chat`). `policyRoute` is a pure conditional **edge**, not a node (the former no-op `policy` node was removed) — it routes to `action` only when a write proposal exists, so only `chat` ever reaches the interrupt. Keeping routing in a pure function makes the low-risk-vs-write classification unit-testable without driving the whole graph.
 
 **State management — `Annotation` channels with per-channel reducers.** Graph state is plain `Annotation` (not zod): the fetched snapshot is REPLACE (each fetch is a complete picture), `messages` is APPEND (the chat turn accumulates), scalar scope channels are REPLACE. **zod is reserved for tool/output schemas, not graph state** — this keeps the load-bearing zod-v3/v4 Anthropic structured-output workaround confined to the model boundary.
 

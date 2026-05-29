@@ -19,7 +19,7 @@ export interface UseListFiltersOptions {
   defaultViewMode?: ViewMode;
 }
 
-export type ViewMode = 'list' | 'kanban' | 'tree';
+export type ViewMode = 'list' | 'kanban' | 'tree' | 'related';
 
 export interface UseListFiltersReturn {
   /** Current sort value */
@@ -62,7 +62,7 @@ export function useListFilters({
     if (viewModeStorageKey) {
       try {
         const stored = localStorage.getItem(viewModeStorageKey);
-        if (stored && ['list', 'kanban', 'tree'].includes(stored)) {
+        if (stored && ['list', 'kanban', 'tree', 'related'].includes(stored)) {
           return stored as ViewMode;
         }
       } catch {

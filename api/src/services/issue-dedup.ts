@@ -16,8 +16,9 @@
 
 import { pool } from '../db/client.js';
 import { VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
+import { extractText } from '../utils/document-content.js';
 import type { FleetContext } from './fleet-service.js';
-import type { FleetDedupCandidate } from '@ship/shared';
+import type { FleetDedupCandidate, FleetIssueGroupCandidate } from '@ship/shared';
 
 export interface FindSimilarIssuesArgs {
   ctx: FleetContext;
@@ -96,4 +97,99 @@ export async function findSimilarIssues(
       row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
     score: Number(row.score),
   }));
+}
+
+// ── Related-issue grouping — whole-list candidate retrieval ──────────────────
+//
+// Where `findSimilarIssues` retrieves the ≤5 trigram-similar candidates for ONE
+// draft title, `fetchOpenIssuesForClustering` retrieves the WHOLE open-issue set
+// (visibility-scoped) for the "Related" grouping view: no `title % $3` predicate
+// and no per-title LIMIT 5 — instead a recency cap that bounds the LLM's token
+// budget, plus a truncated body so the model can group on description, not just
+// the title.
+
+/** Default recency cap — the N most-recently-updated open issues sent to the model. */
+export const DEFAULT_CLUSTER_LIMIT = 120;
+/** Per-issue body cap (chars) — keeps the prompt bounded; titles carry most signal. */
+const CLUSTER_BODY_CHAR_CAP = 600;
+
+export interface FetchOpenIssuesForClusteringArgs {
+  ctx: FleetContext;
+  /** Recency cap on issues analyzed (default {@link DEFAULT_CLUSTER_LIMIT}). */
+  limit?: number;
+}
+
+export interface FetchOpenIssuesForClusteringResult {
+  candidates: FleetIssueGroupCandidate[];
+  /** True when open issues exceeded the cap and some were left unanalyzed. */
+  truncated: boolean;
+}
+
+/**
+ * Fetch the workspace's open issues for LLM grouping, scoped to the requesting
+ * user's visibility and ordered by recency. Closed (done/cancelled) and
+ * archived/deleted issues are excluded — only live work is grouped. Each issue
+ * carries a truncated plain-text body (extracted from the TipTap content).
+ *
+ * Fetches `limit + 1` rows to detect truncation without a second COUNT query:
+ * when more than `limit` rows come back, the extra row is dropped and
+ * `truncated` is set so the UI can surface "+N more not analyzed".
+ */
+export async function fetchOpenIssuesForClustering(
+  args: FetchOpenIssuesForClusteringArgs
+): Promise<FetchOpenIssuesForClusteringResult> {
+  const { ctx } = args;
+  const limit = args.limit ?? DEFAULT_CLUSTER_LIMIT;
+
+  const result = await pool.query(
+    `SELECT d.id, d.title, d.ticket_number,
+            d.properties->>'state' as state,
+            d.properties->>'priority' as priority,
+            d.content,
+            u.name as assignee_name,
+            -- Scalar subquery (not a JOIN): an issue can have multiple 'project'
+            -- associations; a JOIN would duplicate the issue. Pick one project.
+            (SELECT proj.title
+               FROM document_associations proj_da
+               JOIN documents proj
+                 ON proj.id = proj_da.related_id AND proj.document_type = 'project'
+              WHERE proj_da.document_id = d.id
+                AND proj_da.relationship_type = 'project'
+              ORDER BY proj.created_at
+              LIMIT 1) as project_title,
+            d.updated_at
+       FROM documents d
+       LEFT JOIN users u ON (d.properties->>'assignee_id')::uuid = u.id
+      WHERE d.workspace_id = $1
+        AND d.document_type = 'issue'
+        AND d.archived_at IS NULL
+        AND d.deleted_at IS NULL
+        AND COALESCE(d.properties->>'state', 'backlog') NOT IN ('done', 'cancelled')
+        AND ${VISIBILITY_FILTER_SQL('d', '$2', ctx.isAdmin)}
+      ORDER BY d.updated_at DESC
+      LIMIT $3`,
+    [ctx.workspaceId, ctx.userId, limit + 1]
+  );
+
+  const truncated = result.rows.length > limit;
+  const rows = truncated ? result.rows.slice(0, limit) : result.rows;
+
+  const candidates: FleetIssueGroupCandidate[] = rows.map((row) => {
+    const bodyText = extractText(row.content).trim();
+    return {
+      id: row.id,
+      title: row.title,
+      ticket_number: row.ticket_number,
+      display_id: `#${row.ticket_number}`,
+      state: row.state || 'backlog',
+      priority: row.priority || 'medium',
+      assignee_name: row.assignee_name || null,
+      project_title: row.project_title || null,
+      updated_at:
+        row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+      body: bodyText ? bodyText.slice(0, CLUSTER_BODY_CHAR_CAP) : null,
+    };
+  });
+
+  return { candidates, truncated };
 }
