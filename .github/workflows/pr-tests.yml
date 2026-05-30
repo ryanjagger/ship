@@ -16,6 +16,27 @@ jobs:
     name: pnpm run test
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ship_test
+          POSTGRES_USER: ship
+          POSTGRES_PASSWORD: ship_dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ship -d ship_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://ship:ship_dev_password@localhost:5432/ship_test
+      DATABASE_URL_TEST: postgresql://ship:ship_dev_password@localhost:5432/ship_test
+      NODE_ENV: test
+      SESSION_SECRET: github-actions-test-session-secret
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,6 +55,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm run build:shared
+
+      - name: Run database migrations
+        run: pnpm --filter @ship/api db:migrate
 
       - name: Run tests
         run: pnpm run test
