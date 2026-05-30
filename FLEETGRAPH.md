@@ -203,31 +203,61 @@ update it as each case lands.
 **Deployment model.** The proactive sweep runs as an **in-process `node-cron` task on the existing API or Elastic Beanstalk tier** — not a separate worker tier or job queue — env-gated (`FLEETGRAPH_SWEEP_ENABLED`) and per-workspace toggled, with a per-workspace advisory lock for single-flight across instances. Paused chat proposals persist via a custom JSONB checkpointer (`ConversationDocCheckpointSaver`) that writes to `properties.fleetgraph_checkpoint` on the conversation document (latest-tuple-only), so a confirm/resume survives a restart without a dedicated checkpoint store. Findings persist as system-authored `insight` documents in the existing `documents` table — no new content table, consistent with Ship's unified-document model.
 
 
-I'll convert this cost analysis into markdown for you.
+# Cost Analysis
 
-# Cost Analysis (**Pending**)
+All figures are **measured from real LangSmith traces** (project `fleet`, model
+`claude-haiku-4-5`) — not estimates. Pulled 2026-05-29 over a 2026-05-26 → 29 sample
+(1,695 runs / 284 traces). Full method, per-mode distributions, and the scale model live in
+[`docs/fleetgraph/langsmith-analyzed/cost-analysis.md`](docs/fleetgraph/langsmith-analyzed/cost-analysis.md).
+
+**Cost per graph run, by mode** (median; LangSmith-reported cost; Haiku at $1/M in, $5/M out):
+
+| Mode | Cost/run (median) | Tokens (in → out) | Frequency driver |
+|------|------:|------|------|
+| `related` | $0.0060 | 2,316 → 686 | on-demand, 5-min cached |
+| `chat` | $0.0029 | 2,028 → 260 | on-demand, ≤ 60/user/hr |
+| `retro` | $0.0028 | 743 → 399 | retro page load |
+| `plan_review` | $0.0018 | 683 → 238 | plan edit / refresh |
+| `dedup` | $0.0012 | 695 → 115 | draft-time, when candidates exist |
+| `drift` | $0.0011 | 600 → 88 | **sweep: up to 15×/hr/project** |
+| resume (HITL confirm) | **$0.0000** | 0 | write-confirm re-runs `action`, no LLM call |
+
+Measured aggregates **confirm the single-trace reports** (`drift-sweep.md`, `issue-dedupe.md`,
+`whats-next.md`) — those anecdotes were representative, not outliers. The **drift sweep is the
+only driver that scales with the product** (one Haiku call per drift-eligible project, every 4
+minutes, indefinitely); every other mode is per-user or per-view and bounded by a cache or rate
+limit. **HITL write-confirms are free** — resume re-runs the action node with no model call.
 
 ## Development and Testing Costs
 
-- Cost per graph run Documented and defended in FLEETGRAPH.md
-- Estimated runs per day Documented and defended in FLEETGRAPH.md
+Cost per graph run: **$0.001–$0.006** by mode (table above). Estimated runs/day during dev:
+**~90 billable LLM runs/day** (269 over the ~3-day sample).
 
 | Item | Amount |
 |------|--------|
-| Claude API - input tokens | |
-| Claude API - output tokens | |
-| Total invocations during development | |
-| Total development spend | |
+| Claude API - input tokens | ~269,000 |
+| Claude API - output tokens | ~67,000 |
+| Total invocations during development | 269 billable LLM runs (+ 15 free HITL resumes; 1,695 total spans) |
+| Total development spend | **≈ $0.60** |
 
 ## Production Cost Projections
 
 | 100 Users | 1,000 Users | 10,000 Users |
 |-----------|-------------|--------------|
-| $\_\_\_/month | $\_\_\_/month | $\_\_\_/month |
+| ~$65/month | ~$650/month | ~$6,500/month |
+
+Roughly linear in users; the **drift sweep dominates at scale and is the swing factor**. With the
+SUPPRESS re-pay inefficiency unfixed (drift duty cycle → 1.0), the drift portion is ~4× larger
+(≈ **$155 / $1,550 / $15,500**). SUPPRESS-memoization + a deterministic pre-gate (see
+[`drift-sweep.md`](docs/fleetgraph/langsmith-analyzed/drift-sweep.md)) keep it in the table's
+range; prompt caching is a second-order lever (only `related` clears Haiku's 2,048-token cache
+floor today).
 
 **Assumptions:**
-- Proactive runs per project per day:
-- On-demand invocations per user per day:
-- Average tokens per invocation:
-- Cost per run:
-- Estimated runs per day:
+- **Proactive runs per project per day:** drift sweep = 15/hr × 24h = 360 ticks/project/day, at a
+  **0.25 duty cycle** (fraction of ticks that actually invoke the model after the pre-gate) ≈ **90
+  LLM calls/project/day**; assumed ~1 sweep-enabled project per 10 users.
+- **On-demand invocations per user per day:** ~3 chat + 1 dedup + 0.3 related + 0.3 plan_review.
+- **Average tokens per invocation:** ~900 total (~700 in / ~200 out); `chat` and `related` run larger.
+- **Cost per run:** $0.001–$0.006 by mode (median, measured).
+- **Estimated runs per day:** ~90/project (drift) + ~4.6/user (on-demand).
