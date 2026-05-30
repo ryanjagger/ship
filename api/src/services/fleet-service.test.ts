@@ -4,29 +4,26 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../db/client.js', () => ({ pool: { query: vi.fn() } }));
 vi.mock('./fleet-ai.js', () => ({
   isFleetAiAvailable: vi.fn(),
-  evaluateStructured: vi.fn(),
   checkFleetReviewRateLimit: vi.fn(() => true),
-  isFleetAiError: (x: unknown) => typeof x === 'object' && x !== null && 'error' in x,
 }));
-// R13: the plan-review compute path is the graph. Mock the boundary so these
-// tests stay keyless/deterministic and assert that runPlanReview IS the path.
-vi.mock('./fleetgraph/index.js', () => ({ runPlanReview: vi.fn() }));
+// R13: BOTH AI compute paths are the graph. Mock the boundary so these tests
+// stay keyless/deterministic and assert that runPlanReview / runRetroRecommendation
+// ARE the paths (no direct evaluateStructured call from fleet-service anymore).
+vi.mock('./fleetgraph/index.js', () => ({
+  runPlanReview: vi.fn(),
+  runRetroRecommendation: vi.fn(),
+}));
 
 import { pool } from '../db/client.js';
-import { isFleetAiAvailable, evaluateStructured, checkFleetReviewRateLimit } from './fleet-ai.js';
-import { runPlanReview } from './fleetgraph/index.js';
-import {
-  gatherSignals,
-  buildRetroRecommendation,
-  getReview,
-  type FleetSignals,
-} from './fleet-service.js';
+import { isFleetAiAvailable, checkFleetReviewRateLimit } from './fleet-ai.js';
+import { runPlanReview, runRetroRecommendation } from './fleetgraph/index.js';
+import { gatherSignals, getReview } from './fleet-service.js';
 
 const mockQuery = vi.mocked(pool.query);
 const mockAvailable = vi.mocked(isFleetAiAvailable);
-const mockEvaluate = vi.mocked(evaluateStructured);
 const mockReviewLimit = vi.mocked(checkFleetReviewRateLimit);
 const mockRunPlanReview = vi.mocked(runPlanReview);
+const mockRunRetro = vi.mocked(runRetroRecommendation);
 
 // A graph-produced FleetPlanReview (the R13 compute path) with `metCount` of the
 // 4 pieces met. runPlanReview returns the already-mapped FleetPlanReview shape.
@@ -46,30 +43,29 @@ function graphPlanReview(metCount: number) {
   };
 }
 
-function signals(overrides: Partial<FleetSignals> = {}): FleetSignals {
+// A graph-produced FleetRetroRecommendation (the retro-mode compute path).
+// runRetroRecommendation returns the already-lifted, ai_available shape.
+function retroRecResult() {
   return {
-    projectId: 'p1',
-    title: 'Project',
-    plan: 'Reduce activation time from 6 to 3 minutes by Q3',
-    successCriteria: ['Median activation < 3 min'],
-    monetaryImpactExpected: null,
-    monetaryImpactActual: null,
-    planValidated: null,
-    targetDate: '2026-09-30T00:00:00.000Z', // by_when met by default
-    retroText: '',
-    issues: { done: [], cancelled: [], active: [] },
-    weeksCount: 0,
-    existingCache: null,
-    ...overrides,
+    recommendation: 'insufficient_evidence' as const,
+    explanation: 'x',
+    evidence_found: [] as string[],
+    evidence_missing: ['No actual impact'],
+    suggested_conclusion: null as string | null,
+    diagnosis: 'evidence is thin' as string | null,
+    recommended_next_action: 'record actual impact' as string | null,
+    proposed_action: null as null | { kind: 'set_plan_validated'; plan_validated: boolean; summary: string },
+    ai_available: true as const,
   };
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
   mockReviewLimit.mockReturnValue(true); // within review budget by default
-  // Default: the graph produces an available plan-review (4/4). Individual
-  // getReview tests override per scenario.
+  // Default: the graph produces an available plan-review (4/4) and an available
+  // retro recommendation. Individual getReview tests override per scenario.
   mockRunPlanReview.mockResolvedValue(graphPlanReview(4));
+  mockRunRetro.mockResolvedValue(retroRecResult());
 });
 
 // ---- helpers for getReview caching tests ----
@@ -83,76 +79,15 @@ function projRow(fleet: unknown) {
     properties: { plan: 'Reduce X by 20% by end of Q3', success_criteria: ['a'], fleet },
   };
 }
-function retroAiResult() {
-  return {
-    recommendation: 'insufficient_evidence' as const,
-    explanation: 'x',
-    evidence_found: [],
-    evidence_missing: ['No actual impact'],
-    suggested_conclusion: '',
-  };
-}
 function findUpdateCall() {
   return mockQuery.mock.calls.find((c) => String(c[0]).includes('jsonb_set'));
 }
 
-// NOTE: the standalone `buildPlanReview` / `composeFreshReview` suites were
-// removed with the functions themselves (C1) — the plan-review compute path is
-// now the FleetGraph graph (covered by graph.test.ts + getReview caching tests).
-
-describe('buildRetroRecommendation', () => {
-  it('AI unavailable → unavailable: insufficient_evidence, NO evidence (R18)', async () => {
-    mockAvailable.mockReturnValue(false);
-    const result = await buildRetroRecommendation(
-      signals({ monetaryImpactActual: null, issues: { done: [], cancelled: [], active: ['I1'] } })
-    );
-    expect(result.recommendation).toBe('insufficient_evidence');
-    // R18: no deterministic baseline — empty evidence, requires a provider.
-    expect(result.evidence_found).toHaveLength(0);
-    expect(result.evidence_missing).toHaveLength(0);
-    expect(result.ai_available).toBe(false);
-    expect(mockEvaluate).not.toHaveBeenCalled();
-  });
-
-  it('does not throw when monetary impact is a non-string (number from JSONB)', async () => {
-    // Regression: buildRetroUserContent runs unconditionally (to size-check) and
-    // esc() previously assumed a string; a JSONB-sourced number (monetary_impact_*)
-    // made `.replace` throw, surfacing as a 500 on the retro path for real projects.
-    mockAvailable.mockReturnValue(false);
-    const result = await buildRetroRecommendation(
-      signals({
-        monetaryImpactExpected: 50000 as unknown as string,
-        monetaryImpactActual: 30000 as unknown as string,
-      })
-    );
-    expect(result.recommendation).toBe('insufficient_evidence');
-    expect(result.ai_available).toBe(false);
-  });
-
-  it('strong evidence + AI available → validated_recommended', async () => {
-    mockAvailable.mockReturnValue(true);
-    mockEvaluate.mockResolvedValueOnce({
-      recommendation: 'validated_recommended',
-      explanation: 'Criteria met and impact recorded.',
-      evidence_found: ['Activation < 3 min', 'Saved $50k/yr'],
-      evidence_missing: [],
-      suggested_conclusion: 'Validated: the bet held.',
-    });
-    const result = await buildRetroRecommendation(
-      signals({ monetaryImpactActual: 'Saved $50k/yr', issues: { done: ['I1', 'I2'], cancelled: [], active: [] } })
-    );
-    expect(result.recommendation).toBe('validated_recommended');
-    expect(result.ai_available).toBe(true);
-  });
-
-  it('recommendation is always one of the three enums', async () => {
-    mockAvailable.mockReturnValue(false);
-    const result = await buildRetroRecommendation(signals());
-    expect(['validated_recommended', 'invalidated_recommended', 'insufficient_evidence']).toContain(
-      result.recommendation
-    );
-  });
-});
+// NOTE: the standalone `buildPlanReview` / `composeFreshReview` / `buildRetroRecommendation`
+// suites were removed with the functions themselves — both AI compute paths are now
+// the FleetGraph graph (covered by graph.test.ts + the getReview caching tests below).
+// Retro's R18 unavailable behavior is asserted via getReview; the JSONB-number monetary
+// coercion regression moved to the read layer (read.test.ts).
 
 describe('gatherSignals', () => {
   it('returns null when the project is not visible', async () => {
@@ -202,7 +137,7 @@ describe('getReview caching', () => {
     expect(await getReview('p1', CTX)).toBeNull();
   });
 
-  it('over the review budget on a cache-miss GET → no graph/model call, unavailable result', async () => {
+  it('over the review budget on a cache-miss GET → no graph call, unavailable result', async () => {
     mockAvailable.mockReturnValue(true);
     mockReviewLimit.mockReturnValue(false); // over budget
     mockQuery
@@ -211,13 +146,13 @@ describe('getReview caching', () => {
       .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never);
     const r = await getReview('p1', CTX);
     expect(mockRunPlanReview).not.toHaveBeenCalled(); // plan-review graph not invoked
-    expect(mockEvaluate).not.toHaveBeenCalled(); // retro not invoked either
+    expect(mockRunRetro).not.toHaveBeenCalled(); // retro graph not invoked either
     expect(r!.ai_available).toBe(false);
     expect(r!.plan_review.pieces).toHaveLength(0); // R18: no deterministic pieces
     expect(findUpdateCall()).toBeFalsy();
   });
 
-  it('no plan → no_plan review without invoking the graph/model (issue 1)', async () => {
+  it('no plan → no_plan review without invoking the graph (issue 1)', async () => {
     mockAvailable.mockReturnValue(true); // provider configured…
     mockQuery
       // project row with NO plan in properties
@@ -225,9 +160,9 @@ describe('getReview caching', () => {
       .mockResolvedValueOnce({ rows: [] } as never) // issues
       .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never); // weeks
     const r = await getReview('p1', CTX);
-    // …yet the graph/model is NOT invoked because there is nothing to review.
+    // …yet the graph is NOT invoked because there is nothing to review.
     expect(mockRunPlanReview).not.toHaveBeenCalled();
-    expect(mockEvaluate).not.toHaveBeenCalled();
+    expect(mockRunRetro).not.toHaveBeenCalled();
     expect(r!.plan_review.status).toBe('no_plan');
     expect(r!.plan_review.pieces).toHaveLength(0);
     expect(r!.plan_review.ai_available).toBe(false);
@@ -262,10 +197,10 @@ describe('getReview caching', () => {
     expect(r!.plan_review.suggested_rewrite).toBeNull(); // NOT the stale rewrite
   });
 
-  it('AE6/R13: unchanged plan → graph + retro evaluated once across two calls', async () => {
+  it('AE6/R13: unchanged plan → plan + retro graph evaluated once across two calls', async () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4)); // plan via graph
-    mockEvaluate.mockResolvedValueOnce(retroAiResult()); // retro via evaluateStructured
+    mockRunRetro.mockResolvedValue(retroRecResult()); // retro via graph
     // Call 1: no cache → 3 reads + 1 update
     mockQuery
       .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
@@ -275,7 +210,7 @@ describe('getReview caching', () => {
 
     const r1 = await getReview('p1', CTX);
     expect(mockRunPlanReview).toHaveBeenCalledTimes(1); // R13: plan-review via graph
-    expect(mockEvaluate).toHaveBeenCalledTimes(1); // retro via evaluateStructured
+    expect(mockRunRetro).toHaveBeenCalledTimes(1); // retro via graph
     expect(r1!.plan_review.ai_available).toBe(true);
 
     const update = findUpdateCall();
@@ -286,8 +221,8 @@ describe('getReview caching', () => {
     expect(sql).not.toMatch(/SET properties = \$1\b/); // not a whole-properties overwrite
     const blob = JSON.parse(String((update![1] as unknown[])[0]));
 
-    // Call 2: cache present (same plan) → no graph/model call, no update
-    mockEvaluate.mockClear();
+    // Call 2: cache present (same plan) → no graph call, no update
+    mockRunRetro.mockClear();
     mockRunPlanReview.mockClear();
     mockQuery.mockReset();
     mockQuery
@@ -297,7 +232,7 @@ describe('getReview caching', () => {
 
     const r2 = await getReview('p1', CTX);
     expect(mockRunPlanReview).not.toHaveBeenCalled();
-    expect(mockEvaluate).not.toHaveBeenCalled();
+    expect(mockRunRetro).not.toHaveBeenCalled();
     expect(r2!.plan_review.ai_available).toBe(true);
     expect(findUpdateCall()).toBeFalsy();
   });
@@ -305,7 +240,7 @@ describe('getReview caching', () => {
   it('only an issue change re-runs retro, serves plan from cache', async () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4));
-    mockEvaluate.mockResolvedValueOnce(retroAiResult());
+    mockRunRetro.mockResolvedValue(retroRecResult());
     mockQuery
       .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
       .mockResolvedValueOnce({ rows: [] } as never)
@@ -316,10 +251,10 @@ describe('getReview caching', () => {
     expect(r1).toBeTruthy();
 
     // Call 2: same plan, a new completed issue → retro hash misses only.
-    mockEvaluate.mockReset();
+    mockRunRetro.mockClear();
     mockRunPlanReview.mockClear();
     mockQuery.mockReset();
-    mockEvaluate.mockResolvedValueOnce(retroAiResult());
+    mockRunRetro.mockResolvedValue(retroRecResult());
     mockQuery
       .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
       .mockResolvedValueOnce({ rows: [{ state: 'done', title: 'NewIssue' }] } as never)
@@ -328,7 +263,7 @@ describe('getReview caching', () => {
 
     const r2 = await getReview('p1', CTX);
     expect(mockRunPlanReview).not.toHaveBeenCalled(); // plan served from cache
-    expect(mockEvaluate).toHaveBeenCalledTimes(1); // retro only
+    expect(mockRunRetro).toHaveBeenCalledTimes(1); // retro only
     expect(r2!.plan_review.ai_available).toBe(true); // plan served from cache
     expect(findUpdateCall()).toBeTruthy();
   });
@@ -336,7 +271,7 @@ describe('getReview caching', () => {
   it('force:true re-runs AI even on a hash match', async () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4));
-    mockEvaluate.mockResolvedValueOnce(retroAiResult());
+    mockRunRetro.mockResolvedValue(retroRecResult());
     mockQuery
       .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
       .mockResolvedValueOnce({ rows: [] } as never)
@@ -345,11 +280,11 @@ describe('getReview caching', () => {
     await getReview('p1', CTX);
     const blob = JSON.parse(String((findUpdateCall()![1] as unknown[])[0]));
 
-    mockEvaluate.mockReset();
+    mockRunRetro.mockClear();
     mockRunPlanReview.mockClear();
     mockQuery.mockReset();
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4));
-    mockEvaluate.mockResolvedValueOnce(retroAiResult());
+    mockRunRetro.mockResolvedValue(retroRecResult());
     mockQuery
       .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
       .mockResolvedValueOnce({ rows: [] } as never)
@@ -358,13 +293,13 @@ describe('getReview caching', () => {
 
     await getReview('p1', CTX, { force: true });
     expect(mockRunPlanReview).toHaveBeenCalledTimes(1); // plan re-run via graph despite cache
-    expect(mockEvaluate).toHaveBeenCalledTimes(1); // retro re-run despite cache
+    expect(mockRunRetro).toHaveBeenCalledTimes(1); // retro re-run despite cache
   });
 
   it('cache write payload is key-scoped — never includes sibling props like plan_validated (U5)', async () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4));
-    mockEvaluate.mockResolvedValueOnce(retroAiResult());
+    mockRunRetro.mockResolvedValue(retroRecResult());
     const withValidated = projRow(null);
     withValidated.properties = { ...withValidated.properties, plan_validated: true } as typeof withValidated.properties;
     mockQuery
@@ -384,7 +319,7 @@ describe('getReview caching', () => {
     expect(blob).not.toHaveProperty('success_criteria');
   });
 
-  it('AI unavailable (R18) → unavailable result, no graph/model call, no cache write', async () => {
+  it('AI unavailable (R18) → unavailable result, no graph call, no cache write', async () => {
     mockAvailable.mockReturnValue(false);
     mockQuery
       .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
@@ -394,9 +329,10 @@ describe('getReview caching', () => {
     const r = await getReview('p1', CTX);
     expect(r!.plan_review.ai_available).toBe(false);
     expect(r!.plan_review.pieces).toHaveLength(0); // R18: no deterministic pieces
+    expect(r!.retro_recommendation.ai_available).toBe(false);
     expect(r!.ai_available).toBe(false);
     expect(mockRunPlanReview).not.toHaveBeenCalled(); // gated out: no provider
-    expect(mockEvaluate).not.toHaveBeenCalled();
+    expect(mockRunRetro).not.toHaveBeenCalled();
     expect(findUpdateCall()).toBeFalsy();
   });
 
@@ -404,7 +340,7 @@ describe('getReview caching', () => {
     // 1) populate the cache with AI entries
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(3));
-    mockEvaluate.mockResolvedValueOnce(retroAiResult());
+    mockRunRetro.mockResolvedValue(retroRecResult());
     mockQuery
       .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
       .mockResolvedValueOnce({ rows: [] } as never)
@@ -416,7 +352,6 @@ describe('getReview caching', () => {
 
     // 2) force-refresh with AI now unavailable → stale entries must be cleared
     mockQuery.mockReset();
-    mockEvaluate.mockReset();
     mockAvailable.mockReturnValue(false);
     mockQuery
       .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)

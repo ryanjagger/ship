@@ -43,6 +43,18 @@ export interface FleetPlanReview {
   computed_at?: string;
 }
 
+// A confirmable write Fleet proposes the user apply to close the retro. Fleet
+// stays advisory: it proposes, the human confirms (the write executes under the
+// user's own permissions, audited as agent_initiated). Today the only action is
+// setting the retro outcome (plan_validated).
+export interface FleetProposedAction {
+  kind: 'set_plan_validated';
+  // The value the confirmed write would set on the project.
+  plan_validated: boolean;
+  // Human-readable one-liner for the confirm UI.
+  summary: string;
+}
+
 // Retro recommendation sub-result (Project Retro panel).
 export interface FleetRetroRecommendation {
   recommendation: FleetRecommendation;
@@ -51,6 +63,15 @@ export interface FleetRetroRecommendation {
   evidence_missing: string[];
   // Short suggested retro conclusion (advisory).
   suggested_conclusion: string | null;
+  // One-sentence diagnosis of why the evidence is/isn't sufficient. Null when
+  // the model did not contribute (unavailable / degraded).
+  diagnosis: string | null;
+  // A single concrete next action to take before closing the retro. Null when
+  // the model did not contribute.
+  recommended_next_action: string | null;
+  // The confirmable outcome write Fleet suggests, or null (insufficient evidence
+  // proposes nothing, and the unavailable result carries none).
+  proposed_action: FleetProposedAction | null;
   ai_available: boolean;
   computed_at?: string;
 }
@@ -104,6 +125,66 @@ export interface FleetDedupReview {
   recommendation: string | null;
   // True when the model contributed (vs. unavailable / degraded / no candidates).
   ai_available: boolean;
+}
+
+// ── Related-issue grouping (Fleet "Related" view on the Issues page) ─────────
+//
+// The clustering generalization of dedup-on-create. Where dedup judges ONE draft
+// title against a few candidates, this groups the WHOLE open-issue set by theme:
+// the server fetches all visibility-scoped open issues, the FleetGraph `related`
+// mode asks the model which issues are about the same underlying work, and the
+// view renders them in groups (GET /api/fleetgraph/related-groups). Read-only,
+// ephemeral (no persistence), and gated/degraded exactly like dedup.
+
+// One open issue considered for grouping. A superset of the dedup candidate shape
+// (no pg_trgm score — the whole open set is fetched, not similarity-ranked) plus
+// a truncated body so the model can group on description, not just the title.
+export interface FleetIssueGroupCandidate {
+  id: string;
+  title: string;
+  ticket_number: number;
+  display_id: string;
+  state: string;
+  priority: string;
+  assignee_name: string | null;
+  // Parent project title, when the issue belongs to one.
+  project_title: string | null;
+  updated_at: string;
+  // Truncated plain-text body (extracted from the TipTap content), or null when
+  // the issue has no description. Capped server-side to bound the token budget.
+  body: string | null;
+}
+
+// One model-produced cluster of related issues. `memberIds` are issue ids resolved
+// from the model's 1-based indexes server-side (out-of-range indexes dropped).
+export interface FleetIssueGroup {
+  // Short theme label for the group (e.g. "Login flow reliability").
+  label: string;
+  // The issues the model grouped together (≥2 members). Order is the model's.
+  memberIds: string[];
+  // One-sentence reason these issues are about the same underlying work.
+  reason: string;
+}
+
+// Full response for GET /api/fleetgraph/related-groups. When the model is
+// unavailable / degraded, `groups` is empty and `ai_available` is false — the
+// client then falls back to the flat list.
+export interface FleetIssueGroupingResult {
+  // Every open issue the model considered (so the client can render members and
+  // the "Ungrouped" bucket from one payload, without a second issues fetch).
+  candidates: FleetIssueGroupCandidate[];
+  // The model's theme groups (each ≥2 members), referencing candidates by id.
+  groups: FleetIssueGroup[];
+  // Candidate ids the model left in no group (singletons / one-offs).
+  ungroupedIds: string[];
+  // One-line overall summary, or null when degraded / nothing to group.
+  summary: string | null;
+  // True when the model contributed (vs. unavailable / degraded / too few issues).
+  ai_available: boolean;
+  // How many issues were sent to the model (after the recency cap).
+  analyzed_count: number;
+  // True when open issues exceeded the cap and some were not analyzed.
+  truncated: boolean;
 }
 
 // Full response for GET /api/projects/:id/fleet/plan-review.

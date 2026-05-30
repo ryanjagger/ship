@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatDate } from '@/lib/date-utils';
 import { ArchiveIcon } from '@/components/icons/ArchiveIcon';
 import { KanbanBoard } from '@/components/KanbanBoard';
+import { RelatedIssuesView } from '@/components/fleet/RelatedIssuesView';
 import { SelectableList, RowRenderProps, UseSelectionReturn } from '@/components/SelectableList';
 import { BulkActionBar } from '@/components/BulkActionBar';
 import { DocumentListToolbar } from '@/components/DocumentListToolbar';
@@ -332,6 +333,15 @@ export function IssuesList({
     defaultSort: 'updated',
     defaultViewMode: initialViewMode,
   });
+
+  // Clamp the active view to the currently-available modes. `viewMode` can hold a
+  // mode that `viewModes` no longer offers — e.g. 'related' while Fleet
+  // availability is still loading or disabled (Issues.tsx then passes only
+  // ['list','kanban']), or a future persisted mode. Without this, the unavailable
+  // view would still render (and call its endpoint) with no toggle to escape it.
+  const effectiveViewMode: ViewMode = viewModes.includes(viewMode)
+    ? viewMode
+    : (viewModes[0] ?? 'list');
 
   const { visibleColumns, columns, hiddenCount, toggleColumn } = useColumnVisibility({
     columns: ALL_COLUMNS,
@@ -935,7 +945,7 @@ export function IssuesList({
   useGlobalListNavigation({
     selection: selectionRef.current,
     selectionRef: selectionRef,
-    enabled: enableKeyboardNavigation && viewMode === 'list',
+    enabled: enableKeyboardNavigation && effectiveViewMode === 'list',
     onEnter: useCallback((focusedId: string) => {
       navigate(`/documents/${focusedId}`);
     }, [navigate]),
@@ -1143,13 +1153,13 @@ export function IssuesList({
                 sortBy={sortBy}
                 onSortChange={setSortBy}
                 viewModes={viewModes}
-                viewMode={viewMode}
+                viewMode={effectiveViewMode}
                 onViewModeChange={setViewMode}
                 allColumns={ALL_COLUMNS}
                 visibleColumns={visibleColumns}
                 onToggleColumn={toggleColumn}
                 hiddenCount={hiddenCount}
-                showColumnPicker={viewMode === 'list'}
+                showColumnPicker={effectiveViewMode === 'list'}
                 filterContent={combinedFilterContent}
               />
               {/* Add from Backlog button - text collapses on small screens */}
@@ -1229,7 +1239,15 @@ export function IssuesList({
       ) : null}
 
       {/* Content */}
-      {viewMode === 'kanban' ? (
+      {effectiveViewMode === 'related' ? (
+        <div className="flex-1 overflow-auto pb-20">
+          <RelatedIssuesView
+            issues={filteredIssues}
+            applyFilter={Boolean(stateFilter || programFilter || projectFilter || sprintFilter)}
+            onIssueClick={(id) => navigate(`/documents/${id}`)}
+          />
+        </div>
+      ) : effectiveViewMode === 'kanban' ? (
         <KanbanBoard
           issues={filteredIssues}
           onUpdateIssue={handleUpdateIssue}

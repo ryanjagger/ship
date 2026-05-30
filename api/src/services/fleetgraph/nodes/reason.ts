@@ -59,6 +59,20 @@ import {
   buildDedupUserContent,
   type DedupReviewAi,
 } from '../dedup-config.js';
+import {
+  relatedGroupsSchema,
+  RELATED_SYSTEM_PROMPT,
+  RELATED_SCHEMA_NAME,
+  buildRelatedUserContent,
+  type RelatedGroupsAi,
+} from '../related-config.js';
+import {
+  retroRecAiSchema,
+  RETRO_SYSTEM_PROMPT,
+  RETRO_SCHEMA_NAME,
+  buildRetroUserContent,
+  type RetroRecAi,
+} from '../retro-config.js';
 import type { FetchNodeOutput } from './fetch.js';
 import type { FleetGraphStateType, FleetGraphUpdate, FleetAnalysis } from '../state.js';
 
@@ -272,6 +286,16 @@ export function makeReasonNode(deps: ReasonNodeDeps = {}) {
       return reasonDedup(state, deps);
     }
 
+    // RELATED groups the seeded open-issue set by theme — like dedup it judges a
+    // LIST, not the focal entity's deep context, so it is handled before the
+    // focal guard below (there is no focal entity for a workspace-wide grouping).
+    if (state.mode === 'related') {
+      if (!available) {
+        return neutralDegrade('Issue grouping is not configured for this workspace.');
+      }
+      return reasonRelated(state, deps);
+    }
+
     // A denied / missing focal entity never reaches the model.
     if (!fetched || fetched.fetchDenied || !fetched.focal) {
       return {
@@ -286,6 +310,9 @@ export function makeReasonNode(deps: ReasonNodeDeps = {}) {
 
     if (state.mode === 'plan_review') {
       return reasonProactive(fetched, deps);
+    }
+    if (state.mode === 'retro') {
+      return reasonRetro(fetched, deps);
     }
     if (state.mode === 'drift') {
       return reasonDrift(state, fetched, deps);
@@ -318,6 +345,38 @@ async function reasonProactive(
   const analysis: FleetAnalysis = {
     text: ai.diagnosis,
     planReview: ai,
+    aiAvailable: true,
+  };
+  return { analysis };
+}
+
+/**
+ * RETRO: structured call via fleet-ai.ts's `evaluateStructured` — the SAME SDK
+ * path the shipped retro recommendation used (preserving the zod-v3/v4 Anthropic
+ * workaround). The model reviews the plan, success criteria, issue breakdown,
+ * monetary impact, and retro narrative (all from the fetch snapshot) and returns
+ * an advisory `validated` / `invalidated` / `insufficient_evidence` recommendation
+ * the entry point lifts into a `FleetRetroRecommendation`. Never throws — a blip
+ * degrades to neutral. Fleet only advises; it never sets `plan_validated`.
+ */
+async function reasonRetro(
+  fetched: FetchNodeOutput,
+  _deps: ReasonNodeDeps
+): Promise<FleetGraphUpdate> {
+  const ai = await evaluateStructuredViaFleetAi<RetroRecAi>({
+    system: RETRO_SYSTEM_PROMPT,
+    user: buildRetroUserContent(fetched),
+    schema: retroRecAiSchema,
+    schemaName: RETRO_SCHEMA_NAME,
+  });
+
+  if (isFleetAiError(ai)) {
+    return neutralDegrade('Retro recommendation is temporarily unavailable.');
+  }
+
+  const analysis: FleetAnalysis = {
+    text: ai.explanation,
+    retroReview: ai,
     aiAvailable: true,
   };
   return { analysis };
@@ -432,6 +491,41 @@ async function reasonDedup(
   const analysis: FleetAnalysis = {
     text: ai.summary,
     dedupReview: ai,
+    aiAvailable: true,
+  };
+  return { analysis };
+}
+
+/**
+ * RELATED: structured call via fleet-ai.ts's `evaluateStructured` (the SAME SDK
+ * path dedup uses, preserving the zod-v3/v4 Anthropic workaround). The model
+ * groups the seeded open-issue set by theme — which issues are about the same
+ * underlying work. Like dedup it judges a list (no focal entity) and never
+ * throws — a blip degrades to neutral (the view falls back to a flat list).
+ *
+ * `maxTokens` is raised above the fleet-ai default: a whole-list grouping emits
+ * many groups (label + member indexes + reason each), far more than dedup's
+ * per-candidate verdict.
+ */
+async function reasonRelated(
+  state: FleetGraphStateType,
+  _deps: ReasonNodeDeps
+): Promise<FleetGraphUpdate> {
+  const ai = await evaluateStructuredViaFleetAi<RelatedGroupsAi>({
+    system: RELATED_SYSTEM_PROMPT,
+    user: buildRelatedUserContent(state.issueSet),
+    schema: relatedGroupsSchema,
+    schemaName: RELATED_SCHEMA_NAME,
+    maxTokens: 4000,
+  });
+
+  if (isFleetAiError(ai)) {
+    return neutralDegrade('Issue grouping is temporarily unavailable.');
+  }
+
+  const analysis: FleetAnalysis = {
+    text: ai.summary,
+    relatedReview: ai,
     aiAvailable: true,
   };
   return { analysis };

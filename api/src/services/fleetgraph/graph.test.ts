@@ -16,9 +16,12 @@ import { ConversationDocCheckpointSaver } from './checkpointer.js';
 import { compileGraph } from './graph.js';
 import {
   runPlanReview,
+  runRetroRecommendation,
   runChatTurn,
   resumeChatTurn,
   runDedupReview,
+  runRelatedGroups,
+  __resetRelatedGroupsCacheForTests,
   runDriftReasoning,
   setDriftGraphTimeoutMsForTests,
   DRIFT_GRAPH_TIMEOUT_MS,
@@ -217,6 +220,82 @@ describe('proactive plan-review (R1, R2)', () => {
   });
 });
 
+// ── retro recommendation (graph retro mode) ──────────────────────────────────
+
+describe('retro recommendation (graph retro mode)', () => {
+  beforeEach(() => {
+    fleetAiEval.mockReset();
+  });
+
+  const RETRO_AI = {
+    recommendation: 'validated_recommended',
+    explanation: 'Criteria met and impact recorded.',
+    evidence_found: ['Completed the admin flow issue'],
+    evidence_missing: [],
+    suggested_conclusion: 'Validated: the bet held.',
+    diagnosis: 'Strong completion signal.',
+    recommended_next_action: 'Record the actual impact and close.',
+  };
+
+  it('runs scope→fetch→reason→output, lifts the enriched recommendation + proposed action', async () => {
+    const capture: { system?: string; user?: string } = {};
+    fleetAiEval.mockImplementation(async (req: { system: string; user: string }) => {
+      capture.system = req.system;
+      capture.user = req.user;
+      return RETRO_AI;
+    });
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+
+    const result = await runRetroRecommendation({ entityId: projectId, entityType: 'project', ctx }, graph);
+
+    expect(result.ai_available).toBe(true);
+    expect(result.recommendation).toBe('validated_recommended');
+    expect(result.diagnosis).toBe('Strong completion signal.');
+    expect(result.recommended_next_action).toContain('actual impact');
+    // validated → proposes setting plan_validated = true (the confirmable write).
+    expect(result.proposed_action).toEqual({
+      kind: 'set_plan_validated',
+      plan_validated: true,
+      summary: expect.stringContaining('validated'),
+    });
+
+    // The retro prompt carries the issue breakdown (hashed evidence). It must
+    // NOT include the activity/people blocks — those are unhashed, so feeding
+    // them would make the retroHash cache stale on a new comment/roster change.
+    expect(capture.user).toContain('<issues done="0" cancelled="0" active="1">');
+    expect(capture.user).toContain('Wire up the new admin flow'); // the active issue
+    expect(capture.user).not.toContain('<activity');
+    expect(capture.user).not.toContain('<people>');
+  });
+
+  it('invalidated_recommended proposes plan_validated:false', async () => {
+    fleetAiEval.mockResolvedValue({ ...RETRO_AI, recommendation: 'invalidated_recommended' });
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRetroRecommendation({ entityId: projectId, entityType: 'project', ctx }, graph);
+    expect(result.proposed_action).toEqual({
+      kind: 'set_plan_validated',
+      plan_validated: false,
+      summary: expect.stringContaining('invalidated'),
+    });
+  });
+
+  it('insufficient_evidence proposes no action', async () => {
+    fleetAiEval.mockResolvedValue({ ...RETRO_AI, recommendation: 'insufficient_evidence' });
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRetroRecommendation({ entityId: projectId, entityType: 'project', ctx }, graph);
+    expect(result.recommendation).toBe('insufficient_evidence');
+    expect(result.proposed_action).toBeNull();
+  });
+
+  it('a model error degrades to unavailable (ai_available:false, no proposed action)', async () => {
+    fleetAiEval.mockResolvedValue({ error: 'ai_unavailable' });
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRetroRecommendation({ entityId: projectId, entityType: 'project', ctx }, graph);
+    expect(result.ai_available).toBe(false);
+    expect(result.proposed_action).toBeNull();
+  });
+});
+
 // ── dedup-on-create (stage-2, graph-backed verdict) ──────────────────────────
 
 describe('dedup review (graph dedup mode)', () => {
@@ -319,6 +398,146 @@ describe('dedup review (graph dedup mode)', () => {
     // Only the in-range index survives; the bogus index 99 is dropped.
     expect(review.matches).toHaveLength(1);
     expect(review.matches[0]!.candidate.id).toBe(dupId);
+  });
+});
+
+// ── related issue grouping (Issues page "Related" view) ──────────────────────
+
+describe('related issue grouping (graph related mode)', () => {
+  beforeEach(() => {
+    fleetAiEval.mockReset();
+    __resetRelatedGroupsCacheForTests();
+  });
+
+  async function seedOpenIssue(title: string, ticket: number, body?: string) {
+    const content = body
+      ? `'{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"${body}"}]}]}'::jsonb`
+      : 'NULL';
+    await pool.query(
+      `INSERT INTO documents (workspace_id, document_type, title, ticket_number, content, properties, visibility)
+       VALUES ($1,'issue',$2,$3,${content},'{"state":"todo"}'::jsonb,'workspace')`,
+      [workspaceId, title, ticket]
+    );
+  }
+
+  it('groups the open-issue set, maps 1-based indexes to ids, and feeds <issues> + body to the model', async () => {
+    await seedOpenIssue('Login page throws 500', 7201, 'Auth endpoint failing.');
+    await seedOpenIssue('Login redirect loop', 7202);
+
+    const capture: { system?: string; user?: string } = {};
+    fleetAiEval.mockImplementation(async (req: { system: string; user: string }) => {
+      capture.system = req.system;
+      capture.user = req.user;
+      return {
+        summary: 'Two login issues form one theme.',
+        groups: [
+          { label: 'Login reliability', member_indexes: [1, 2], reason: 'Both are about the login flow failing.' },
+        ],
+      };
+    });
+
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRelatedGroups({ ctx, limit: 50 }, graph);
+
+    expect(result.ai_available).toBe(true);
+    const c = result.candidates;
+    expect(c.length).toBeGreaterThanOrEqual(2);
+    expect(result.groups).toHaveLength(1);
+    // The two most-recently-updated open issues are my inserts; indexes [1,2] map to them.
+    expect(result.groups[0]!.memberIds).toEqual([c[0]!.id, c[1]!.id]);
+    expect(result.groups[0]!.label).toBe('Login reliability');
+    expect(result.ungroupedIds).toEqual(c.slice(2).map((x) => x.id));
+    // Prompt carried the issue list (inside data-boundary tags) including a body.
+    expect(capture.user).toContain('<issues>');
+    expect(capture.user).toContain('Login page throws 500');
+    expect(capture.user).toContain('Auth endpoint failing.');
+  });
+
+  it('short-circuits without a model call when there are fewer than two issues', async () => {
+    const ws = (
+      await pool.query<{ id: string }>(`INSERT INTO workspaces (name) VALUES ('Related Empty WS') RETURNING id`)
+    ).rows[0]!.id;
+    const u = (
+      await pool.query<{ id: string }>(
+        `INSERT INTO users (email, password_hash, name) VALUES ('rel-empty@ship.local','h','RE') RETURNING id`
+      )
+    ).rows[0]!.id;
+    await pool.query(`INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1,$2,'member')`, [ws, u]);
+    const emptyCtx: FleetContext = { workspaceId: ws, userId: u, isAdmin: false };
+    try {
+      const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+      const result = await runRelatedGroups({ ctx: emptyCtx }, graph);
+      expect(result.candidates.length).toBeLessThan(2);
+      expect(result.ai_available).toBe(false);
+      expect(result.groups).toEqual([]);
+      expect(fleetAiEval).not.toHaveBeenCalled();
+    } finally {
+      await pool.query(`DELETE FROM workspace_memberships WHERE workspace_id = $1`, [ws]);
+      await pool.query(`DELETE FROM workspaces WHERE id = $1`, [ws]);
+      await pool.query(`DELETE FROM users WHERE id = $1`, [u]);
+    }
+  });
+
+  it('drops out-of-range indexes, never emits singleton groups, and an issue joins at most one group', async () => {
+    for (let i = 0; i < 4; i++) await seedOpenIssue(`Grouping fixture ${i}`, 7300 + i);
+
+    fleetAiEval.mockResolvedValue({
+      summary: 'Some groups.',
+      groups: [
+        { label: 'A', member_indexes: [1, 2, 999], reason: 'first two plus a hallucinated index' },
+        { label: 'B', member_indexes: [1, 3], reason: 'index 1 already claimed → only one real member → dropped' },
+        { label: 'C', member_indexes: [3, 4], reason: 'valid second group' },
+      ],
+    });
+
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRelatedGroups({ ctx, limit: 50 }, graph);
+    const c = result.candidates;
+
+    expect(result.ai_available).toBe(true);
+    // A → [c0,c1] (999 dropped). B → c0 claimed, only c2 left → singleton → dropped.
+    // C → [c2,c3] survives.
+    expect(result.groups).toHaveLength(2);
+    expect(result.groups[0]!.memberIds).toEqual([c[0]!.id, c[1]!.id]);
+    expect(result.groups[1]!.memberIds).toEqual([c[2]!.id, c[3]!.id]);
+    for (const id of [c[0]!.id, c[1]!.id, c[2]!.id, c[3]!.id]) {
+      expect(result.ungroupedIds).not.toContain(id);
+    }
+  });
+
+  it('degrades to candidates-only (flat-list fallback) when the model errors', async () => {
+    await seedOpenIssue('Degrade fixture A', 7401);
+    await seedOpenIssue('Degrade fixture B', 7402);
+    fleetAiEval.mockResolvedValue({ error: 'ai_unavailable' });
+
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const result = await runRelatedGroups({ ctx, limit: 50 }, graph);
+
+    expect(result.ai_available).toBe(false);
+    expect(result.groups).toEqual([]);
+    expect(result.candidates.length).toBeGreaterThanOrEqual(2);
+    expect(result.ungroupedIds).toEqual(result.candidates.map((x) => x.id));
+  });
+
+  it('caps the analyzed set (truncated) and serves a cached result on the next call', async () => {
+    for (let i = 0; i < 3; i++) await seedOpenIssue(`Cap fixture ${i}`, 7500 + i);
+
+    let calls = 0;
+    fleetAiEval.mockImplementation(async () => {
+      calls += 1;
+      return { summary: 'cap', groups: [] };
+    });
+
+    const graph = compileGraph({ checkpointer: newCheckpointer(), reason: { availableOverride: true } });
+    const first = await runRelatedGroups({ ctx, limit: 2 }, graph);
+    expect(first.truncated).toBe(true);
+    expect(first.analyzed_count).toBe(2);
+    expect(first.ai_available).toBe(true);
+
+    // Same issue set within the TTL → served from cache, no second model call.
+    const second = await runRelatedGroups({ ctx, limit: 2 }, graph);
+    expect(second).toEqual(first);
+    expect(calls).toBe(1);
   });
 });
 

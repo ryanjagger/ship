@@ -55,6 +55,7 @@ import { pool } from '../db/client.js';
 import { generateOpenAPIDocument } from '../openapi/registry.js';
 import '../openapi/schemas/index.js';
 import { __resetFleetChatRateLimitForTests } from '../services/fleetgraph/rate-limit.js';
+import { __resetRelatedGroupsCacheForTests } from '../services/fleetgraph/index.js';
 
 // Parse an SSE response body into typed events.
 function parseSse(text: string): Array<{ type: string; data: Record<string, unknown> }> {
@@ -372,6 +373,56 @@ describe('FleetGraph chat API', () => {
     expect(res.status).toBe(503);
   });
 
+  // ── related-groups (Issues page "Related" view) ──
+  function relatedGroups(cookie = sessionCookie) {
+    __resetRelatedGroupsCacheForTests();
+    return request(app).get('/api/fleetgraph/related-groups').set('Cookie', cookie);
+  }
+
+  it('groups the workspace open issues, mapping model indexes back to ids', async () => {
+    modelState.available = true;
+    const aId = await seedIssue('Checkout fails on Safari', 8201);
+    const bId = await seedIssue('Checkout spinner never resolves', 8202);
+    // The shared evaluateStructured mock is typed to the dedup shape; this route
+    // exercises the `related` mode, so return the grouping shape (cast past the
+    // shared mock's dedup typing — the mock is structurally untyped at runtime).
+    dedupAi.next = (() => ({
+      summary: 'Two checkout issues are related.',
+      groups: [{ label: 'Checkout', member_indexes: [1, 2], reason: 'Both about checkout failing.' }],
+    })) as unknown as typeof dedupAi.next;
+
+    const res = await relatedGroups();
+    expect(res.status).toBe(200);
+    expect(res.body.ai_available).toBe(true);
+    const ids = res.body.candidates.map((c: { id: string }) => c.id);
+    expect(ids).toEqual(expect.arrayContaining([aId, bId]));
+    expect(res.body.groups).toHaveLength(1);
+    expect(res.body.groups[0].memberIds.length).toBeGreaterThanOrEqual(2);
+    // Every grouped/ungrouped id is a real candidate id (no leakage / hallucination).
+    const all = new Set(ids);
+    for (const g of res.body.groups) for (const id of g.memberIds) expect(all.has(id)).toBe(true);
+    for (const id of res.body.ungroupedIds) expect(all.has(id)).toBe(true);
+  });
+
+  it('reports 503 for related-groups when no AI provider is configured', async () => {
+    modelState.available = false;
+    const res = await relatedGroups();
+    expect(res.status).toBe(503);
+  });
+
+  it('unauthenticated related-groups → 401', async () => {
+    const res = await request(app).get('/api/fleetgraph/related-groups');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 429 past the per-user limit for related-groups', async () => {
+    modelState.available = true;
+    const { checkFleetChatRateLimit } = await import('../services/fleetgraph/rate-limit.js');
+    for (let i = 0; i < 60; i++) checkFleetChatRateLimit(userId);
+    const res = await relatedGroups();
+    expect(res.status).toBe(429);
+  });
+
   // ── R18: availability probe drives the client launcher's hide/show ──
   it('GET /availability reflects provider configuration (drives launcher hide/show)', async () => {
     modelState.available = true;
@@ -609,5 +660,6 @@ describe('FleetGraph chat API', () => {
     expect(doc.paths['/fleetgraph/chat']?.post).toBeTruthy();
     expect(doc.paths['/fleetgraph/chat/confirm']?.post).toBeTruthy();
     expect(doc.paths['/fleetgraph/conversations/{id}']?.get).toBeTruthy();
+    expect(doc.paths['/fleetgraph/related-groups']?.get).toBeTruthy();
   });
 });

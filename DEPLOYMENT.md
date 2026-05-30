@@ -2,6 +2,8 @@
 
 **Government-compliant AWS deployment for Express API + React frontend**
 
+**Live deployment:** https://ship-app-production-6f9e.up.railway.app/docs
+
 ## Prerequisites
 
 Install required tools:

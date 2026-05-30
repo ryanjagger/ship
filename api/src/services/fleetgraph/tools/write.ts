@@ -53,6 +53,7 @@ import {
   type UpdateIssueInput,
 } from '../../issues-service.js';
 import { postCommentCore, type PostCommentInput } from '../../comments-service.js';
+import { patchProjectRetroCore } from '../../projects-service.js';
 import type { FleetContext } from '../../fleet-service.js';
 
 export type { FleetContext };
@@ -119,9 +120,22 @@ export const postCommentArgsSchema = z
   })
   .strict();
 
+/**
+ * patch_project: set the project retro outcome (the Fleet retro Apply action).
+ * Today only `plan_validated` — the advisory recommendation the user confirms.
+ * Bounded to a uuid id + boolean so an out-of-scope arg cannot smuggle a write.
+ */
+export const patchProjectArgsSchema = z
+  .object({
+    id: z.string().uuid(),
+    plan_validated: z.boolean(),
+  })
+  .strict();
+
 export type CreateIssueArgs = z.infer<typeof createIssueArgsSchema>;
 export type PatchIssueArgs = z.infer<typeof patchIssueArgsSchema>;
 export type PostCommentArgs = z.infer<typeof postCommentArgsSchema>;
+export type PatchProjectArgs = z.infer<typeof patchProjectArgsSchema>;
 
 /**
  * The focal entity a chat turn is scoped to, expressed as a `belongs_to` entry.
@@ -135,7 +149,7 @@ export type FocalAssociation = { id: string; type: z.infer<typeof belongsToTypeE
 // Proposal shape (the object U7 serializes into interrupt(proposal))
 // ---------------------------------------------------------------------------
 
-export type WriteProposalKind = 'create_issue' | 'patch_issue' | 'post_comment';
+export type WriteProposalKind = 'create_issue' | 'patch_issue' | 'post_comment' | 'patch_project';
 
 /**
  * A fully-resolved, validated description of a pending write. This is the EXACT
@@ -155,7 +169,7 @@ export interface WriteProposal {
   /** Primary resource id the write targets, when known pre-execution. */
   targetId: string | null;
   /** The validated tool args — the SINGLE source applied at execution time. */
-  args: CreateIssueArgs | PatchIssueArgs | PostCommentArgs;
+  args: CreateIssueArgs | PatchIssueArgs | PostCommentArgs | PatchProjectArgs;
   /** Stable hash over {kind, args}; recomputed + checked at execute time. */
   contentHash: string;
 }
@@ -232,6 +246,16 @@ export function buildPostCommentProposal(rawArgs: unknown): WriteProposal {
   return makeProposal('post_comment', args, `Comment on ${args.document_id}`, args.document_id);
 }
 
+/**
+ * Build the retro-outcome proposal (Fleet retro Apply). Throws a ZodError on a
+ * malformed id / non-boolean — the boundary that keeps the write in scope.
+ */
+export function buildPatchProjectProposal(rawArgs: unknown): WriteProposal {
+  const args = patchProjectArgsSchema.parse(rawArgs);
+  const outcome = args.plan_validated ? 'validated' : 'invalidated';
+  return makeProposal('patch_project', args, `Mark plan ${outcome} for project ${args.id}`, args.id);
+}
+
 // ---------------------------------------------------------------------------
 // Executor (applies EXACTLY the confirmed proposal args)
 // ---------------------------------------------------------------------------
@@ -272,6 +296,9 @@ export async function executeProposal(ctx: FleetContext, proposal: WriteProposal
   }
   if (proposal.kind === 'post_comment') {
     return executePostComment(ctx, proposal.args as PostCommentArgs);
+  }
+  if (proposal.kind === 'patch_project') {
+    return executePatchProject(ctx, proposal.args as PatchProjectArgs);
   }
   throw new Error(`Unknown proposal kind: ${(proposal as WriteProposal).kind}`);
 }
@@ -340,6 +367,25 @@ async function executePatchIssue(ctx: FleetContext, args: PatchIssueArgs): Promi
   } finally {
     client.release();
   }
+}
+
+async function executePatchProject(ctx: FleetContext, args: PatchProjectArgs): Promise<ExecuteResult> {
+  // User-scoped, route-equivalent write via the shared core (visibility-checked
+  // load → merge → UPDATE). A non-visible project returns 404 and is NOT audited
+  // as a write — the agent gets the same denial the user would.
+  const outcome = await patchProjectRetroCore(pool, ctx, args.id, { plan_validated: args.plan_validated });
+  const mutated = outcome.status === 201;
+  if (mutated) {
+    await logAuditEvent({
+      workspaceId: ctx.workspaceId,
+      actorUserId: ctx.userId,
+      action: 'project.update',
+      resourceType: 'project',
+      resourceId: args.id,
+      details: { agent_initiated: true, approved_by: ctx.userId, plan_validated: args.plan_validated },
+    });
+  }
+  return { kind: 'patch_project', status: outcome.status, body: outcome.body, resourceId: args.id, mutated };
 }
 
 async function executePostComment(ctx: FleetContext, args: PostCommentArgs): Promise<ExecuteResult> {

@@ -20,9 +20,30 @@ const noPlanReview: FleetReviewResponse = {
     evidence_found: [],
     evidence_missing: ['No plan'],
     suggested_conclusion: null,
+    diagnosis: null,
+    recommended_next_action: null,
+    proposed_action: null,
     ai_available: false,
   },
   ai_available: false,
+};
+
+// A planned project with an available advisory recommendation — the retro card
+// renders the recommendation only when there IS a plan to evaluate.
+const plannedReview: FleetReviewResponse = {
+  plan_review: { status: 'needs_work', pieces: [], suggested_rewrite: null, ai_available: true },
+  retro_recommendation: {
+    recommendation: 'insufficient_evidence',
+    explanation: 'Not enough evidence yet.',
+    evidence_found: [],
+    evidence_missing: ['No actual impact'],
+    suggested_conclusion: null,
+    diagnosis: null,
+    recommended_next_action: null,
+    proposed_action: null,
+    ai_available: true,
+  },
+  ai_available: true,
 };
 
 let originalFetch: typeof global.fetch;
@@ -60,7 +81,7 @@ describe('FleetReviewContainer', () => {
   it('retro: renders the advisory recommendation and no human Validated/Invalidated control', async () => {
     global.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/fleet/plan-review')) return jsonResponse(noPlanReview);
+      if (url.includes('/fleet/plan-review')) return jsonResponse(plannedReview);
       return jsonResponse({});
     }) as typeof global.fetch;
 

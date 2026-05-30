@@ -31,6 +31,15 @@ export const FleetRetroRecommendationSchema = z
     evidence_found: z.array(z.string()),
     evidence_missing: z.array(z.string()),
     suggested_conclusion: z.string().nullable(),
+    diagnosis: z.string().nullable(),
+    recommended_next_action: z.string().nullable(),
+    proposed_action: z
+      .object({
+        kind: z.literal('set_plan_validated'),
+        plan_validated: z.boolean(),
+        summary: z.string(),
+      })
+      .nullable(),
     ai_available: z.boolean(),
     computed_at: z.string().optional(),
   })
@@ -84,5 +93,28 @@ registry.registerPath({
     401: { description: 'Unauthenticated' },
     404: { description: 'Project not found or not visible' },
     429: { description: 'Refresh rate limit exceeded' },
+  },
+});
+
+export const FleetRetroApplySchema = z
+  .object({ plan_validated: z.boolean() })
+  .openapi('FleetRetroApplyRequest');
+
+registry.registerPath({
+  method: 'post',
+  path: '/projects/{id}/fleet/retro/apply',
+  tags: ['Fleet'],
+  summary: 'Apply the Fleet-recommended retro outcome',
+  description:
+    "Applies the advisory retro recommendation the user confirmed — sets the project's plan_validated under the user's own permissions, audited as an agent-initiated write. Fleet only proposes; this endpoint is the explicit human confirmation.",
+  request: {
+    params: z.object({ id: UuidSchema }),
+    body: { content: { 'application/json': { schema: FleetRetroApplySchema } } },
+  },
+  responses: {
+    201: { description: 'Retro outcome applied' },
+    400: { description: 'Invalid input' },
+    401: { description: 'Unauthenticated' },
+    404: { description: 'Project not found or not visible' },
   },
 });

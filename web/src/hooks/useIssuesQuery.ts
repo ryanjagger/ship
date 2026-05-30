@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPatch } from '@/lib/api';
+import { relatedIssueGroupsKey } from './useRelatedIssueGroups';
 import type { CascadeWarning, IncompleteChild, BelongsTo, BelongsToType } from '@ship/shared';
 
 // Custom error type for cascade warning (409 response)
@@ -255,6 +256,12 @@ export function useCreateIssue() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
+      // Keep the AI "Related" view (Issues page) in sync: an issue created /
+      // renamed / closed / moved changes the open-issue set the grouping is built
+      // from, so the cached grouping must be refetched rather than served stale
+      // for its staleTime. The server's fingerprint cache still skips the LLM when
+      // nothing actually changed, so this adds no model cost.
+      queryClient.invalidateQueries({ queryKey: relatedIssueGroupsKey });
     },
   });
 }
@@ -297,6 +304,12 @@ export function useUpdateIssue() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
+      // Keep the AI "Related" view (Issues page) in sync: an issue created /
+      // renamed / closed / moved changes the open-issue set the grouping is built
+      // from, so the cached grouping must be refetched rather than served stale
+      // for its staleTime. The server's fingerprint cache still skips the LLM when
+      // nothing actually changed, so this adds no model cost.
+      queryClient.invalidateQueries({ queryKey: relatedIssueGroupsKey });
     },
   });
 }
@@ -386,6 +399,12 @@ export function useBulkUpdateIssues() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: issueKeys.lists() });
+      // Keep the AI "Related" view (Issues page) in sync: an issue created /
+      // renamed / closed / moved changes the open-issue set the grouping is built
+      // from, so the cached grouping must be refetched rather than served stale
+      // for its staleTime. The server's fingerprint cache still skips the LLM when
+      // nothing actually changed, so this adds no model cost.
+      queryClient.invalidateQueries({ queryKey: relatedIssueGroupsKey });
     },
   });
 }

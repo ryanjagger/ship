@@ -35,8 +35,12 @@ import type { RunnableConfig } from '@langchain/core/runnables';
 import type {
   FleetPlanReview,
   FleetHypothesisPiece,
+  FleetRetroRecommendation,
+  FleetProposedAction,
   FleetDedupReview,
   FleetDedupMatch,
+  FleetIssueGroupingResult,
+  FleetIssueGroup,
   DriftSignal,
   InsightVerdict,
 } from '@ship/shared';
@@ -44,8 +48,10 @@ import { hasText } from '../fleet-checks.js';
 import { pool as defaultPool } from '../../db/client.js';
 import { ConversationDocCheckpointSaver } from './checkpointer.js';
 import { RUBRIC, BY_WHEN_HINT } from './plan-review-config.js';
-import { findSimilarIssues } from '../issue-dedup.js';
+import { findSimilarIssues, fetchOpenIssuesForClustering } from '../issue-dedup.js';
 import type { DedupReviewAi } from './dedup-config.js';
+import type { RelatedGroupsAi } from './related-config.js';
+import type { RetroRecAi } from './retro-config.js';
 import { getCompiledGraph, compileGraph } from './graph.js';
 import type { FleetContext, FleetEntityType } from './tools/read.js';
 import type { WriteProposal } from './tools/write.js';
@@ -175,6 +181,90 @@ export async function runPlanReview(
   return { planReview, diagnosis: null, recommendedNextAction: null, available: false };
 }
 
+// ── retro recommendation (proactive, graph-backed advisory verdict) ──────────
+
+export interface RunRetroRecommendationArgs {
+  entityId: string;
+  entityType?: FleetEntityType;
+  ctx: FleetContext;
+}
+
+/**
+ * Drive the compiled graph in `retro` mode and lift the advisory recommendation
+ * into a `FleetRetroRecommendation` (the Project Retro panel contract). Mirrors
+ * `runPlanReview`: a transient random thread_id (no conversation, never pauses),
+ * single-shot, never throws — a degraded model yields an `ai_available: false`
+ * result identical to `unavailableRetroRecommendation()` so `getReview`'s
+ * persistence gate (`retroRec.ai_available`) is unchanged.
+ *
+ * Unlike the prior direct `evaluateStructured` call, the graph path emits a
+ * named, nested LangSmith trace (scope → fetch → reason → ChatAnthropic) carrying
+ * `feature: 'retro_recommendation'` + `projectId` metadata, so retro runs are
+ * filterable instead of surfacing as anonymous root spans.
+ */
+export async function runRetroRecommendation(
+  args: RunRetroRecommendationArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<FleetRetroRecommendation> {
+  const entityType = args.entityType ?? 'project';
+  const config: RunnableConfig = {
+    configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV, projectId: args.entityId, feature: 'retro_recommendation' },
+    runName: 'fleet.retro_recommendation',
+  };
+
+  const final = await graph.invoke(
+    { mode: 'retro', entityId: args.entityId, entityType, ctx: args.ctx },
+    config
+  );
+
+  const analysis = final.analysis as FleetAnalysis | null;
+  const ai = (analysis?.retroReview as RetroRecAi | undefined) ?? undefined;
+
+  if (ai && analysis?.aiAvailable) {
+    return {
+      recommendation: ai.recommendation,
+      explanation: ai.explanation,
+      evidence_found: ai.evidence_found,
+      evidence_missing: ai.evidence_missing,
+      suggested_conclusion: ai.suggested_conclusion.trim() || null,
+      diagnosis: ai.diagnosis.trim() || null,
+      recommended_next_action: ai.recommended_next_action.trim() || null,
+      proposed_action: proposedActionFor(ai.recommendation),
+      ai_available: true,
+    };
+  }
+
+  // Model unavailable / degraded / focal not visible → unavailable retro rec
+  // (shape matches fleet-service.ts's unavailableRetroRecommendation()).
+  return {
+    recommendation: 'insufficient_evidence',
+    explanation: 'Fleet recommendation requires a configured AI provider.',
+    evidence_found: [],
+    evidence_missing: [],
+    suggested_conclusion: null,
+    diagnosis: null,
+    recommended_next_action: null,
+    proposed_action: null,
+    ai_available: false,
+  };
+}
+
+/**
+ * Derive the confirmable outcome write from the advisory recommendation. Fleet
+ * proposes; the user confirms via the Apply endpoint. `insufficient_evidence`
+ * proposes nothing — there is no outcome to commit yet.
+ */
+function proposedActionFor(rec: RetroRecAi['recommendation']): FleetProposedAction | null {
+  if (rec === 'validated_recommended') {
+    return { kind: 'set_plan_validated', plan_validated: true, summary: 'Mark this plan validated and close the retro.' };
+  }
+  if (rec === 'invalidated_recommended') {
+    return { kind: 'set_plan_validated', plan_validated: false, summary: 'Mark this plan invalidated and close the retro.' };
+  }
+  return null;
+}
+
 // ── dedup (on-demand, graph-backed duplicate verdict) ────────────────────────
 
 export interface RunDedupReviewArgs {
@@ -253,6 +343,172 @@ export async function runDedupReview(
     recommendation: ai.recommendation.trim() || null,
     ai_available: true,
   };
+}
+
+// ── related (on-demand, graph-backed theme grouping over the open-issue set) ──
+
+export interface RunRelatedGroupsArgs {
+  ctx: FleetContext;
+  /** Recency cap on issues analyzed (defaults to fetchOpenIssuesForClustering's). */
+  limit?: number;
+}
+
+/**
+ * In-memory grouping cache (R: cost-bounding for the auto-on-view trigger).
+ *
+ * The "Related" view runs automatically when opened, so without a cache a fresh
+ * page load would re-run a whole-workspace LLM call every time. We cache the
+ * result keyed on the VISIBILITY-SCOPED issue-set fingerprint (workspace + a hash
+ * of each issue's id:updated_at). Because the fingerprint is derived from the
+ * fetched set, a user only ever hits a cache entry for the exact set they can
+ * see — no cross-visibility leakage. Consistent with the other in-memory caches
+ * in this service (fleet-ai rate limiters); table-free, per-process, TTL'd.
+ */
+const RELATED_CACHE_TTL_MS = 5 * 60 * 1000;
+interface RelatedCacheEntry {
+  result: FleetIssueGroupingResult;
+  expiresAt: number;
+}
+const relatedCache = new Map<string, RelatedCacheEntry>();
+
+/** Test-only: clear the in-memory grouping cache. */
+export function __resetRelatedGroupsCacheForTests(): void {
+  relatedCache.clear();
+}
+
+function relatedCacheKey(workspaceId: string, fingerprintSource: string): string {
+  return `${workspaceId}:${crypto.createHash('sha1').update(fingerprintSource).digest('hex')}`;
+}
+
+/** A candidates-only result (no model contribution) — the flat-list fallback. */
+function degradedGrouping(
+  candidates: FleetIssueGroupingResult['candidates'],
+  truncated: boolean
+): FleetIssueGroupingResult {
+  return {
+    candidates,
+    groups: [],
+    ungroupedIds: candidates.map((c) => c.id),
+    summary: null,
+    ai_available: false,
+    analyzed_count: candidates.length,
+    truncated,
+  };
+}
+
+/**
+ * Group the workspace's open issues by theme. Stage 1 fetches the
+ * visibility-scoped open-issue set (cheap, no model). Stage 2 runs the SAME
+ * compiled graph in `related` mode so the model clusters them. Short-circuits
+ * WITHOUT a model call when there are fewer than two issues. Like runDedupReview
+ * it uses a transient random thread_id (no conversation, never pauses) and never
+ * throws — a degraded model yields a candidates-only result the client renders
+ * as a flat list. Results are cached per visibility-scoped issue-set fingerprint.
+ */
+export async function runRelatedGroups(
+  args: RunRelatedGroupsArgs,
+  graph: CompiledGraph = getCompiledGraph()
+): Promise<FleetIssueGroupingResult> {
+  // Stage 1: cheap, visibility-scoped open-issue retrieval (with truncated body).
+  const { candidates, truncated } = await fetchOpenIssuesForClustering({
+    ctx: args.ctx,
+    limit: args.limit,
+  });
+
+  // Fewer than two issues ⇒ nothing to group. Short-circuit before any model call.
+  if (candidates.length < 2) {
+    return degradedGrouping(candidates, truncated);
+  }
+
+  // Cache by the visibility-scoped issue-set fingerprint. A re-open within the
+  // TTL returns the cached grouping with no model call.
+  const fingerprint = candidates
+    .map((c) => `${c.id}:${c.updated_at}`)
+    .sort()
+    .join('|');
+  const key = relatedCacheKey(args.ctx.workspaceId, fingerprint);
+  const now = Date.now();
+  const cached = relatedCache.get(key);
+  if (cached && now < cached.expiresAt) {
+    return cached.result;
+  }
+
+  // Stage 2: group through the graph. Transient thread_id (no persistence). A
+  // random-uuid entityId means the focal fetch finds nothing (reasonRelated runs
+  // before the focal guard, so the denied focal is irrelevant). Wrapped so any
+  // throw degrades to the flat-list fallback rather than failing the request.
+  const config: RunnableConfig = {
+    configurable: { thread_id: crypto.randomUUID(), checkpoint_ns: '' },
+    metadata: { environment: LANGSMITH_ENV, feature: 'issue_grouping' },
+    runName: 'fleet.related_groups',
+  };
+
+  let final: Record<string, unknown>;
+  try {
+    final = (await graph.invoke(
+      {
+        mode: 'related',
+        entityId: crypto.randomUUID(),
+        entityType: 'issue',
+        ctx: args.ctx,
+        issueSet: candidates,
+      },
+      config
+    )) as Record<string, unknown>;
+  } catch (err) {
+    console.error(
+      `[fleetgraph] runRelatedGroups failed (workspace=${args.ctx.workspaceId}): ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    return degradedGrouping(candidates, truncated);
+  }
+
+  const analysis = final.analysis as FleetAnalysis | null;
+  const ai = (analysis?.relatedReview as RelatedGroupsAi | undefined) ?? undefined;
+
+  // Model unavailable / degraded → candidates only (the client shows a flat list).
+  if (!ai || analysis?.aiAvailable !== true) {
+    return degradedGrouping(candidates, truncated);
+  }
+
+  // Map each group's 1-based indexes back to issue ids. Defensive: drop
+  // out-of-range (hallucinated) indexes, dedupe within a group, enforce the
+  // ≥2-members invariant, and let each issue belong to AT MOST ONE group (the
+  // first group that claims it wins).
+  const claimed = new Set<string>();
+  const groups: FleetIssueGroup[] = [];
+  for (const g of ai.groups) {
+    const memberIds: string[] = [];
+    for (const idx of g.member_indexes) {
+      const cand = candidates[idx - 1];
+      if (!cand) continue; // out-of-range / hallucinated index
+      if (claimed.has(cand.id) || memberIds.includes(cand.id)) continue;
+      memberIds.push(cand.id);
+    }
+    if (memberIds.length < 2) continue; // never surface a singleton group
+    memberIds.forEach((id) => claimed.add(id));
+    groups.push({
+      label: g.label.trim() || 'Related issues',
+      memberIds,
+      reason: g.reason.trim(),
+    });
+  }
+
+  const ungroupedIds = candidates.filter((c) => !claimed.has(c.id)).map((c) => c.id);
+
+  const result: FleetIssueGroupingResult = {
+    candidates,
+    groups,
+    ungroupedIds,
+    summary: ai.summary.trim() || null,
+    ai_available: true,
+    analyzed_count: candidates.length,
+    truncated,
+  };
+
+  relatedCache.set(key, { result, expiresAt: now + RELATED_CACHE_TTL_MS });
+  return result;
 }
 
 // ── drift (proactive, sweep-triggered drift verdict) ─────────────────────────

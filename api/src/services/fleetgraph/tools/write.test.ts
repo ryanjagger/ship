@@ -5,6 +5,7 @@ import {
   buildCreateIssueProposal,
   buildPatchIssueProposal,
   buildPostCommentProposal,
+  buildPatchProjectProposal,
   executeProposal,
   createWriteTools,
   type FleetContext,
@@ -29,6 +30,7 @@ describe('FleetGraph write tools (U6)', () => {
   let programId: string
   let projectId: string
   let privateProjectId: string
+  let privateProjectDocId: string
   let docId: string
 
   // ctx for the requesting (member) user
@@ -76,6 +78,14 @@ describe('FleetGraph write tools (U6)', () => {
       [workspaceId, userId]
     )
     privateProjectId = priv.rows[0].id
+
+    // A PRIVATE project (document_type='project') owned by `userId`, for the
+    // patch_project authorization test — otherUserId cannot see it.
+    const privProj = await pool.query(
+      `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by) VALUES ($1, 'project', 'Private Proj', 'private', $2) RETURNING id`,
+      [workspaceId, userId]
+    )
+    privateProjectDocId = privProj.rows[0].id
 
     const doc = await pool.query(
       `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by) VALUES ($1, 'wiki', 'Doc', 'workspace', $2) RETURNING id`,
@@ -309,6 +319,55 @@ describe('FleetGraph write tools (U6)', () => {
       const tampered = buildCreateIssueProposal({ title: 'X', belongs_to: [{ id: projectId2, type: 'project' }] })
       ;(tampered.args as any).belongs_to[0].type = 'parent'
       return expect(executeProposal(ctx, tampered)).rejects.toThrow(/integrity/i)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // patch_project: the Fleet retro Apply outcome write
+  // -------------------------------------------------------------------------
+  describe('patch_project (retro Apply)', () => {
+    it('sets plan_validated on a visible project', async () => {
+      const proposal = buildPatchProjectProposal({ id: projectId, plan_validated: true })
+      expect(proposal.kind).toBe('patch_project')
+      expect(proposal.targetId).toBe(projectId)
+
+      const result = await executeProposal(ctx, proposal)
+      expect(result.mutated).toBe(true)
+      expect(result.status).toBe(201)
+
+      const check = await pool.query(`SELECT properties->>'plan_validated' as pv FROM documents WHERE id = $1`, [projectId])
+      expect(check.rows[0].pv).toBe('true')
+    })
+
+    it('R9: rejects patch_project on a project the user cannot see (404, no mutation)', async () => {
+      const result = await executeProposal(otherCtx, buildPatchProjectProposal({ id: privateProjectDocId, plan_validated: true }))
+      expect(result.mutated).toBe(false)
+      expect(result.status).toBe(404)
+      const check = await pool.query(`SELECT properties->>'plan_validated' as pv FROM documents WHERE id = $1`, [privateProjectDocId])
+      expect(check.rows[0].pv ?? null).toBeNull() // unchanged
+    })
+
+    it('R12: a successful patch_project audits project.update agent_initiated', async () => {
+      const result = await executeProposal(ctx, buildPatchProjectProposal({ id: projectId, plan_validated: false }))
+      expect(result.mutated).toBe(true)
+      const audit = await pool.query(
+        `SELECT details FROM audit_logs WHERE workspace_id = $1 AND resource_id = $2 AND action = 'project.update' ORDER BY created_at DESC LIMIT 1`,
+        [workspaceId, projectId]
+      )
+      expect(audit.rows.length).toBe(1)
+      expect(audit.rows[0].details.agent_initiated).toBe(true)
+      expect(audit.rows[0].details.approved_by).toBe(userId)
+    })
+
+    it('strict zod: rejects a bad uuid or non-boolean before any write', () => {
+      expect(() => buildPatchProjectProposal({ id: 'not-a-uuid', plan_validated: true })).toThrow()
+      expect(() => buildPatchProjectProposal({ id: crypto.randomUUID(), plan_validated: 'yes' as unknown as boolean })).toThrow()
+    })
+
+    it('integrity: executor rejects a tampered patch_project proposal', async () => {
+      const proposal = buildPatchProjectProposal({ id: projectId, plan_validated: true })
+      ;(proposal.args as any).plan_validated = false
+      await expect(executeProposal(ctx, proposal)).rejects.toThrow(/integrity/i)
     })
   })
 
