@@ -159,14 +159,18 @@ export async function sweepWorkspaceDrift(
   // advisory lock. NO wrapping transaction — see the LOCKING CONTRACT header
   // for why holding a transaction across the LLM loop crashes the process.
   const client = await pool.connect();
-  // Defense in depth: a checked-out client whose connection dies
-  // asynchronously (Postgres failover, network blip, admin termination) emits
-  // an 'error' event; with no listener that crashes the process. The
-  // pool-level handler only covers clients idle *in the pool*, not checked-out
-  // ones. Log instead.
-  client.on('error', (err) => {
+  // Named so we can detach it before returning the client to the pool —
+  // PoolClients are reused, so an anonymous per-checkout listener would
+  // accumulate across sweeps (stale workspaceId closures,
+  // MaxListenersExceededWarning, memory growth). Defense in depth: a
+  // checked-out client whose connection dies asynchronously (Postgres
+  // failover, network blip, admin termination) emits an 'error' event that
+  // crashes the process if unhandled. The pool-level handler only covers
+  // clients idle *in the pool*, not checked-out ones. Log instead.
+  const onClientError = (err: Error) => {
     console.error(`[sweep] client error ws=${workspaceId}:`, err);
-  });
+  };
+  client.on('error', onClientError);
 
   let locked = false;
   try {
@@ -181,23 +185,25 @@ export async function sweepWorkspaceDrift(
 
     return await runSweepLoop(workspaceId, client);
   } finally {
+    let destroy = false;
     if (locked) {
       try {
         await client.query(
           'SELECT pg_advisory_unlock(hashtextextended($1, 0))',
           [sweepWorkspaceLockKeyParams(workspaceId)]
         );
-        client.release();
       } catch (err) {
-        // Unlock failed (likely the connection died). Destroy the connection
+        // Unlock failed (likely the connection died). Discard the connection
         // so a leaked session lock can't ride a pooled connection into a later
         // sweep; the lock drops when the backend exits.
         console.error(`[sweep] advisory unlock failed ws=${workspaceId}:`, err);
-        client.release(true);
+        destroy = true;
       }
-    } else {
-      client.release();
     }
+    // Detach the checkout-scoped listener before returning the client to the
+    // pool so it doesn't outlive this checkout and accumulate across sweeps.
+    client.removeListener('error', onClientError);
+    client.release(destroy);
   }
 }
 

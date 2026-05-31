@@ -144,15 +144,19 @@ export async function runFleetgraphSweepTickOnce(): Promise<void> {
 
 async function tickOneWorkspace(workspaceId: string): Promise<void> {
   const client = await pool.connect();
-  // Defense in depth: the sweep awaits LLM calls between queries on this
-  // checked-out client, so the connection can sit idle for tens of seconds. If
-  // it dies asynchronously (Postgres failover, network blip, admin
-  // termination) the client emits an 'error' event; with no listener that
-  // crashes the whole process. The pool-level handler only covers clients idle
-  // *in the pool*, not checked-out ones. Log instead.
-  client.on('error', (err) => {
+  // Named so we can detach it before returning the client to the pool —
+  // PoolClients are reused across ticks, so an anonymous per-checkout listener
+  // would accumulate (stale workspaceId closures, MaxListenersExceededWarning,
+  // memory growth). Defense in depth: the sweep awaits LLM calls between
+  // queries on this checked-out client, so the connection can sit idle for tens
+  // of seconds; if it dies asynchronously (Postgres failover, network blip,
+  // admin termination) the client emits an 'error' event that crashes the
+  // process if unhandled. The pool-level handler only covers clients idle *in
+  // the pool*, not checked-out ones. Log instead.
+  const onClientError = (err: Error) => {
     console.error(`[scheduler] client error ws=${workspaceId}:`, err);
-  });
+  };
+  client.on('error', onClientError);
 
   let locked = false;
   try {
@@ -178,22 +182,24 @@ async function tickOneWorkspace(workspaceId: string): Promise<void> {
     // move on. The advisory lock is released in `finally`.
     console.error(`[scheduler] sweep failed ws=${workspaceId}:`, err);
   } finally {
+    let destroy = false;
     if (locked) {
       try {
         await client.query(
           'SELECT pg_advisory_unlock(hashtextextended($1, 0))',
           [sweepWorkspaceLockKeyParams(workspaceId)]
         );
-        client.release();
       } catch (err) {
-        // Unlock failed (likely the connection died). Destroy the connection
+        // Unlock failed (likely the connection died). Discard the connection
         // so a leaked session lock can't ride a pooled connection into the
         // next tick; the lock drops when the backend exits.
         console.error(`[scheduler] advisory unlock failed ws=${workspaceId}:`, err);
-        client.release(true);
+        destroy = true;
       }
-    } else {
-      client.release();
     }
+    // Detach the checkout-scoped listener before returning the client to the
+    // pool so it doesn't outlive this checkout and accumulate across ticks.
+    client.removeListener('error', onClientError);
+    client.release(destroy);
   }
 }

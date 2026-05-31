@@ -89,7 +89,10 @@ beforeEach(() => {
   mockPoolConnect.mockImplementation(async () => ({
     query: mockClientQuery,
     release: mockRelease,
-    on: vi.fn(), // tickOneWorkspace attaches a client 'error' listener (crash guard)
+    // tickOneWorkspace attaches/detaches a client 'error' listener (crash
+    // guard) per checkout — both must exist on the fake client.
+    on: vi.fn(),
+    removeListener: vi.fn(),
   }));
   // Silence the console noise emitted by the no-throw policy.
   vi.spyOn(console, 'log').mockImplementation(() => {});

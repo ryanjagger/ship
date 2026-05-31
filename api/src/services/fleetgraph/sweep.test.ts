@@ -15,6 +15,7 @@ const {
   mockClientQuery,
   mockRelease,
   mockClientOn,
+  mockClientRemoveListener,
   mockPoolQuery,
   mockCreateOrRefresh,
   mockGetInsightByIdentity,
@@ -24,6 +25,7 @@ const {
   mockClientQuery: vi.fn(),
   mockRelease: vi.fn(),
   mockClientOn: vi.fn(),
+  mockClientRemoveListener: vi.fn(),
   mockPoolQuery: vi.fn(),
   mockCreateOrRefresh: vi.fn(),
   mockGetInsightByIdentity: vi.fn(),
@@ -36,7 +38,10 @@ vi.mock('../../db/client.js', () => ({
     connect: vi.fn(async () => ({
       query: mockClientQuery,
       release: mockRelease,
-      on: mockClientOn, // sweep attaches a client 'error' listener (crash guard)
+      // sweep attaches/detaches a client 'error' listener (crash guard) per
+      // checkout — both must exist on the fake client.
+      on: mockClientOn,
+      removeListener: mockClientRemoveListener,
     })),
     query: mockPoolQuery,
   },
@@ -82,6 +87,7 @@ beforeEach(() => {
   mockClientQuery.mockReset();
   mockRelease.mockReset();
   mockClientOn.mockReset();
+  mockClientRemoveListener.mockReset();
   mockPoolQuery.mockReset();
   mockCreateOrRefresh.mockReset();
   mockGetInsightByIdentity.mockReset();
@@ -547,7 +553,7 @@ describe('sweepWorkspaceDrift — lock-busy path (no client)', () => {
 // ─── Crash guard (idle-in-transaction safety) ──────────────────────────
 
 describe('sweepWorkspaceDrift — crash guard', () => {
-  it("attaches a client 'error' listener so a terminated connection can't crash the process", async () => {
+  it("attaches a client 'error' listener and detaches it before release (no listener leak)", async () => {
     mockNoClientLockSequence({ acquired: true, queryRows: [healthyRow('p-1')] });
 
     await sweepWorkspaceDrift('ws-1');
@@ -556,8 +562,12 @@ describe('sweepWorkspaceDrift — crash guard', () => {
     // death (idle-in-transaction termination, failover, admin terminate)
     // emits an 'error' event that crashes the process if unhandled. The
     // pool-level handler only covers clients idle *in the pool*. Regression
-    // guard: the per-checkout listener must be wired.
+    // guard: the per-checkout listener must be wired...
     expect(mockClientOn).toHaveBeenCalledWith('error', expect.any(Function));
+    // ...and removed before the client returns to the pool, or reused
+    // PoolClients would accumulate stale listeners across sweeps.
+    const listener = mockClientOn.mock.calls[0]![1];
+    expect(mockClientRemoveListener).toHaveBeenCalledWith('error', listener);
   });
 });
 
