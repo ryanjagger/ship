@@ -9,18 +9,25 @@
  * ── LOCKING CONTRACT ──────────────────────────────────────────────────────
  * Two call shapes for `sweepWorkspaceDrift(workspaceId, opts?)`:
  *
- *   1. NO `opts.client`: this function acquires a pool client, opens a
- *      transaction, SET LOCAL statement_timeout = '30s', and probes a
- *      non-blocking `pg_try_advisory_xact_lock` keyed by `sweep:<workspace>`.
- *      If the lock is busy → ROLLBACK + release + throw
- *      `SweepInProgressError`. If acquired → run the per-project loop on
- *      that client; COMMIT (releases lock); release. Catch ensures rollback
- *      + release on any error.
+ *   1. NO `opts.client`: this function acquires a pool client and probes a
+ *      non-blocking, SESSION-scoped `pg_try_advisory_lock` keyed by
+ *      `sweep:<workspace>`. If the lock is busy → release + throw
+ *      `SweepInProgressError`. If acquired → run the per-project loop on that
+ *      client, then `pg_advisory_unlock` + release in `finally`.
  *
- *   2. WITH `opts.client`: the caller (the scheduler — U3) already holds
- *      the transaction AND the advisory lock for this workspace. This
- *      function skips the lock probe and BEGIN/COMMIT and just runs the
- *      per-project loop on the provided client.
+ *      Deliberately NO wrapping transaction: the per-project loop awaits LLM
+ *      calls (runDriftReasoning) with no SQL in flight. Inside a transaction
+ *      that idle would trip `idle_in_transaction_session_timeout`
+ *      (db/client.ts, 15s); Postgres terminates the connection and the
+ *      resulting unhandled pg 'error' event crashes the process. A session
+ *      lock holds across the loop without an open transaction. The project
+ *      SELECT runs in autocommit (rows buffered, no cursor) and every write
+ *      goes through `createOrRefreshInsight`'s own short transaction, so
+ *      dropping the outer transaction does not change write atomicity.
+ *
+ *   2. WITH `opts.client`: the caller (the scheduler — U3) already holds the
+ *      session advisory lock for this workspace on the provided client. This
+ *      function skips the lock probe and just runs the per-project loop on it.
  *
  * The string namespace `sweep:` is disjoint from `insight.ts`'s
  * `${workspaceId}:${subjectId}:${kind}` lock keys (UUIDs never start with
@@ -143,38 +150,60 @@ export async function sweepWorkspaceDrift(
   opts?: { client?: PoolClient }
 ): Promise<SweepResult> {
   if (opts?.client) {
-    // With-client path: caller already holds tx + advisory lock.
+    // With-client path: caller already holds the session advisory lock on this
+    // client (no transaction — see the LOCKING CONTRACT header).
     return runSweepLoop(workspaceId, opts.client);
   }
 
-  // No-client path: acquire our own client + non-blocking advisory lock.
+  // No-client path: acquire our own client + non-blocking, session-scoped
+  // advisory lock. NO wrapping transaction — see the LOCKING CONTRACT header
+  // for why holding a transaction across the LLM loop crashes the process.
   const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query("SET LOCAL statement_timeout = '30s'");
+  // Named so we can detach it before returning the client to the pool —
+  // PoolClients are reused, so an anonymous per-checkout listener would
+  // accumulate across sweeps (stale workspaceId closures,
+  // MaxListenersExceededWarning, memory growth). Defense in depth: a
+  // checked-out client whose connection dies asynchronously (Postgres
+  // failover, network blip, admin termination) emits an 'error' event that
+  // crashes the process if unhandled. The pool-level handler only covers
+  // clients idle *in the pool*, not checked-out ones. Log instead.
+  const onClientError = (err: Error) => {
+    console.error(`[sweep] client error ws=${workspaceId}:`, err);
+  };
+  client.on('error', onClientError);
 
+  let locked = false;
+  try {
     const lockRes = await client.query<{ locked: boolean }>(
-      'SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS locked',
+      'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked',
       [sweepWorkspaceLockKeyParams(workspaceId)]
     );
-    const acquired = lockRes.rows[0]?.locked === true;
-    if (!acquired) {
-      await client.query('ROLLBACK');
+    locked = lockRes.rows[0]?.locked === true;
+    if (!locked) {
       throw new SweepInProgressError();
     }
 
-    const result = await runSweepLoop(workspaceId, client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // Swallow rollback errors — original error is what matters.
-    }
-    throw err;
+    return await runSweepLoop(workspaceId, client);
   } finally {
-    client.release();
+    let destroy = false;
+    if (locked) {
+      try {
+        await client.query(
+          'SELECT pg_advisory_unlock(hashtextextended($1, 0))',
+          [sweepWorkspaceLockKeyParams(workspaceId)]
+        );
+      } catch (err) {
+        // Unlock failed (likely the connection died). Discard the connection
+        // so a leaked session lock can't ride a pooled connection into a later
+        // sweep; the lock drops when the backend exits.
+        console.error(`[sweep] advisory unlock failed ws=${workspaceId}:`, err);
+        destroy = true;
+      }
+    }
+    // Detach the checkout-scoped listener before returning the client to the
+    // pool so it doesn't outlive this checkout and accumulate across sweeps.
+    client.removeListener('error', onClientError);
+    client.release(destroy);
   }
 }
 
