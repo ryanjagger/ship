@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const {
   mockClientQuery,
   mockRelease,
+  mockClientOn,
   mockPoolQuery,
   mockCreateOrRefresh,
   mockGetInsightByIdentity,
@@ -22,6 +23,7 @@ const {
 } = vi.hoisted(() => ({
   mockClientQuery: vi.fn(),
   mockRelease: vi.fn(),
+  mockClientOn: vi.fn(),
   mockPoolQuery: vi.fn(),
   mockCreateOrRefresh: vi.fn(),
   mockGetInsightByIdentity: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock('../../db/client.js', () => ({
     connect: vi.fn(async () => ({
       query: mockClientQuery,
       release: mockRelease,
+      on: mockClientOn, // sweep attaches a client 'error' listener (crash guard)
     })),
     query: mockPoolQuery,
   },
@@ -78,6 +81,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(NOW));
   mockClientQuery.mockReset();
   mockRelease.mockReset();
+  mockClientOn.mockReset();
   mockPoolQuery.mockReset();
   mockCreateOrRefresh.mockReset();
   mockGetInsightByIdentity.mockReset();
@@ -123,13 +127,14 @@ function healthyRow(id: string): Record<string, unknown> {
 }
 
 function mockNoClientLockSequence(opts: { acquired: boolean; queryRows?: unknown[] }): void {
-  mockClientQuery
-    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // BEGIN
-    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SET LOCAL statement_timeout
-    .mockResolvedValueOnce({ rows: [{ locked: opts.acquired }], rowCount: 1 }); // pg_try_advisory_xact_lock
+  // Session-scoped advisory lock; no wrapping transaction.
+  mockClientQuery.mockResolvedValueOnce({
+    rows: [{ locked: opts.acquired }],
+    rowCount: 1,
+  }); // pg_try_advisory_lock
 
   if (!opts.acquired) {
-    mockClientQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // ROLLBACK
+    // Lock busy → throws SweepInProgressError; nothing acquired, so no unlock.
     return;
   }
 
@@ -138,8 +143,8 @@ function mockNoClientLockSequence(opts: { acquired: boolean; queryRows?: unknown
     rows: opts.queryRows ?? [],
     rowCount: (opts.queryRows ?? []).length,
   });
-  // COMMIT
-  mockClientQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+  // pg_advisory_unlock (finally).
+  mockClientQuery.mockResolvedValueOnce({ rows: [{ unlocked: true }], rowCount: 1 });
 }
 
 // Helper for the substrate result.
@@ -218,7 +223,7 @@ describe('sweepWorkspaceDrift — happy path (no client)', () => {
     expect(firstCall.verdict.decision).toMatch(/^SURFACE_/);
   });
 
-  it('BEGIN → SET LOCAL → pg_try_advisory_xact_lock → SELECT projects → COMMIT in order', async () => {
+  it('pg_try_advisory_lock → SELECT projects → pg_advisory_unlock in order; no transaction', async () => {
     mockNoClientLockSequence({
       acquired: true,
       queryRows: [healthyRow('p-1')],
@@ -227,15 +232,16 @@ describe('sweepWorkspaceDrift — happy path (no client)', () => {
     await sweepWorkspaceDrift('ws-1');
 
     const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
-    expect(calls[0]).toBe('BEGIN');
-    expect(calls[1]).toMatch(/SET LOCAL statement_timeout = '30s'/);
-    expect(calls[2]).toMatch(/pg_try_advisory_xact_lock\(hashtextextended/);
+    expect(calls[0]).toMatch(/pg_try_advisory_lock\(hashtextextended/);
     // The lock-key parameter is `sweep:<workspaceId>`.
-    const lockParams = mockClientQuery.mock.calls[2]![1] as unknown[];
+    const lockParams = mockClientQuery.mock.calls[0]![1] as unknown[];
     expect(lockParams[0]).toBe('sweep:ws-1');
-    // Followed by the per-project SELECT.
-    expect(calls[3]).toMatch(/FROM workspace_projects/);
-    expect(calls[4]).toBe('COMMIT');
+    // Followed by the per-project SELECT, then the session unlock.
+    expect(calls[1]).toMatch(/FROM workspace_projects/);
+    expect(calls[2]).toMatch(/pg_advisory_unlock\(hashtextextended/);
+    // No transaction is opened around the LLM-bearing loop.
+    expect(calls).not.toContain('BEGIN');
+    expect(calls).not.toContain('COMMIT');
 
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
@@ -507,33 +513,51 @@ describe('sweepWorkspaceDrift — summary template', () => {
 // ─── Lock-busy path ───────────────────────────────────────────────────
 
 describe('sweepWorkspaceDrift — lock-busy path (no client)', () => {
-  it('pg_try_advisory_xact_lock=false → throws SweepInProgressError; ROLLBACK + release; no substrate calls', async () => {
+  it('pg_try_advisory_lock=false → throws SweepInProgressError; release; no unlock; no substrate calls', async () => {
     mockNoClientLockSequence({ acquired: false });
 
     await expect(sweepWorkspaceDrift('ws-1')).rejects.toBeInstanceOf(SweepInProgressError);
 
     const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
-    expect(calls).toContain('BEGIN');
-    expect(calls).toContain('ROLLBACK');
+    expect(calls.some((s) => /pg_try_advisory_lock/.test(s))).toBe(true);
+    // Lock was never acquired → no unlock; no transaction was ever opened.
+    expect(calls.some((s) => /pg_advisory_unlock/.test(s))).toBe(false);
+    expect(calls).not.toContain('BEGIN');
     expect(calls).not.toContain('COMMIT');
     expect(mockCreateOrRefresh).not.toHaveBeenCalled();
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
-  it('mid-loop error → ROLLBACK + release; error rethrown', async () => {
+  it('mid-loop error → advisory unlock + release; error rethrown', async () => {
     mockClientQuery
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // BEGIN
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SET LOCAL
       .mockResolvedValueOnce({ rows: [{ locked: true }], rowCount: 1 }) // lock acquired
       .mockRejectedValueOnce(new Error('SELECT exploded')) // project SELECT fails
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // ROLLBACK
+      .mockResolvedValueOnce({ rows: [{ unlocked: true }], rowCount: 1 }); // pg_advisory_unlock (finally)
 
     await expect(sweepWorkspaceDrift('ws-1')).rejects.toThrow(/SELECT exploded/);
 
     const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
-    expect(calls).toContain('ROLLBACK');
+    expect(calls.some((s) => /pg_advisory_unlock/.test(s))).toBe(true);
     expect(calls).not.toContain('COMMIT');
+    expect(calls).not.toContain('ROLLBACK');
     expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── Crash guard (idle-in-transaction safety) ──────────────────────────
+
+describe('sweepWorkspaceDrift — crash guard', () => {
+  it("attaches a client 'error' listener so a terminated connection can't crash the process", async () => {
+    mockNoClientLockSequence({ acquired: true, queryRows: [healthyRow('p-1')] });
+
+    await sweepWorkspaceDrift('ws-1');
+
+    // The checked-out client idles across LLM awaits; an async connection
+    // death (idle-in-transaction termination, failover, admin terminate)
+    // emits an 'error' event that crashes the process if unhandled. The
+    // pool-level handler only covers clients idle *in the pool*. Regression
+    // guard: the per-checkout listener must be wired.
+    expect(mockClientOn).toHaveBeenCalledWith('error', expect.any(Function));
   });
 });
 
