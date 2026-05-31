@@ -89,6 +89,10 @@ beforeEach(() => {
   mockPoolConnect.mockImplementation(async () => ({
     query: mockClientQuery,
     release: mockRelease,
+    // tickOneWorkspace attaches/detaches a client 'error' listener (crash
+    // guard) per checkout — both must exist on the fake client.
+    on: vi.fn(),
+    removeListener: vi.fn(),
   }));
   // Silence the console noise emitted by the no-throw policy.
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -103,25 +107,23 @@ afterEach(() => {
 });
 
 /**
- * Build a per-workspace tick mock sequence on `mockClientQuery`. Order
- * matches `tickOneWorkspace`: BEGIN, SET LOCAL, pg_try_advisory_xact_lock,
- * then either ROLLBACK (lock miss) or COMMIT (lock hit). The
- * `sweepWorkspaceDrift` mock fires on the lock-hit branch and is not
- * sequenced via mockClientQuery.
+ * Build a per-workspace tick mock sequence on `mockClientQuery`. Order matches
+ * `tickOneWorkspace`: a session-scoped pg_try_advisory_lock, then (on lock hit)
+ * a pg_advisory_unlock in `finally`. No transaction is opened. The
+ * `sweepWorkspaceDrift` mock fires on the lock-hit branch and is not sequenced
+ * via mockClientQuery. On a lock miss there is nothing to unlock.
  */
 function mockTickWorkspaceQueries(opts: { acquired: boolean }): void {
-  mockClientQuery
-    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // BEGIN
-    .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // SET LOCAL
-    .mockResolvedValueOnce({
-      rows: [{ acquired: opts.acquired }],
-      rowCount: 1,
-    }); // pg_try_advisory_xact_lock
+  mockClientQuery.mockResolvedValueOnce({
+    rows: [{ acquired: opts.acquired }],
+    rowCount: 1,
+  }); // pg_try_advisory_lock
 
   if (opts.acquired) {
-    mockClientQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // COMMIT
-  } else {
-    mockClientQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // ROLLBACK
+    mockClientQuery.mockResolvedValueOnce({
+      rows: [{ unlocked: true }],
+      rowCount: 1,
+    }); // pg_advisory_unlock (finally)
   }
 }
 

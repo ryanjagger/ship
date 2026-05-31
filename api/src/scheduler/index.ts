@@ -20,12 +20,18 @@
  * column read inside each tick.
  *
  * ── LOCK CONTRACT ─────────────────────────────────────────────────────────
- * Each per-workspace iteration opens its own transaction, sets a 30s local
- * statement_timeout, and probes `pg_try_advisory_xact_lock(hashtextextended(
- * sweepWorkspaceLockKeyParams(ws), 0))`. On miss (another instance holds the
- * lock) we ROLLBACK + log + skip. On hit we call `sweepWorkspaceDrift(ws,
- * { client })` — the with-client path that skips the lock probe — then
- * COMMIT to release the lock.
+ * Each per-workspace iteration acquires a pool client and probes a SESSION-
+ * scoped `pg_try_advisory_lock(hashtextextended(sweepWorkspaceLockKeyParams(
+ * ws), 0))`. On miss (another instance holds the lock) we log + skip. On hit
+ * we call `sweepWorkspaceDrift(ws, { client })` — the with-client path that
+ * skips the lock probe — then `pg_advisory_unlock` + release in `finally`.
+ *
+ * NO wrapping transaction: the sweep awaits LLM calls with no SQL in flight,
+ * which inside a transaction would leave the connection idle-in-transaction
+ * and get it terminated at `idle_in_transaction_session_timeout`
+ * (db/client.ts, 15s). The unhandled pg 'error' from that termination is what
+ * crashed the process and 502'd the API. A session lock gives the same
+ * single-flight guarantee without an open transaction.
  *
  * ── NO-THROW POLICY ───────────────────────────────────────────────────────
  * `runFleetgraphSweepTick()` is the cron callback. It catches per-workspace
@@ -138,45 +144,62 @@ export async function runFleetgraphSweepTickOnce(): Promise<void> {
 
 async function tickOneWorkspace(workspaceId: string): Promise<void> {
   const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query("SET LOCAL statement_timeout = '30s'");
+  // Named so we can detach it before returning the client to the pool —
+  // PoolClients are reused across ticks, so an anonymous per-checkout listener
+  // would accumulate (stale workspaceId closures, MaxListenersExceededWarning,
+  // memory growth). Defense in depth: the sweep awaits LLM calls between
+  // queries on this checked-out client, so the connection can sit idle for tens
+  // of seconds; if it dies asynchronously (Postgres failover, network blip,
+  // admin termination) the client emits an 'error' event that crashes the
+  // process if unhandled. The pool-level handler only covers clients idle *in
+  // the pool*, not checked-out ones. Log instead.
+  const onClientError = (err: Error) => {
+    console.error(`[scheduler] client error ws=${workspaceId}:`, err);
+  };
+  client.on('error', onClientError);
 
+  let locked = false;
+  try {
+    // Session-scoped advisory lock, NO wrapping transaction — see the LOCK
+    // CONTRACT header for why a transaction held across the LLM loop crashes
+    // the process.
     const lockRes = await client.query<{ acquired: boolean }>(
-      'SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS acquired',
+      'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired',
       [sweepWorkspaceLockKeyParams(workspaceId)]
     );
-    const acquired = lockRes.rows[0]?.acquired === true;
-    if (!acquired) {
-      await client.query('ROLLBACK');
+    locked = lockRes.rows[0]?.acquired === true;
+    if (!locked) {
       console.log(`[scheduler] sweep skipped (lock held): ws=${workspaceId}`);
       return;
     }
 
-    try {
-      const result = await sweepWorkspaceDrift(workspaceId, { client });
-      await client.query('COMMIT');
-      console.log(
-        `[scheduler] sweep ws=${workspaceId} scanned=${result.scanned} created=${result.created} refreshed=${result.refreshed} skipped=${result.skipped} suppressed=${result.suppressed} degraded=${result.degraded}`
-      );
-    } catch (err) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        // Swallow rollback errors — original error is what matters.
-      }
-      console.error(`[scheduler] sweep failed ws=${workspaceId}:`, err);
-    }
+    const result = await sweepWorkspaceDrift(workspaceId, { client });
+    console.log(
+      `[scheduler] sweep ws=${workspaceId} scanned=${result.scanned} created=${result.created} refreshed=${result.refreshed} skipped=${result.skipped} suppressed=${result.suppressed} degraded=${result.degraded}`
+    );
   } catch (err) {
-    // Failure before/around the lock probe (BEGIN, SET LOCAL, or the lock
-    // query itself). Best-effort rollback and log; do not re-throw.
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // Swallow.
-    }
-    console.error(`[scheduler] sweep setup failed ws=${workspaceId}:`, err);
+    // No-throw policy: log per-workspace failures (lock probe or sweep) and
+    // move on. The advisory lock is released in `finally`.
+    console.error(`[scheduler] sweep failed ws=${workspaceId}:`, err);
   } finally {
-    client.release();
+    let destroy = false;
+    if (locked) {
+      try {
+        await client.query(
+          'SELECT pg_advisory_unlock(hashtextextended($1, 0))',
+          [sweepWorkspaceLockKeyParams(workspaceId)]
+        );
+      } catch (err) {
+        // Unlock failed (likely the connection died). Discard the connection
+        // so a leaked session lock can't ride a pooled connection into the
+        // next tick; the lock drops when the backend exits.
+        console.error(`[scheduler] advisory unlock failed ws=${workspaceId}:`, err);
+        destroy = true;
+      }
+    }
+    // Detach the checkout-scoped listener before returning the client to the
+    // pool so it doesn't outlive this checkout and accumulate across ticks.
+    client.removeListener('error', onClientError);
+    client.release(destroy);
   }
 }

@@ -93,10 +93,18 @@ const apiLimiter = rateLimit({
 export function createApp(corsOrigin: string = 'http://localhost:5173'): express.Express {
   const app = express();
 
-  // Trust proxy headers (CloudFront) for secure cookies and correct protocol detection
-  if (process.env.NODE_ENV === 'production') {
+  // Trust the reverse proxy in front of us (AWS CloudFront/Elastic Beanstalk,
+  // or Railway's edge) so secure-cookie handling, req.protocol, and
+  // express-rate-limit's X-Forwarded-For client-IP resolution work correctly.
+  // Railway terminates TLS at its edge and forwards X-Forwarded-For/-Proto;
+  // without trust proxy, express-rate-limit throws
+  // ERR_ERL_UNEXPECTED_X_FORWARDED_FOR. NODE_ENV alone is insufficient — the
+  // Railway container may not run with NODE_ENV=production.
+  if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
     app.set('trust proxy', 1);
+  }
 
+  if (process.env.NODE_ENV === 'production') {
     // CloudFront with viewer_protocol_policy="redirect-to-https" always serves viewers over HTTPS.
     // However, CloudFront -> EB uses HTTP (origin_protocol_policy="http-only"), so CloudFront
     // sets X-Forwarded-Proto to "http". Override it to "https" when request comes via CloudFront.

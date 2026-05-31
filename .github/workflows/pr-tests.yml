@@ -1,0 +1,66 @@
+name: PR Tests
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pnpm run test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ship_test
+          POSTGRES_USER: ship
+          POSTGRES_PASSWORD: ship_dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ship -d ship_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://ship:ship_dev_password@localhost:5432/ship_test
+      DATABASE_URL_TEST: postgresql://ship:ship_dev_password@localhost:5432/ship_test
+      NODE_ENV: test
+      SESSION_SECRET: github-actions-test-session-secret
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm run build:shared
+
+      - name: Run database migrations
+        run: pnpm --filter @ship/api db:migrate
+
+      - name: Run tests
+        run: pnpm run test
