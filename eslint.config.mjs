@@ -96,4 +96,33 @@ export default tseslint.config(
       '@typescript-eslint/unbound-method': 'off',
     },
   },
+
+  // Public/internal boundary (PRD §5.1). The Platform API under
+  // `api/src/platform/**` is a one-way door: it may call shared infra
+  // (db client, middleware, services, @ship/shared) but must NOT import an
+  // internal route handler from `api/src/routes/**`. Auth, scope, and audit
+  // attach only at the public layer. Set to `error` (not the audit-wide
+  // `warn`) because this is an architectural invariant, not a style nit.
+  // Added before any such imports exist — cheaper to enforce than retrofit.
+  {
+    files: ['api/src/platform/**/*.ts', 'api/src/platform/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              // Match imports that climb OUT of the platform tree into
+              // api/src/routes (any depth: ../routes, ../../routes, …). Does NOT
+              // match the platform's OWN routes subfolder (./routes/*), so the
+              // v1 router can still mount its own resource routes.
+              group: ['../**/routes/*', '../**/routes/**'],
+              message:
+                'Platform API (api/src/platform/**) must not import internal route handlers (api/src/routes/**). Call the shared db/services layer directly instead. See PRD §5.1.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

@@ -43,6 +43,21 @@ export type DocumentType =
   | 'standup'
   | 'weekly_review';
 
+/**
+ * Backing-store `document_type` values that exist in the DB enum but are NEVER
+ * exposed to clients (FleetGraph chat transcripts + insights, added in
+ * migration 045). The internal document routes already exclude these inline
+ * (`api/src/routes/documents.ts`: `document_type NOT IN ('conversation','insight')`).
+ *
+ * The public `/api/v1/documents` route imports THIS constant as the canonical
+ * source so the public filter and the internal UI filter can't silently
+ * diverge. (Per Plugforge PRD §5.5 the internal inline copies are intentionally
+ * left untouched for now; this constant is the single source of truth going
+ * forward.)
+ */
+export const HIDDEN_DOCUMENT_TYPES = ['conversation', 'insight'] as const;
+export type HiddenDocumentType = (typeof HIDDEN_DOCUMENT_TYPES)[number];
+
 // Issue states
 export type IssueState = 'triage' | 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled';
 
