@@ -266,6 +266,58 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   UNIQUE(user_id, workspace_id, name)
 );
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Plugforge: OAuth 2.0 Authorization Server (Ship as provider)
+-- Mirrors migrations 048–050. Defined here too so fresh setups and the E2E
+-- testcontainer (which seeds from schema.sql, not the migration SQL) get them.
+-- All CREATE TABLE IF NOT EXISTS, so the migration re-runs are no-ops.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Registered OAuth client applications. client_secret is bcrypt-hashed
+-- (verified once, at token exchange).
+CREATE TABLE IF NOT EXISTS oauth_apps (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id          TEXT NOT NULL UNIQUE,
+  client_secret_hash TEXT NOT NULL,
+  name               TEXT NOT NULL,
+  redirect_uris      TEXT[] NOT NULL DEFAULT '{}',
+  owner_user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+  requested_scopes   TEXT[] NOT NULL DEFAULT '{}',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Short-lived PKCE authorization codes (SHA-256-hashed, single-use).
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code_hash             TEXT NOT NULL UNIQUE,
+  app_id                UUID NOT NULL REFERENCES oauth_apps(id) ON DELETE CASCADE,
+  user_id               UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id          UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  redirect_uri          TEXT NOT NULL,
+  code_challenge        TEXT NOT NULL,
+  code_challenge_method TEXT NOT NULL,
+  scopes                TEXT[] NOT NULL DEFAULT '{}',
+  expires_at            TIMESTAMPTZ NOT NULL,
+  consumed_at           TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Opaque OAuth access tokens (SHA-256-hashed; validated per request).
+CREATE TABLE IF NOT EXISTS access_tokens (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_hash    TEXT NOT NULL UNIQUE,
+  token_prefix  TEXT NOT NULL,
+  app_id        UUID NOT NULL REFERENCES oauth_apps(id) ON DELETE CASCADE,
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id  UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  scopes        TEXT[] NOT NULL DEFAULT '{}',
+  expires_at    TIMESTAMPTZ NOT NULL,
+  last_used_at  TIMESTAMPTZ,
+  revoked_at    TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Sprint iterations (tracking work progress per sprint)
 CREATE TABLE IF NOT EXISTS sprint_iterations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
