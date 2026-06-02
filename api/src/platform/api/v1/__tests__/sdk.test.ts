@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import http from 'http';
-import type { AddressInfo } from 'net';
+import request from 'supertest';
+import type { Express } from 'express';
 import { ShipClient, ShipApiError } from '@ship/sdk';
 import { createApp } from '../../../../app.js';
 import { pool } from '../../../../db/client.js';
@@ -9,12 +9,34 @@ import { issueAccessToken } from '../../../oauth/tokens.js';
 
 /**
  * Hard acceptance for the SDK (PRD §5.8): `new ShipClient({ token }).me()`
- * returns the typed authenticated user. Driven against a real HTTP server
- * (ephemeral port) so the SDK's actual fetch transport is exercised.
+ * returns the typed authenticated user, plus a documents round-trip.
+ *
+ * The SDK is driven against the real app through an injected, supertest-backed
+ * fetch — exercising the SDK's actual transport without binding a real TCP
+ * server/port (which would add a flaky resource to the shared test process).
  */
-describe('@ship/sdk · ShipClient against a live server', () => {
-  let server: http.Server;
-  let baseUrl: string;
+
+// Adapt the SDK's `fetch` to supertest so requests hit the in-process app.
+function makeAppFetch(app: Express): typeof fetch {
+  const impl = async (
+    url: string,
+    init: { method?: string; headers?: Record<string, string>; body?: string } = {}
+  ): Promise<{ ok: boolean; status: number; text: () => Promise<string> }> => {
+    const { pathname, search } = new URL(url);
+    const path = pathname + search;
+    const method = (init.method ?? 'GET').toUpperCase();
+    let req = method === 'POST' ? request(app).post(path) : request(app).get(path);
+    for (const [k, v] of Object.entries(init.headers ?? {})) req = req.set(k, v);
+    const res = init.body !== undefined ? await req.send(JSON.parse(init.body)) : await req;
+    const text = res.text && res.text.length > 0 ? res.text : res.body ? JSON.stringify(res.body) : '';
+    return { ok: res.status >= 200 && res.status < 300, status: res.status, text: async () => text };
+  };
+  return impl as unknown as typeof fetch;
+}
+
+describe('@ship/sdk · ShipClient against the in-process app', () => {
+  const app = createApp();
+  const appFetch = makeAppFetch(app);
   let workspaceId: string;
   let userId: string;
   let appId: string;
@@ -41,22 +63,16 @@ describe('@ship/sdk · ShipClient against a live server', () => {
     appId = created.app.id;
     token = (await issueAccessToken({ appId, userId, workspaceId, scopes: ['documents:read', 'documents:write'] }))
       .accessToken;
-
-    server = http.createServer(createApp());
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const addr = server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${addr.port}`;
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
     await pool.query('DELETE FROM oauth_apps WHERE id = $1', [appId]);
     await pool.query('DELETE FROM workspaces WHERE id = $1', [workspaceId]);
     await pool.query('DELETE FROM users WHERE id = $1', [userId]);
   });
 
   it('me() returns the typed authenticated user', async () => {
-    const client = new ShipClient({ token, baseUrl });
+    const client = new ShipClient({ token, baseUrl: 'http://app.local', fetch: appFetch });
     const me = await client.me();
     expect(me.id).toBe(userId);
     expect(me.name).toBe('SDK Tester');
@@ -64,7 +80,7 @@ describe('@ship/sdk · ShipClient against a live server', () => {
   });
 
   it('throws ShipApiError (code, status, request_id) on an invalid token', async () => {
-    const client = new ShipClient({ token: 'ship_at_not_a_real_token', baseUrl });
+    const client = new ShipClient({ token: 'ship_at_not_a_real_token', baseUrl: 'http://app.local', fetch: appFetch });
     await expect(client.me()).rejects.toBeInstanceOf(ShipApiError);
     try {
       await client.me();
@@ -78,7 +94,7 @@ describe('@ship/sdk · ShipClient against a live server', () => {
   });
 
   it('documents.create then documents.list round-trips through the SDK', async () => {
-    const client = new ShipClient({ token, baseUrl });
+    const client = new ShipClient({ token, baseUrl: 'http://app.local', fetch: appFetch });
     const created = await client.documents.create({ title: 'From SDK', document_type: 'wiki' });
     expect(created.title).toBe('From SDK');
     const page = await client.documents.list({ limit: 50 });
