@@ -94,6 +94,62 @@ export async function verifyClientSecret(app: OAuthAppRow, secret: string): Prom
   return bcrypt.compare(secret, app.client_secret_hash);
 }
 
+/** A registered app as shown in the admin list — never includes the secret hash. */
+export interface OAuthAppListItem extends OAuthApp {
+  owner_email: string | null;
+  owner_name: string | null;
+}
+
+/**
+ * List every registered OAuth app for the admin UI. Joins the owner for display.
+ * Never selects `client_secret_hash` — the secret is unrecoverable by design.
+ */
+export async function listOAuthApps(): Promise<OAuthAppListItem[]> {
+  const result = await pool.query<OAuthAppListItem>(
+    `SELECT a.id, a.client_id, a.name, a.redirect_uris, a.owner_user_id,
+            a.requested_scopes, a.allow_device_flow, a.created_at, a.updated_at,
+            u.email AS owner_email, u.name AS owner_name
+     FROM oauth_apps a
+     LEFT JOIN users u ON u.id = a.owner_user_id
+     ORDER BY a.created_at DESC`
+  );
+  return result.rows;
+}
+
+/**
+ * Mint a fresh client_secret for an existing app (same one-time-secret semantics
+ * as creation). The old secret stops working immediately; `client_id` is
+ * unchanged. Returns null when no app has that id. Already-issued access tokens
+ * are unaffected — they're validated by token hash, not the client secret.
+ */
+export async function rotateClientSecret(id: string): Promise<CreatedOAuthApp | null> {
+  const clientSecret = generateClientSecret();
+  const secretHash = await bcrypt.hash(clientSecret, BCRYPT_ROUNDS);
+
+  const result = await pool.query<OAuthApp>(
+    `UPDATE oauth_apps SET client_secret_hash = $1, updated_at = now() WHERE id = $2
+     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at`,
+    [secretHash, id]
+  );
+
+  const app = result.rows[0];
+  if (!app) return null;
+  return { app, clientSecret };
+}
+
+/**
+ * Hard-delete an app. `access_tokens.app_id … ON DELETE CASCADE` (migration 050)
+ * removes every token issued to it — this IS the revocation. Returns the deleted
+ * row's id/name (for the audit detail), or null when no app had that id.
+ */
+export async function deleteOAuthApp(id: string): Promise<{ id: string; name: string } | null> {
+  const result = await pool.query<{ id: string; name: string }>(
+    `DELETE FROM oauth_apps WHERE id = $1 RETURNING id, name`,
+    [id]
+  );
+  return result.rows[0] ?? null;
+}
+
 /** A registered redirect_uri must match exactly (no prefix/substring matching). */
 export function isRegisteredRedirectUri(app: Pick<OAuthApp, 'redirect_uris'>, redirectUri: string): boolean {
   return app.redirect_uris.includes(redirectUri);

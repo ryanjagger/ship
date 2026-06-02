@@ -302,6 +302,40 @@ export interface ApiTokenCreateResponse extends ApiToken {
   warning: string;
 }
 
+// A registered OAuth client, as shown in the admin OAuth Apps list. Never carries
+// the secret (only a bcrypt hash is stored server-side, and it's unrecoverable).
+export interface OAuthAppSummary {
+  id: string;
+  client_id: string;
+  name: string;
+  redirect_uris: string[];
+  requested_scopes: string[];
+  allow_device_flow: boolean;
+  owner_user_id: string | null;
+  owner_email: string | null;
+  owner_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Returned exactly once, on create or secret rotation — carries the raw secret.
+export interface OAuthAppSecret {
+  id: string;
+  client_id: string;
+  client_secret: string;
+  name: string;
+  redirect_uris?: string[];
+  requested_scopes?: string[];
+  allow_device_flow?: boolean;
+  warning: string;
+}
+
+export interface OAuthScope {
+  scope: string;
+  description: string;
+  exercised: boolean;
+}
+
 export interface WorkspaceMember {
   id: string;
   userId: string;
@@ -520,6 +554,34 @@ export const api = {
 
     endImpersonation: () =>
       request('/api/admin/impersonate', {
+        method: 'DELETE',
+      }),
+
+    // OAuth app (client) registration — super-admin only.
+    listOAuthApps: () =>
+      request<OAuthAppSummary[]>('/api/admin/oauth-apps'),
+
+    listOAuthScopes: () =>
+      request<OAuthScope[]>('/api/admin/oauth-apps/scopes'),
+
+    createOAuthApp: (data: {
+      name: string;
+      redirect_uris: string[];
+      requested_scopes: string[];
+      allow_device_flow: boolean;
+    }) =>
+      request<OAuthAppSecret>('/api/admin/oauth-apps', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    rotateOAuthAppSecret: (appId: string) =>
+      request<OAuthAppSecret>(`/api/admin/oauth-apps/${appId}/rotate-secret`, {
+        method: 'POST',
+      }),
+
+    deleteOAuthApp: (appId: string) =>
+      request<{ message: string }>(`/api/admin/oauth-apps/${appId}`, {
         method: 'DELETE',
       }),
   },
