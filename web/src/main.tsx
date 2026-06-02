@@ -47,6 +47,7 @@ const UnifiedDocumentPage = React.lazy(() => import('@/pages/UnifiedDocumentPage
 const StatusOverviewPage = React.lazy(() => import('@/pages/StatusOverviewPage').then(m => ({ default: m.StatusOverviewPage })));
 const ReviewsPage = React.lazy(() => import('@/pages/ReviewsPage').then(m => ({ default: m.ReviewsPage })));
 const OrgChartPage = React.lazy(() => import('@/pages/OrgChartPage').then(m => ({ default: m.OrgChartPage })));
+const OAuthConsentPage = React.lazy(() => import('@/pages/OAuthConsent').then(m => ({ default: m.OAuthConsentPage })));
 
 /**
  * Redirect component for type-specific routes to canonical /documents/:id
@@ -182,6 +183,16 @@ function AppRoutes() {
       <Route
         path="/invite/:token"
         element={<InviteAcceptPage />}
+      />
+      {/* OAuth consent screen (standalone, authenticated; not inside AppLayout).
+          Reached from GET /api/oauth/authorize, which preserves the query string. */}
+      <Route
+        path="/oauth/consent"
+        element={
+          <ProtectedRoute>
+            <OAuthConsentPage />
+          </ProtectedRoute>
+        }
       />
       <Route
         path="/admin"
