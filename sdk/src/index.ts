@@ -1,5 +1,5 @@
 /**
- * @ship/sdk — typed client for the Ship Platform API (`/api/v1`).
+ * @ryanjagger/ship-sdk — typed client for the Ship Platform API (`/api/v1`).
  *
  * MVP surface (PRD §5.8): `new ShipClient({ token }).me()` returns the typed
  * authenticated user. The `documents` / `issues` resource clients keep the shape

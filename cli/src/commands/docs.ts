@@ -1,4 +1,4 @@
-import { ShipClient, ShipApiError } from '@ship/sdk';
+import { ShipClient, ShipApiError } from '@ryanjagger/ship-sdk';
 import type { CliConfig } from '../config.js';
 import { loadCredentials } from '../credentials.js';
 

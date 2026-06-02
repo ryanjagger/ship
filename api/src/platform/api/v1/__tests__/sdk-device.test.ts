@@ -6,7 +6,7 @@ import {
   pollDeviceToken,
   DeviceFlowError,
   ShipClient,
-} from '@ship/sdk';
+} from '@ryanjagger/ship-sdk';
 import { createApp } from '../../../../app.js';
 import { pool } from '../../../../db/client.js';
 import { createOAuthApp } from '../../../oauth/apps.js';
@@ -34,7 +34,7 @@ function makeAppFetch(app: Express): typeof fetch {
   return impl as unknown as typeof fetch;
 }
 
-describe('@ship/sdk · device-flow helpers against the in-process app', () => {
+describe('@ryanjagger/ship-sdk · device-flow helpers against the in-process app', () => {
   const app = createApp();
   const appFetch = makeAppFetch(app);
   const noSleep = () => Promise.resolve();

@@ -177,12 +177,12 @@ importers:
         specifier: ^3.25.2
         version: 3.25.2(zod@3.25.76)
     devDependencies:
+      '@ryanjagger/ship-sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@seriousme/openapi-schema-validator':
         specifier: ^2.9.0
         version: 2.9.0
-      '@ship/sdk':
-        specifier: workspace:*
-        version: link:../sdk
       '@types/bcryptjs':
         specifier: ^3.0.0
         version: 3.0.0
@@ -261,7 +261,7 @@ importers:
 
   cli:
     dependencies:
-      '@ship/sdk':
+      '@ryanjagger/ship-sdk':
         specifier: workspace:*
         version: link:../sdk
     devDependencies:

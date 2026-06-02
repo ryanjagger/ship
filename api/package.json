@@ -66,7 +66,7 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "@ship/sdk": "workspace:*",
+    "@ryanjagger/ship-sdk": "workspace:*",
     "@types/bcryptjs": "^3.0.0",
     "@types/compression": "^1.8.1",
     "@types/cookie": "^1.0.0",

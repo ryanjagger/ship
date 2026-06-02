@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { requestDeviceAuthorization, pollDeviceToken, DeviceFlowError } from '@ship/sdk';
+import { requestDeviceAuthorization, pollDeviceToken, DeviceFlowError } from '@ryanjagger/ship-sdk';
 import type { CliConfig } from '../config.js';
 import { saveCredentials } from '../credentials.js';
 

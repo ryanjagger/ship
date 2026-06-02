@@ -1,8 +1,9 @@
 {
-  "name": "@ship/sdk",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@ryanjagger/ship-sdk",
+  "version": "0.1.0",
   "description": "Ship Platform API client SDK",
+  "license": "MIT",
+  "author": "U.S. Department of the Treasury",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,11 +14,23 @@
     }
   },
   "files": ["dist"],
+  "keywords": ["ship", "platform-api", "oauth2", "sdk", "client"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryanjagger/ship.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://github.com/ryanjagger/ship/tree/master/sdk#readme",
+  "bugs": "https://github.com/ryanjagger/ship/issues",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "prepublishOnly": "pnpm run clean && pnpm run build"
   },
   "devDependencies": {
     "@types/node": "^22.19.3",

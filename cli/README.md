@@ -2,7 +2,7 @@
 
 A small command-line client for the Ship Platform API. Authenticates with the
 OAuth 2.0 Device Authorization Grant (RFC 8628) — no browser redirect or client
-secret on the device — and talks to the API through [`@ship/sdk`](../sdk).
+secret on the device — and talks to the API through [`@ryanjagger/ship-sdk`](../sdk).
 
 ## Usage
 
