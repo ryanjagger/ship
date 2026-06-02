@@ -29,6 +29,7 @@ test.describe('OAuth 2.0 Device Authorization Grant', () => {
         name: 'E2E Device CLI',
         redirect_uris: [`${baseURL}/callback`],
         requested_scopes: ['documents:read', 'documents:write'],
+        allow_device_flow: true,
       },
     });
     expect(regRes.status()).toBe(201);
@@ -104,7 +105,12 @@ test.describe('OAuth 2.0 Device Authorization Grant', () => {
     const csrf = (await (await page.request.get('/api/csrf-token')).json()).token as string;
     const regRes = await page.request.post('/api/admin/oauth-apps', {
       headers: { 'x-csrf-token': csrf },
-      data: { name: 'E2E Device Deny', redirect_uris: [`${baseURL}/callback`], requested_scopes: ['documents:read'] },
+      data: {
+        name: 'E2E Device Deny',
+        redirect_uris: [`${baseURL}/callback`],
+        requested_scopes: ['documents:read'],
+        allow_device_flow: true,
+      },
     });
     const clientId = ((await regRes.json()).data as { client_id: string }).client_id;
 

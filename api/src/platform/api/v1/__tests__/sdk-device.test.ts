@@ -60,6 +60,7 @@ describe('@ryanjagger/ship-sdk · device-flow helpers against the in-process app
       redirectUris: [],
       ownerUserId: userId,
       requestedScopes: ['documents:read', 'documents:write'],
+      allowDeviceFlow: true,
     });
     clientId = created.app.client_id;
   });

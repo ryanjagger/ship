@@ -35,6 +35,7 @@ describe('OAuth Device Flow · /api/oauth endpoints', () => {
       redirectUris: [],
       ownerUserId: userId,
       requestedScopes: ['documents:read', 'documents:write'],
+      allowDeviceFlow: true,
     });
     clientId = created.app.client_id;
   });
@@ -69,6 +70,27 @@ describe('OAuth Device Flow · /api/oauth endpoints', () => {
     const res = await request(app).post('/api/oauth/device/authorization').send({ client_id: 'client_nope' });
     expect(res.status).toBe(401);
     expect(res.body.error).toBe('invalid_client');
+  });
+
+  it('device/authorization rejects a confidential client (not opted in) → unauthorized_client', async () => {
+    // A normal app defaults allow_device_flow=false — its identity must not be
+    // usable in the secret-less device flow.
+    const confidential = await createOAuthApp({
+      name: 'Confidential App',
+      redirectUris: ['https://app.example.com/cb'],
+      ownerUserId: userId,
+      requestedScopes: ['documents:read'],
+      // allowDeviceFlow omitted → false
+    });
+    try {
+      const res = await request(app)
+        .post('/api/oauth/device/authorization')
+        .send({ client_id: confidential.app.client_id, scope: 'documents:read' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('unauthorized_client');
+    } finally {
+      await pool.query('DELETE FROM oauth_apps WHERE id = $1', [confidential.app.id]);
+    }
   });
 
   it('device/authorization rejects a scope the client lacks → invalid_scope', async () => {

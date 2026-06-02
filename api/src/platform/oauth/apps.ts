@@ -21,6 +21,8 @@ export interface OAuthApp {
   redirect_uris: string[];
   owner_user_id: string | null;
   requested_scopes: string[];
+  /** Whether this client may use the Device Authorization Grant (RFC 8628). */
+  allow_device_flow: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -42,6 +44,8 @@ export interface CreateOAuthAppInput {
   redirectUris: string[];
   ownerUserId: string | null;
   requestedScopes: string[];
+  /** Allow this client to use the Device Authorization Grant. Defaults to false. */
+  allowDeviceFlow?: boolean;
 }
 
 export interface CreatedOAuthApp {
@@ -56,10 +60,10 @@ export async function createOAuthApp(input: CreateOAuthAppInput): Promise<Create
   const secretHash = await bcrypt.hash(clientSecret, BCRYPT_ROUNDS);
 
   const result = await pool.query<OAuthApp>(
-    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, created_at, updated_at`,
-    [clientId, secretHash, input.name, input.redirectUris, input.ownerUserId, input.requestedScopes]
+    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at`,
+    [clientId, secretHash, input.name, input.redirectUris, input.ownerUserId, input.requestedScopes, input.allowDeviceFlow ?? false]
   );
 
   const app = result.rows[0];
@@ -69,7 +73,7 @@ export async function createOAuthApp(input: CreateOAuthAppInput): Promise<Create
 
 export async function findOAuthAppByClientId(clientId: string): Promise<OAuthAppRow | null> {
   const result = await pool.query<OAuthAppRow>(
-    `SELECT id, client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, created_at, updated_at
+    `SELECT id, client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at
      FROM oauth_apps WHERE client_id = $1`,
     [clientId]
   );
@@ -79,7 +83,7 @@ export async function findOAuthAppByClientId(clientId: string): Promise<OAuthApp
 /** Look up an app by its internal id (e.g. to display the name on /device). */
 export async function findOAuthAppById(id: string): Promise<OAuthApp | null> {
   const result = await pool.query<OAuthApp>(
-    `SELECT id, client_id, name, redirect_uris, owner_user_id, requested_scopes, created_at, updated_at
+    `SELECT id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at
      FROM oauth_apps WHERE id = $1`,
     [id]
   );

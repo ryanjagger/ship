@@ -18,6 +18,9 @@ const createAppSchema = z.object({
   name: z.string().min(1).max(120),
   redirect_uris: z.array(z.string().url()).min(1),
   requested_scopes: z.array(z.string()).default([]),
+  // Opt this client into the Device Authorization Grant. Defaults OFF — device
+  // flow has no client_secret check, so it must be explicitly enabled.
+  allow_device_flow: z.boolean().default(false),
 });
 
 // POST /api/admin/oauth-apps — register a client; returns the raw secret once.
@@ -52,6 +55,7 @@ router.post('/', authMiddleware, superAdminMiddleware, async (req: Request, res:
       redirectUris: parsed.data.redirect_uris,
       ownerUserId: req.userId,
       requestedScopes: parsed.data.requested_scopes,
+      allowDeviceFlow: parsed.data.allow_device_flow,
     });
 
     res.status(HTTP_STATUS.CREATED).json({
@@ -63,6 +67,7 @@ router.post('/', authMiddleware, superAdminMiddleware, async (req: Request, res:
         name: app.name,
         redirect_uris: app.redirect_uris,
         requested_scopes: app.requested_scopes,
+        allow_device_flow: app.allow_device_flow,
         warning: 'Save this client_secret now. It will not be shown again.',
       },
     });

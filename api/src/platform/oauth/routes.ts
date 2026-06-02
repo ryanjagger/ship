@@ -197,6 +197,19 @@ oauthPublicRouter.post('/device/authorization', async (req: Request, res: Respon
       sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Unknown client_id');
       return;
     }
+    // The device grant authenticates a PUBLIC client by the device_code alone
+    // (no client_secret). Only clients explicitly opted in may use it, so an
+    // unauthenticated party can't borrow a confidential client's identity
+    // (RFC 6749 §5.2 unauthorized_client).
+    if (!app.allow_device_flow) {
+      sendOAuthError(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        'unauthorized_client',
+        'This client is not authorized to use the device authorization grant'
+      );
+      return;
+    }
     const scopeCheck = validateScopes(parsed.data.scope, app);
     if (!scopeCheck.ok) {
       sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_scope', scopeCheck.reason);
