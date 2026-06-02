@@ -52,7 +52,7 @@ export interface ValidatedAccessToken {
 
 export type AccessTokenLookup =
   | { ok: true; token: ValidatedAccessToken }
-  | { ok: false; reason: 'invalid' | 'expired' };
+  | { ok: false; reason: 'invalid' | 'expired' | 'no_membership' };
 
 interface AccessTokenRow {
   id: string;
@@ -62,6 +62,8 @@ interface AccessTokenRow {
   scopes: string[];
   expires_at: string;
   last_used_at: string | null;
+  is_super_admin: boolean;
+  has_membership: boolean;
 }
 
 // Throttle last_used_at writes to once per minute (same rationale as api_tokens).
@@ -72,17 +74,29 @@ const TOKEN_USE_REFRESH_THRESHOLD_MS = 60 * 1000;
  * (or was revoked) — `invalid` — from one that exists but has lapsed —
  * `expired` — so the Bearer middleware can surface a distinct discriminator on
  * the 401 (PRD §3 item 3, §5.4).
+ *
+ * Also re-checks workspace membership on every request (single LEFT JOIN, no
+ * extra round-trip), mirroring the session auth path in middleware/auth.ts: a
+ * token must not outlive the user's access to its workspace. Super-admins are
+ * exempt (they may access without a membership row). → `no_membership`.
  */
 export async function validateAccessToken(token: string): Promise<AccessTokenLookup> {
   const result = await pool.query<AccessTokenRow>(
-    `SELECT id, app_id, user_id, workspace_id, scopes, expires_at, last_used_at
-     FROM access_tokens WHERE token_hash = $1 AND revoked_at IS NULL`,
+    `SELECT t.id, t.app_id, t.user_id, t.workspace_id, t.scopes, t.expires_at, t.last_used_at,
+            u.is_super_admin,
+            (m.user_id IS NOT NULL) AS has_membership
+       FROM access_tokens t
+       JOIN users u ON u.id = t.user_id
+       LEFT JOIN workspace_memberships m
+         ON m.workspace_id = t.workspace_id AND m.user_id = t.user_id
+      WHERE t.token_hash = $1 AND t.revoked_at IS NULL`,
     [hashToken(token)]
   );
 
   const row = result.rows[0];
   if (!row) return { ok: false, reason: 'invalid' };
   if (new Date(row.expires_at) < new Date()) return { ok: false, reason: 'expired' };
+  if (!row.is_super_admin && !row.has_membership) return { ok: false, reason: 'no_membership' };
 
   const lastUsedMs = row.last_used_at ? new Date(row.last_used_at).getTime() : 0;
   if (Date.now() - lastUsedMs > TOKEN_USE_REFRESH_THRESHOLD_MS) {

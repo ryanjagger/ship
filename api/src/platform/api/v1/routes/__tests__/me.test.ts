@@ -89,4 +89,21 @@ describe('GET /api/v1/me', () => {
     expect(res.status).toBe(401);
     expect(res.body.details?.reason).toBe('token_expired');
   });
+
+  it('403 workspace_access_revoked once the user loses workspace membership', async () => {
+    const issued = await issueAccessToken({ appId, userId, workspaceId, scopes: [] });
+    await pool.query('DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2', [
+      workspaceId,
+      userId,
+    ]);
+    const res = await request(app).get('/api/v1/me').set('Authorization', `Bearer ${issued.accessToken}`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('forbidden');
+    expect(res.body.details?.reason).toBe('workspace_access_revoked');
+    // Restore membership so teardown/order stays clean.
+    await pool.query(
+      `INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`,
+      [workspaceId, userId]
+    );
+  });
 });

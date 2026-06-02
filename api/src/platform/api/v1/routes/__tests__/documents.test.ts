@@ -132,6 +132,19 @@ describe('Platform API · documents resource', () => {
     expect(res.body.code).toBe('validation_failed');
   });
 
+  it('GET /documents/:id on an archived doc 404s (hidden like the list)', async () => {
+    const r = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by, archived_at)
+       VALUES ($1, 'wiki', 'Archived Wiki', 'workspace', $2, now()) RETURNING id`,
+      [workspaceId, userId]
+    );
+    const res = await request(app)
+      .get(`/api/v1/documents/${r.rows[0]!.id}`)
+      .set('Authorization', `Bearer ${readToken}`);
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('not_found');
+  });
+
   it('paginates via the cursor envelope over a stable sort', async () => {
     const first = await request(app).get('/api/v1/documents?limit=2').set('Authorization', `Bearer ${writeToken}`);
     expect(first.status).toBe(200);

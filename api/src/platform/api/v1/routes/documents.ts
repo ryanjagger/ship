@@ -155,6 +155,7 @@ documentsRouter.get('/:id', bearerAuth, requireScope('documents:read'), async (r
       `SELECT ${DETAIL_COLUMNS} FROM documents
         WHERE id = $1
           AND workspace_id = $2
+          AND archived_at IS NULL
           AND deleted_at IS NULL
           AND document_type::text <> ALL($3::text[])
           AND (visibility = 'workspace' OR created_by = $4)`,

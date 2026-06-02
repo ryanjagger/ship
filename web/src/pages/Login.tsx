@@ -70,8 +70,17 @@ export function LoginPage() {
     return null;
   }, [searchParams]);
 
-  // Default redirect path from location state or returnTo param
-  const from = returnTo || (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
+  // Default redirect path from location state or returnTo param. Preserve the
+  // full path INCLUDING search + hash — e.g. the OAuth entry point bounces an
+  // unauthenticated user here via ProtectedRoute, and dropping the query string
+  // (?client_id=…&redirect_uri=…&code_challenge=…) would break the consent flow
+  // on return.
+  const fromState = (location.state as {
+    from?: { pathname: string; search?: string; hash?: string };
+  })?.from;
+  const from =
+    returnTo ||
+    (fromState ? `${fromState.pathname}${fromState.search ?? ''}${fromState.hash ?? ''}` : '/');
 
   // Check if setup is needed and if PIV auth is available
   useEffect(() => {

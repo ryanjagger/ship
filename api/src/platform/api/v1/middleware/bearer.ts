@@ -49,6 +49,12 @@ export async function bearerAuth(req: Request, res: Response, next: NextFunction
     if (!result.ok) {
       if (result.reason === 'expired') {
         sendApiError(res, req, 'unauthorized', 'Access token has expired', { details: { reason: 'token_expired' } });
+      } else if (result.reason === 'no_membership') {
+        // Token is valid but the user lost access to its workspace — 403, not
+        // 401 (mirrors the session auth path's "workspace access revoked").
+        sendApiError(res, req, 'forbidden', 'Access to this workspace has been revoked', {
+          details: { reason: 'workspace_access_revoked' },
+        });
       } else {
         sendApiError(res, req, 'unauthorized', 'Invalid access token', { details: { reason: 'invalid_token' } });
       }
