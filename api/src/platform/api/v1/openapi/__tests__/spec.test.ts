@@ -29,10 +29,25 @@ describe('Platform API · OpenAPI 3.1 spec', () => {
       paths: Record<string, Record<string, unknown>>;
       components: { schemas: Record<string, unknown>; securitySchemes: Record<string, unknown> };
     };
-    expect(Object.keys(doc.paths).sort()).toEqual(['/documents', '/documents/{id}', '/me']);
+    expect(Object.keys(doc.paths).sort()).toEqual([
+      '/documents',
+      '/documents/{id}',
+      '/issues',
+      '/issues/{id}',
+      '/me',
+      '/sprints',
+      '/sprints/{id}',
+      '/wiki',
+      '/wiki/{id}',
+    ]);
     expect(doc.paths['/documents']).toHaveProperty('get');
     expect(doc.paths['/documents']).toHaveProperty('post');
+    // Typed resources expose the same verbs, pinned to one type.
+    expect(doc.paths['/issues']).toHaveProperty('get');
+    expect(doc.paths['/issues']).toHaveProperty('post');
+    expect(doc.paths['/wiki']).toHaveProperty('post');
     expect(doc.components.schemas).toHaveProperty('ApiError');
+    expect(doc.components.schemas).toHaveProperty('CreateTypedDocument');
     expect(doc.components.securitySchemes).toHaveProperty('bearerAuth');
   });
 

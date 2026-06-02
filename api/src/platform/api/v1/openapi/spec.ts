@@ -10,9 +10,12 @@ import {
   DocumentDetailSchema,
   DocumentListResponseSchema,
   CreateDocumentSchema,
+  CreateTypedDocumentSchema,
   ListDocumentsQuerySchema,
+  ListTypedQuerySchema,
 } from '../schemas/document.js';
 import { ApiErrorSchema } from '../schemas/error.js';
+import { TYPED_RESOURCES } from '../resources.js';
 
 /**
  * The Platform API OpenAPI 3.1 spec (PRD §5.7). Generated in-process from the
@@ -38,6 +41,7 @@ function buildRegistry(): OpenAPIRegistry {
   const DocumentDetail = registry.register('DocumentDetail', DocumentDetailSchema);
   const DocumentListResponse = registry.register('DocumentListResponse', DocumentListResponseSchema);
   const CreateDocument = registry.register('CreateDocument', CreateDocumentSchema);
+  const CreateTypedDocument = registry.register('CreateTypedDocument', CreateTypedDocumentSchema);
 
   const errorResponse = (description: string) => ({
     description,
@@ -105,6 +109,60 @@ function buildRegistry(): OpenAPIRegistry {
       403: errorResponse('Insufficient scope (documents:write)'),
     },
   });
+
+  // Typed resources (/issues, /sprints, /wiki) — the documents engine pinned to
+  // one type. Registered from the same TYPED_RESOURCES list the router mounts,
+  // so the spec and the runtime can't drift. A `documents:read` token also
+  // clears these reads via the scope hierarchy.
+  for (const r of TYPED_RESOURCES) {
+    registry.registerPath({
+      method: 'get',
+      path: `/${r.path}`,
+      tags: [r.tag],
+      summary: `List ${r.path}`,
+      description: `Requires scope \`${r.readScope}\` (a \`documents:read\` token also satisfies it). Paginated via an opaque \`next_cursor\`.`,
+      security: [{ bearerAuth: [] }],
+      request: { query: ListTypedQuerySchema },
+      responses: {
+        200: { description: `A page of ${r.path}`, content: { 'application/json': { schema: DocumentListResponse } } },
+        400: errorResponse('Invalid query parameters'),
+        401: errorResponse('Unauthorized'),
+        403: errorResponse(`Insufficient scope (${r.readScope})`),
+      },
+    });
+
+    registry.registerPath({
+      method: 'get',
+      path: `/${r.path}/{id}`,
+      tags: [r.tag],
+      summary: `Get a ${r.tag.replace(/s$/, '')} by id`,
+      description: `Requires scope \`${r.readScope}\`. Only resolves documents of type \`${r.documentType}\`.`,
+      security: [{ bearerAuth: [] }],
+      request: { params: z.object({ id: z.string().uuid() }) },
+      responses: {
+        200: { description: `The ${r.documentType}`, content: { 'application/json': { schema: DocumentDetail } } },
+        401: errorResponse('Unauthorized'),
+        403: errorResponse(`Insufficient scope (${r.readScope})`),
+        404: errorResponse(`${r.label} not found`),
+      },
+    });
+
+    registry.registerPath({
+      method: 'post',
+      path: `/${r.path}`,
+      tags: [r.tag],
+      summary: `Create a ${r.tag.replace(/s$/, '')}`,
+      description: `Requires scope \`${r.writeScope}\` (a \`documents:write\` token also satisfies it). The \`document_type\` is fixed to \`${r.documentType}\`.`,
+      security: [{ bearerAuth: [] }],
+      request: { body: { content: { 'application/json': { schema: CreateTypedDocument } } } },
+      responses: {
+        201: { description: `The created ${r.documentType}`, content: { 'application/json': { schema: DocumentDetail } } },
+        400: errorResponse('Invalid document'),
+        401: errorResponse('Unauthorized'),
+        403: errorResponse(`Insufficient scope (${r.writeScope})`),
+      },
+    });
+  }
 
   return registry;
 }

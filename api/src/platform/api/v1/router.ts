@@ -4,6 +4,8 @@ import { requestIdMiddleware } from './request-id.js';
 import { notFoundHandler, errorHandler } from './error-middleware.js';
 import { meRouter } from './routes/me.js';
 import { documentsRouter } from './routes/documents.js';
+import { TYPED_RESOURCES } from './resources.js';
+import { createTypedResourceRouter } from './routes/typed.js';
 import { generateV1OpenApiDocument } from './openapi/spec.js';
 
 /**
@@ -38,6 +40,12 @@ v1Router.get('/openapi.json', (_req, res) => {
 
 v1Router.use('/me', meRouter);
 v1Router.use('/documents', documentsRouter);
+
+// Typed resources — the documents engine pinned to one type (/issues, /sprints,
+// /wiki). Reachable by a documents:* token via the scope hierarchy.
+for (const resource of TYPED_RESOURCES) {
+  v1Router.use(`/${resource.path}`, createTypedResourceRouter(resource));
+}
 
 // ── Terminators — keep LAST ─────────────────────────────────────────────────
 // Any unmatched v1 path → ApiError 404; any thrown error → ApiError 500.

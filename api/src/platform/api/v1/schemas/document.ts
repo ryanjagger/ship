@@ -50,9 +50,31 @@ export const ListDocumentsQuerySchema = z.object({
   type: PublicDocumentTypeSchema.optional(),
 });
 
+/**
+ * List query for a typed resource (`/issues`, `/sprints`, `/wiki`). The type is
+ * fixed by the route, so there is no `type` filter — only paging.
+ */
+export const ListTypedQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  cursor: z.string().optional(),
+});
+
 export const CreateDocumentSchema = z.object({
   title: z.string().min(1).max(255).optional().default('Untitled'),
   document_type: PublicDocumentTypeSchema.optional().default('wiki'),
+  parent_id: z.string().uuid().nullable().optional(),
+  properties: z.record(z.unknown()).optional(),
+  visibility: z.enum(['private', 'workspace']).optional(),
+  content: z.unknown().optional(),
+});
+
+/**
+ * Create body for a typed resource. The `document_type` is pinned by the route
+ * (`POST /issues` always creates an issue), so it is intentionally absent here —
+ * unknown keys are stripped by Zod, so a stray `document_type` can't override it.
+ */
+export const CreateTypedDocumentSchema = z.object({
+  title: z.string().min(1).max(255).optional().default('Untitled'),
   parent_id: z.string().uuid().nullable().optional(),
   properties: z.record(z.unknown()).optional(),
   visibility: z.enum(['private', 'workspace']).optional(),

@@ -45,11 +45,18 @@ function expectApiErrorShape(body: unknown): asserts body is Record<string, unkn
 
 // Every public /api/v1 route + the status an unauthenticated caller must get.
 // All are Bearer-guarded → 401 with no token (auth runs before scope/CSRF).
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 const ROUTES: Array<{ method: 'get' | 'post'; path: string; expected: number }> = [
   { method: 'get', path: '/api/v1/me', expected: 401 },
   { method: 'get', path: '/api/v1/documents', expected: 401 },
-  { method: 'get', path: '/api/v1/documents/00000000-0000-0000-0000-000000000000', expected: 401 },
+  { method: 'get', path: `/api/v1/documents/${NIL_UUID}`, expected: 401 },
   { method: 'post', path: '/api/v1/documents', expected: 401 },
+  // Typed resources — same Bearer guard, same ApiError contract.
+  ...(['issues', 'sprints', 'wiki'] as const).flatMap((r) => [
+    { method: 'get' as const, path: `/api/v1/${r}`, expected: 401 },
+    { method: 'get' as const, path: `/api/v1/${r}/${NIL_UUID}`, expected: 401 },
+    { method: 'post' as const, path: `/api/v1/${r}`, expected: 401 },
+  ]),
 ];
 
 describe('Platform API · ApiError fitness', () => {
