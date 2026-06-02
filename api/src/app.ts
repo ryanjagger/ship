@@ -36,6 +36,10 @@ import fleetgraphRoutes from './routes/fleetgraph.js';
 import insightsRoutes from './routes/insights.js';
 import weeklyPlansRoutes, { weeklyRetrosRouter } from './routes/weekly-plans.js';
 import { documentCommentsRouter, commentsRouter } from './routes/comments.js';
+import { v1Router } from './platform/api/v1/router.js';
+import { apiRateLimitHandler } from './platform/api/v1/rate-limit.js';
+import oauthAdminRoutes from './platform/oauth/admin-routes.js';
+import { oauthPublicRouter, oauthConsentRouter } from './platform/oauth/routes.js';
 import { setupSwagger } from './swagger.js';
 import { initializeCAIA } from './services/caia.js';
 
@@ -87,6 +91,10 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please slow down.' },
+  // Reshape 429s on the public /api/v1 prefix to the ApiError contract
+  // (PRD §5.6). Other /api/* paths keep the legacy { error } body. No new
+  // limiter is added — this is the existing global limiter's handler.
+  handler: apiRateLimitHandler,
 });
 
 
@@ -211,6 +219,22 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
   app.use('/api/invites', conditionalCsrf, invitesRoutes);
   app.use('/api/api-tokens', conditionalCsrf, apiTokensRoutes);
 
+  // OAuth 2.0 Authorization Server (Ship as provider). Mounted under /api/oauth
+  // so it rides the existing /api proxy. Two mounts with different needs:
+  //   • public: GET /authorize (redirect) + POST /token (back-channel, NO CSRF —
+  //     authenticated by client_id+client_secret, not a browser session).
+  //   • consent: GET /authorize/validate + POST /authorize/decision back the
+  //     React consent screen; session-authed and CSRF-protected (the POST).
+  app.use('/api/oauth', oauthPublicRouter);
+  app.use('/api/oauth', conditionalCsrf, oauthConsentRouter);
+
+  // Public Platform API (v1). Bearer-token auth only, so no session CSRF here
+  // (Bearer tokens are not auto-attached by browsers). Sits under the global
+  // `/api/` rate limiter mounted above; its 429s are reshaped to ApiError by
+  // that limiter's handler. Mounted separately from the internal `/api/*`
+  // routers and owns its own error middleware.
+  app.use('/api/v1', v1Router);
+
   // Claude context routes - read-only GET endpoints for Claude skills
   app.use('/api/claude', claudeRoutes);
 
@@ -253,6 +277,11 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
 
   // Admin credentials management (CSRF protected, super-admin only)
   app.use('/api/admin/credentials', conditionalCsrf, adminCredentialsRoutes);
+
+  // OAuth app registration (CSRF protected, super-admin only). Mounted after
+  // the generic /api/admin router so this more specific path is handled here;
+  // same fall-through pattern as /api/admin/credentials above.
+  app.use('/api/admin/oauth-apps', conditionalCsrf, oauthAdminRoutes);
 
   // File upload routes (CSRF protected for POST endpoints)
   app.use('/api/files', conditionalCsrf, filesRouter);

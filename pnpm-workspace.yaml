@@ -3,3 +3,5 @@ packages:
   - 'web'
   - 'shared'
   - 'probe'
+  - 'sdk'
+  - 'cli'

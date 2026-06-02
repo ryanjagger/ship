@@ -3,10 +3,11 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { api, Workspace, AuditLog, UserInfo } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { OAuthAppsTab } from '@/components/admin/OAuthAppsTab';
 
-type Tab = 'workspaces' | 'users' | 'audit';
+type Tab = 'workspaces' | 'users' | 'audit' | 'oauth-apps';
 
-const VALID_TABS: Tab[] = ['workspaces', 'users', 'audit'];
+const VALID_TABS: Tab[] = ['workspaces', 'users', 'audit', 'oauth-apps'];
 
 interface WorkspaceWithCount extends Workspace {
   memberCount: number;
@@ -143,6 +144,9 @@ export function AdminDashboardPage() {
           <TabButton active={activeTab === 'audit'} onClick={() => handleTabChange('audit')}>
             Audit Logs
           </TabButton>
+          <TabButton active={activeTab === 'oauth-apps'} onClick={() => handleTabChange('oauth-apps')}>
+            OAuth Apps
+          </TabButton>
         </nav>
       </div>
 
@@ -180,6 +184,7 @@ export function AdminDashboardPage() {
                 onExport={handleExportAuditLogs}
               />
             )}
+            {activeTab === 'oauth-apps' && <OAuthAppsTab />}
           </>
         )}
       </main>

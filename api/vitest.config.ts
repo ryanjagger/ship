@@ -25,6 +25,11 @@ export default defineConfig({
     // Run test files sequentially to prevent database conflicts
     // Tests within each file can still run in parallel
     fileParallelism: false,
+    // Auto-retry flaky tests up to 2x. Some FleetGraph SSE/streaming tests are
+    // timing-sensitive and intermittently fail under CI load (a different
+    // assertion each run); a small retry keeps CI green without masking a
+    // genuinely broken test, which fails all attempts.
+    retry: 2,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

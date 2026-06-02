@@ -4,7 +4,7 @@
 - [Documentation Audit](documentation/DOCS_AUDIT_REPORT.md)
 - [Discoveries](discoveries.md)
 - [Probe — active security probe tool](../probe/README.md)
-- [AI Cost Analysis](ai-cost-analysis.md)
+- [AI Tooling Cost & Reflection](../FLEETGRAPH.md#ai-tooling-cost-and-reflection)
 - [Manual Security Review](security-audit/manual-security-review.md)
 ---
 

@@ -193,7 +193,7 @@ update it as each case lands.
 | 5 | Issue Dedup-on-Create | In a workspace with existing open issues, the author types an issue title similar to an existing one, then clicks "Ask Fleet if these are duplicates". | Stage 1: `pg_trgm` candidates listed under the title (≤5). Stage 2 (`dedup` mode): per-match true-duplicate verdict with confidence + reason and a recommendation; degrades to candidates-only if the provider is unavailable; no model call when there are zero candidates. | [LangSmith](https://smith.langchain.com/public/ca43d6af-81f8-43bd-885c-2907a50d70bc/r) |
 | 6 | Related-Issue Grouping | A workspace with ≥2 open issues and a provider configured; the user opens the Issues page (`/issues`) and switches to the **Related** view. | `related` mode (`runRelatedGroups`) fetches the visibility-scoped open-issue set (recency-capped, with truncated bodies) and the model clusters them into theme groups (≥2 members, one group per issue, label + reason) plus an "Ungrouped" bucket; 1-based indexes mapped back to ids (out-of-range dropped); short-circuits with no model call when <2 issues; degrades to a flat list when the provider is unavailable. Result cached (client + in-memory server). Read-only, no persistence. | [LangSmith](https://smith.langchain.com/public/182c28d5-7dfc-4d31-b79f-1f0640320ebd/r) |
 
-# Architecture Decisions
+## Architecture Decisions
 **Framework choice — one compiled LangGraph `StateGraph`, many modes.** A single graph serves every entry input (`plan_review`, `chat`, `dedup`, `drift`, `retro`, `related`); the trigger differs, the graph does not. Chosen over bespoke per-mode pipelines so context-fetching, visibility scoping, checkpointing, and the HITL path are written and tested once. LangGraph specifically (over a hand-rolled state machine) for its built-in interrupt/resume — which is what makes the confirm-before-write flow durable across a process restart. Adding a mode is the established extension pattern: `dedup`, `retro`, and `related` were each added as a `FleetMode` + a `reason*` branch + a `run*` entry point, reusing scope/fetch/output unchanged.
 
 **Node design — `scope → fetch → reason → policyRoute → action | output`.** `scope` seeds state and resolves the `FleetContext`; `fetch` does one consolidated, visibility-filtered, parallel read (no per-entity N+1); `reason` branches by mode (structured `evaluateStructured` call for `plan_review`/`dedup`/`drift`/`retro`/`related`, bound chat model for `chat`). `policyRoute` is a pure conditional **edge**, not a node (the former no-op `policy` node was removed) — it routes to `action` only when a write proposal exists, so only `chat` ever reaches the interrupt. Keeping routing in a pure function makes the low-risk-vs-write classification unit-testable without driving the whole graph.
@@ -205,7 +205,7 @@ update it as each case lands.
 **Deployment model.** The proactive sweep runs as an **in-process `node-cron` task on the existing API or Elastic Beanstalk tier** — not a separate worker tier or job queue — env-gated (`FLEETGRAPH_SWEEP_ENABLED`) and per-workspace toggled, with a per-workspace advisory lock for single-flight across instances. Paused chat proposals persist via a custom JSONB checkpointer (`ConversationDocCheckpointSaver`) that writes to `properties.fleetgraph_checkpoint` on the conversation document (latest-tuple-only), so a confirm/resume survives a restart without a dedicated checkpoint store. Findings persist as system-authored `insight` documents in the existing `documents` table — no new content table, consistent with Ship's unified-document model.
 
 
-# Cost Analysis
+## Cost Analysis
 
 All figures are **measured from real LangSmith traces** (project `fleet`, model
 `claude-haiku-4-5`) — not estimates. Pulled 2026-05-29 over a 2026-05-26 → 29 sample
@@ -255,11 +255,68 @@ SUPPRESS re-pay inefficiency unfixed (drift duty cycle → 1.0), the drift porti
 range; prompt caching is a second-order lever (only `related` clears Haiku's 2,048-token cache
 floor today).
 
-**Assumptions:**
-- **Proactive runs per project per day:** drift sweep = 15/hr × 24h = 360 ticks/project/day, at a
-  **0.25 duty cycle** (fraction of ticks that actually invoke the model after the pre-gate) ≈ **90
-  LLM calls/project/day**; assumed ~1 sweep-enabled project per 10 users.
-- **On-demand invocations per user per day:** ~3 chat + 1 dedup + 0.3 related + 0.3 plan_review.
-- **Average tokens per invocation:** ~900 total (~700 in / ~200 out); `chat` and `related` run larger.
-- **Cost per run:** $0.001–$0.006 by mode (median, measured).
+**Assumptions** (each self-contained; full method + per-mode distributions in
+[`cost-analysis.md`](docs/fleetgraph/langsmith-analyzed/cost-analysis.md)):
+- **Proactive runs per project per day:** drift sweep = 15 ticks/hr × 24h = **360 ticks/project/day**,
+  of which only a fraction invoke the model — the **duty cycle `d`** (≈0.05 memoized/quiet · **0.25
+  baseline** · 1.0 worst-case SUPPRESS re-pay). At d=0.25 ≈ **90 LLM calls/project/day**. Assume
+  **~1 sweep-enabled project per 10 users**, so user count drives project count.
+- **On-demand invocations per user per day:** ~3 chat + 1 dedup + 0.3 related + 0.3 plan_review ≈
+  **4.6 runs/user/day**.
+- **Average tokens per invocation:** ~900 total (~700 in / ~200 out); `chat` (~2,000 in) and
+  `related` (~2,300 in) run larger.
+- **Cost per run** (median, measured; Haiku $1/M in · $5/M out): drift $0.0011 · dedup $0.0012 ·
+  plan_review $0.0018 · retro $0.0028 · chat $0.0029 · related $0.0060; HITL resume $0.0000.
+  (Per-mode table above under **Cost Analysis**.)
 - **Estimated runs per day:** ~90/project (drift) + ~4.6/user (on-demand).
+
+## AI Tooling Cost and Reflection
+
+*Distinct from the runtime LLM spend above (which measures what the FleetGraph agent itself costs
+to run — ≈$0.60 in dev, projected at scale): this section accounts for the **AI coding-tool
+subscriptions used to build the project** over the 7-day window, plus a reflection on where those
+tools helped.*
+
+### Summary
+
+AI assistance during this 7-day window ran on two flat-rate monthly
+subscriptions, **Claude Max ($200/mo)** and **ChatGPT Pro 5x ($100/mo)** —
+$300/month combined. Neither plan meters or reports per-request usage, so a
+precise "spend on this project" figure isn't recoverable. The estimate below
+is a straight time-proration of the monthly fees over the 7 days of use.
+
+### Spend estimate
+
+Proration basis: 7 of 30 days ≈ **23.3%** of a monthly cycle.
+
+| Tool | Plan | Monthly | Attributed (7/30 days) |
+| --- | --- | ---: | ---: |
+| Claude Max | subscription | $200.00 | $46.67 |
+| ChatGPT Pro 5x | subscription | $100.00 | $23.33 |
+| **Total** | | **$300.00** | **≈ $70.00** |
+
+#### How to read this number
+
+- **~$70 is the prorated attribution** — the share of the monthly fee that
+  corresponds to the 7 days of work. It is the fairest "cost of this project"
+  figure.
+- **$300 was the actual cash commitment.** Both subscriptions bill monthly
+  regardless of how many days were used, so the real outlay for the billing
+  cycle was the full $300. If the subscriptions were pre-existing (used for
+  other work too), the *marginal* cost attributable to this project is closer
+  to $0 — the seats were already paid for.
+- **No usage-based component.** Neither plan charges per token or per request,
+  so heavy days and light days cost the same. There is no metered log to
+  reconcile against; the figures above are the only basis available.
+
+#### Caveats
+
+- Flat-rate plans hide intensity. A day of near-continuous agent orchestration
+  and a day of occasional single questions are billed identically, so the
+  per-day proration ($300 ÷ 30 ≈ $10/day) over-attributes light days and
+  under-attributes heavy ones.
+- "ChatGPT Pro 5x" is recorded here at the $100/mo figure provided; if that
+  reflects multiple seats or a non-standard plan, divide accordingly for a
+  single-developer attribution.
+- The 30-day month is a convenience denominator; using 30.44 (average month)
+  changes the total by under a dollar.

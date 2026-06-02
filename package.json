@@ -25,7 +25,7 @@
     "lint": "eslint .",
     "lint:report": "node audit/type-safety/lint-report.mjs",
     "clean": "pnpm --recursive run clean && rm -rf node_modules",
-    "test": "pnpm --filter @ship/api test && pnpm --filter @ship/web test && pnpm --filter probe test",
+    "test": "pnpm --filter @ship/api test && pnpm --filter @ship/web test && pnpm --filter probe test && pnpm --filter @ship/cli test",
     "test:api": "pnpm --filter @ship/api test",
     "test:web": "pnpm --filter @ship/web test",
     "test:probe": "pnpm --filter probe test",

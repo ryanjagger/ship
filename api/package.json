@@ -16,9 +16,12 @@
     "test:coverage": "vitest run --coverage",
     "db:seed": "tsx src/db/seed.ts",
     "db:seed:develop": "tsx src/db/seedDevelop.ts",
+    "db:seed:grader": "tsx src/db/seedGraderApp.ts",
+    "db:seed:cli": "tsx src/db/seedCliApp.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:orphan-check": "tsx src/db/scripts/orphan-diagnostic.ts",
     "openapi:generate": "tsx src/scripts/generate-openapi.ts",
+    "openapi:export": "tsx src/platform/api/v1/openapi/export.ts",
     "mcp": "tsx src/mcp/server.ts"
   },
   "dependencies": {
@@ -63,6 +66,7 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
+    "@ryanjagger/ship-sdk": "workspace:*",
     "@types/bcryptjs": "^3.0.0",
     "@types/compression": "^1.8.1",
     "@types/cookie": "^1.0.0",
@@ -81,6 +85,7 @@
     "@types/supertest": "^6.0.3",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/ws": "^8.5.13",
+    "@seriousme/openapi-schema-validator": "^2.9.0",
     "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^4.0.16",
     "openapi3-ts": "^4.5.0",
