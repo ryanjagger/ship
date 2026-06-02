@@ -20,6 +20,7 @@ COPY web/package.json ./web/
 COPY shared/package.json ./shared/
 COPY probe/package.json ./probe/
 COPY sdk/package.json ./sdk/
+COPY cli/package.json ./cli/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .

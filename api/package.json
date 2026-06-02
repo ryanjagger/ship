@@ -17,6 +17,7 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:seed:develop": "tsx src/db/seedDevelop.ts",
     "db:seed:grader": "tsx src/db/seedGraderApp.ts",
+    "db:seed:cli": "tsx src/db/seedCliApp.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:orphan-check": "tsx src/db/scripts/orphan-diagnostic.ts",
     "openapi:generate": "tsx src/scripts/generate-openapi.ts",

@@ -4,3 +4,4 @@ packages:
   - 'shared'
   - 'probe'
   - 'sdk'
+  - 'cli'
