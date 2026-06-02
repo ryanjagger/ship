@@ -318,6 +318,25 @@ CREATE TABLE IF NOT EXISTS access_tokens (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- OAuth 2.0 Device Authorization Grant (RFC 8628) — backs `ship login`.
+-- device_code is SHA-256-hashed at rest; user_code is the short human code.
+CREATE TABLE IF NOT EXISTS oauth_device_codes (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_code_hash TEXT NOT NULL UNIQUE,
+  user_code        TEXT NOT NULL UNIQUE,
+  app_id           UUID NOT NULL REFERENCES oauth_apps(id) ON DELETE CASCADE,
+  scopes           TEXT[] NOT NULL DEFAULT '{}',
+  status           TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | denied
+  user_id          UUID REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id     UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+  interval_seconds INTEGER NOT NULL DEFAULT 5,
+  last_polled_at   TIMESTAMPTZ,
+  expires_at       TIMESTAMPTZ NOT NULL,
+  approved_at      TIMESTAMPTZ,
+  consumed_at      TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Sprint iterations (tracking work progress per sprint)
 CREATE TABLE IF NOT EXISTS sprint_iterations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -76,6 +76,16 @@ export async function findOAuthAppByClientId(clientId: string): Promise<OAuthApp
   return result.rows[0] ?? null;
 }
 
+/** Look up an app by its internal id (e.g. to display the name on /device). */
+export async function findOAuthAppById(id: string): Promise<OAuthApp | null> {
+  const result = await pool.query<OAuthApp>(
+    `SELECT id, client_id, name, redirect_uris, owner_user_id, requested_scopes, created_at, updated_at
+     FROM oauth_apps WHERE id = $1`,
+    [id]
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function verifyClientSecret(app: OAuthAppRow, secret: string): Promise<boolean> {
   return bcrypt.compare(secret, app.client_secret_hash);
 }
