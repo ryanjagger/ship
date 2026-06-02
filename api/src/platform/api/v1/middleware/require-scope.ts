@@ -1,11 +1,16 @@
 import type { Request, Response, NextFunction } from 'express';
 import { sendApiError } from '../errors.js';
+import { scopeRegistry } from '../scopes/registry.js';
 
 /**
  * `require(scope)` middleware factory (PRD §5.4, §5.6). Must run AFTER
  * `bearerAuth` (which populates `req.platform`). On insufficient scope it
  * returns 403 with the missing scope NAMED in the body — never an opaque
  * "forbidden".
+ *
+ * The check honors the scope hierarchy via `scopeRegistry.satisfies`: a
+ * `documents:read` token clears an `issues:read` gate (it is the superset),
+ * while an `issues:read` token does not clear a `documents:read` gate.
  */
 export function requireScope(scope: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -15,7 +20,7 @@ export function requireScope(scope: string) {
       sendApiError(res, req, 'unauthorized', 'Missing bearer token', { details: { reason: 'missing_token' } });
       return;
     }
-    if (!platform.grantedScopes.includes(scope)) {
+    if (!scopeRegistry.satisfies(platform.grantedScopes, scope)) {
       sendApiError(res, req, 'forbidden', `Insufficient scope: this action requires "${scope}".`, {
         details: { required_scope: scope, granted_scopes: platform.grantedScopes },
       });
