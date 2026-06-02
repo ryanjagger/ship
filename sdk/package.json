@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Ship Platform API client SDK",
   "license": "MIT",
-  "author": "U.S. Department of the Treasury",
+  "author": "Ryan Jagger",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
