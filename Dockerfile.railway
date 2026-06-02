@@ -24,10 +24,10 @@ COPY cli/package.json ./cli/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
-# Build @ship/sdk before @ship/api: api's tsc build compiles its test files,
-# one of which imports @ship/sdk, so the SDK's dist types must exist first.
+# Build @ryanjagger/ship-sdk before @ship/api: api's tsc build compiles its test
+# files, one of which imports the SDK, so its dist types must exist first.
 RUN pnpm build:shared \
- && pnpm --filter @ship/sdk build \
+ && pnpm --filter @ryanjagger/ship-sdk build \
  && pnpm --filter @ship/api build \
  && pnpm --filter @ship/web build
 

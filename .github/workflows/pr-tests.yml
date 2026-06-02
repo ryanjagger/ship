@@ -57,10 +57,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build shared + sdk packages
-        # @ship/api's test suite imports @ship/sdk (sdk.test.ts), which is a
+        # @ship/api's test suite imports @ryanjagger/ship-sdk (sdk.test.ts), a
         # workspace package resolved via its built dist. Build it here alongside
         # @ship/shared so the api tests can resolve it.
-        run: pnpm run build:shared && pnpm --filter @ship/sdk build
+        run: pnpm run build:shared && pnpm --filter @ryanjagger/ship-sdk build
 
       - name: Run database migrations
         run: pnpm --filter @ship/api db:migrate
