@@ -113,7 +113,7 @@ Every `/api/v1` failure ships the same `ApiError`:
 ## 5. SDK
 
 ```ts
-import { ShipClient } from '@ship/sdk';
+import { ShipClient } from '@ryanjagger/ship-sdk';
 
 const ship = new ShipClient({ token: process.env.SHIP_TOKEN!, baseUrl: process.env.SHIP_URL });
 

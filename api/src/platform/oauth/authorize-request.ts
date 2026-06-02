@@ -24,6 +24,28 @@ export function parseScopes(scope?: string): string[] {
   return (scope ?? '').split(/\s+/).filter(Boolean);
 }
 
+/**
+ * Validate a requested `scope` string against the app's registered scopes —
+ * the shared core of every flow (Auth-Code and Device). Unknown scopes and
+ * scopes the app was never granted are rejected; an omitted `scope` grants the
+ * app's full registered set.
+ */
+export function validateScopes(
+  scope: string | undefined,
+  app: Pick<OAuthApp, 'requested_scopes'>
+): AuthorizeValidation {
+  const requested = parseScopes(scope);
+  const { unknown } = scopeRegistry.partition(requested);
+  if (unknown.length > 0) {
+    return { ok: false, reason: `unknown scope(s): ${unknown.join(', ')}` };
+  }
+  const notAllowed = requested.filter((s) => !app.requested_scopes.includes(s));
+  if (notAllowed.length > 0) {
+    return { ok: false, reason: `scope(s) not permitted for this client: ${notAllowed.join(', ')}` };
+  }
+  return { ok: true, scopes: requested.length > 0 ? requested : app.requested_scopes };
+}
+
 type AppScopeFields = Pick<OAuthApp, 'redirect_uris' | 'requested_scopes'>;
 
 export function validateAuthorizeAgainstApp(
@@ -43,17 +65,6 @@ export function validateAuthorizeAgainstApp(
     return { ok: false, reason: 'code_challenge_method must be S256' };
   }
 
-  const requested = parseScopes(params.scope);
-  const { unknown } = scopeRegistry.partition(requested);
-  if (unknown.length > 0) {
-    return { ok: false, reason: `unknown scope(s): ${unknown.join(', ')}` };
-  }
-  const notAllowed = requested.filter((s) => !app.requested_scopes.includes(s));
-  if (notAllowed.length > 0) {
-    return { ok: false, reason: `scope(s) not permitted for this client: ${notAllowed.join(', ')}` };
-  }
-
-  // If the client omits `scope`, grant the app's full registered scope set.
-  const scopes = requested.length > 0 ? requested : app.requested_scopes;
-  return { ok: true, scopes };
+  // Device flow shares this scope check (it has no redirect_uri / PKCE).
+  return validateScopes(params.scope, app);
 }

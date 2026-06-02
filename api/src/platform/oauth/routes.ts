@@ -3,9 +3,17 @@ import type { Router as RouterType, Request, Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware, assertAuthed } from '../../middleware/auth.js';
 import { ERROR_CODES, HTTP_STATUS } from '@ship/shared';
-import { findOAuthAppByClientId, verifyClientSecret } from './apps.js';
-import { validateAuthorizeAgainstApp, type AuthorizeParams } from './authorize-request.js';
+import { findOAuthAppByClientId, findOAuthAppById, verifyClientSecret } from './apps.js';
+import { validateAuthorizeAgainstApp, validateScopes, type AuthorizeParams } from './authorize-request.js';
 import { issueAuthorizationCode, findAuthorizationCode, consumeAuthorizationCode } from './codes.js';
+import {
+  issueDeviceCode,
+  pollDeviceCode,
+  findDeviceByUserCode,
+  approveDeviceCode,
+  denyDeviceCode,
+  formatUserCode,
+} from './device-codes.js';
 import { issueAccessToken } from './tokens.js';
 import { verifyPkce } from './pkce.js';
 import { sendOAuthError } from './oauth-errors.js';
@@ -37,6 +45,8 @@ oauthPublicRouter.get('/authorize', (req: Request, res: Response): void => {
   res.redirect(`/oauth/consent${qs}`);
 });
 
+const DEVICE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code';
+
 const tokenSchema = z.object({
   grant_type: z.string(),
   code: z.string().optional(),
@@ -44,21 +54,22 @@ const tokenSchema = z.object({
   client_id: z.string().optional(),
   client_secret: z.string().optional(),
   code_verifier: z.string().optional(),
+  device_code: z.string().optional(),
 });
+type TokenRequest = z.infer<typeof tokenSchema>;
 
-// POST /api/oauth/token — Authorization Code + PKCE exchange (RFC 6749 §4.1.3).
-oauthPublicRouter.post('/token', async (req: Request, res: Response): Promise<void> => {
-  const parsed = tokenSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'Malformed token request');
-    return;
-  }
-  const { grant_type, code, redirect_uri, client_id, client_secret, code_verifier } = parsed.data;
+function tokenResponse(issued: { accessToken: string; expiresInSeconds: number; scopes: string[] }): Record<string, unknown> {
+  return {
+    access_token: issued.accessToken,
+    token_type: 'Bearer',
+    expires_in: issued.expiresInSeconds,
+    scope: issued.scopes.join(' '),
+  };
+}
 
-  if (grant_type !== 'authorization_code') {
-    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'unsupported_grant_type', 'Only authorization_code is supported');
-    return;
-  }
+// Authorization Code + PKCE exchange (RFC 6749 §4.1.3) — confidential client.
+async function handleAuthorizationCodeGrant(data: TokenRequest, res: Response): Promise<void> {
+  const { code, redirect_uri, client_id, client_secret, code_verifier } = data;
   if (!code || !redirect_uri || !client_id || !client_secret || !code_verifier) {
     sendOAuthError(
       res,
@@ -69,47 +80,155 @@ oauthPublicRouter.post('/token', async (req: Request, res: Response): Promise<vo
     return;
   }
 
+  const app = await findOAuthAppByClientId(client_id);
+  if (!app || !(await verifyClientSecret(app, client_secret))) {
+    sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Client authentication failed');
+    return;
+  }
+
+  // Validate the code fully BEFORE consuming, so a wrong PKCE verifier does not
+  // burn an otherwise-valid code.
+  const row = await findAuthorizationCode(code);
+  const invalidGrant = (msg: string): void =>
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_grant', msg);
+
+  if (!row) return invalidGrant('Authorization code is invalid');
+  if (row.app_id !== app.id) return invalidGrant('Authorization code was not issued to this client');
+  if (row.redirect_uri !== redirect_uri) return invalidGrant('redirect_uri does not match the authorization request');
+  if (row.consumed_at || new Date(row.expires_at) < new Date()) return invalidGrant('Authorization code is expired or already used');
+  if (!verifyPkce(code_verifier, row.code_challenge, row.code_challenge_method)) {
+    return invalidGrant('PKCE verification failed');
+  }
+
+  // Atomic single-use consume (guards against a concurrent double-exchange).
+  const consumed = await consumeAuthorizationCode(code);
+  if (!consumed) return invalidGrant('Authorization code is expired or already used');
+
+  const issued = await issueAccessToken({
+    appId: consumed.app_id,
+    userId: consumed.user_id,
+    workspaceId: consumed.workspace_id,
+    scopes: consumed.scopes,
+  });
+  res.status(HTTP_STATUS.OK).json(tokenResponse(issued));
+}
+
+// Device Authorization Grant poll (RFC 8628 §3.4-3.5) — PUBLIC client, so the
+// device_code is the proof of possession; NO client_secret is required.
+async function handleDeviceCodeGrant(data: TokenRequest, res: Response): Promise<void> {
+  if (!data.device_code || !data.client_id) {
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'device_code and client_id are required');
+    return;
+  }
+  const app = await findOAuthAppByClientId(data.client_id);
+  if (!app) {
+    sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Unknown client_id');
+    return;
+  }
+
+  const poll = await pollDeviceCode(data.device_code, app.id);
+  switch (poll.state) {
+    case 'pending':
+      return sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'authorization_pending', 'The user has not yet approved the request');
+    case 'slow_down':
+      return sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'slow_down', 'Polling too frequently; increase the interval by 5 seconds');
+    case 'denied':
+      return sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'access_denied', 'The user denied the request');
+    case 'expired':
+      return sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'expired_token', 'The device_code has expired; restart the flow');
+    case 'invalid':
+      return sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_grant', 'Unknown or already-redeemed device_code');
+    case 'approved': {
+      const issued = await issueAccessToken(poll.grant);
+      res.status(HTTP_STATUS.OK).json(tokenResponse(issued));
+      return;
+    }
+  }
+}
+
+// POST /api/oauth/token — dispatches by grant_type. Both grants speak the
+// RFC 6749 token-endpoint error format on failure.
+oauthPublicRouter.post('/token', async (req: Request, res: Response): Promise<void> => {
+  const parsed = tokenSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'Malformed token request');
+    return;
+  }
   try {
-    const app = await findOAuthAppByClientId(client_id);
-    if (!app || !(await verifyClientSecret(app, client_secret))) {
-      sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Client authentication failed');
+    if (parsed.data.grant_type === 'authorization_code') {
+      await handleAuthorizationCodeGrant(parsed.data, res);
+      return;
+    }
+    if (parsed.data.grant_type === DEVICE_GRANT_TYPE) {
+      await handleDeviceCodeGrant(parsed.data, res);
+      return;
+    }
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'unsupported_grant_type', 'Unsupported grant_type');
+  } catch (error) {
+    console.error('OAuth token endpoint error:', error);
+    sendOAuthError(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'server_error', 'Token request failed');
+  }
+});
+
+// POST /api/oauth/device/authorization — Device Authorization Request (RFC 8628
+// §3.1-3.2). Public: no session, no client_secret. Returns the device_code the
+// client polls with + the user_code the human types at /device.
+const deviceAuthSchema = z.object({
+  client_id: z.string(),
+  scope: z.string().optional(),
+});
+
+function publicBaseUrl(req: Request): string {
+  const configured = process.env.PUBLIC_BASE_URL;
+  if (configured) return configured.replace(/\/$/, '');
+  // req.protocol honors `trust proxy` (X-Forwarded-Proto) when configured.
+  return `${req.protocol}://${req.get('host') ?? 'localhost'}`;
+}
+
+oauthPublicRouter.post('/device/authorization', async (req: Request, res: Response): Promise<void> => {
+  const parsed = deviceAuthSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'client_id is required');
+    return;
+  }
+  try {
+    const app = await findOAuthAppByClientId(parsed.data.client_id);
+    if (!app) {
+      sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Unknown client_id');
+      return;
+    }
+    // The device grant authenticates a PUBLIC client by the device_code alone
+    // (no client_secret). Only clients explicitly opted in may use it, so an
+    // unauthenticated party can't borrow a confidential client's identity
+    // (RFC 6749 §5.2 unauthorized_client).
+    if (!app.allow_device_flow) {
+      sendOAuthError(
+        res,
+        HTTP_STATUS.BAD_REQUEST,
+        'unauthorized_client',
+        'This client is not authorized to use the device authorization grant'
+      );
+      return;
+    }
+    const scopeCheck = validateScopes(parsed.data.scope, app);
+    if (!scopeCheck.ok) {
+      sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_scope', scopeCheck.reason);
       return;
     }
 
-    // Validate the code fully BEFORE consuming, so a wrong PKCE verifier does
-    // not burn an otherwise-valid code.
-    const row = await findAuthorizationCode(code);
-    const invalidGrant = (msg: string): void =>
-      sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_grant', msg);
-
-    if (!row) return invalidGrant('Authorization code is invalid');
-    if (row.app_id !== app.id) return invalidGrant('Authorization code was not issued to this client');
-    if (row.redirect_uri !== redirect_uri) return invalidGrant('redirect_uri does not match the authorization request');
-    if (row.consumed_at || new Date(row.expires_at) < new Date()) return invalidGrant('Authorization code is expired or already used');
-    if (!verifyPkce(code_verifier, row.code_challenge, row.code_challenge_method)) {
-      return invalidGrant('PKCE verification failed');
-    }
-
-    // Atomic single-use consume (guards against a concurrent double-exchange).
-    const consumed = await consumeAuthorizationCode(code);
-    if (!consumed) return invalidGrant('Authorization code is expired or already used');
-
-    const issued = await issueAccessToken({
-      appId: consumed.app_id,
-      userId: consumed.user_id,
-      workspaceId: consumed.workspace_id,
-      scopes: consumed.scopes,
-    });
-
+    const issued = await issueDeviceCode({ appId: app.id, scopes: scopeCheck.scopes });
+    const verificationUri = `${publicBaseUrl(req)}/device`;
     res.status(HTTP_STATUS.OK).json({
-      access_token: issued.accessToken,
-      token_type: 'Bearer',
+      device_code: issued.deviceCode,
+      user_code: issued.userCode,
+      verification_uri: verificationUri,
+      verification_uri_complete: `${verificationUri}?code=${encodeURIComponent(issued.userCode)}`,
       expires_in: issued.expiresInSeconds,
-      scope: issued.scopes.join(' '),
+      interval: issued.intervalSeconds,
     });
   } catch (error) {
-    console.error('OAuth token exchange error:', error);
-    sendOAuthError(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'server_error', 'Token exchange failed');
+    console.error('OAuth device authorization error:', error);
+    sendOAuthError(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, 'server_error', 'Device authorization failed');
   }
 });
 
@@ -240,6 +359,97 @@ oauthConsentRouter.post('/authorize/decision', authMiddleware, async (req: Reque
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       success: false,
       error: { code: ERROR_CODES.INTERNAL_ERROR, message: 'Failed to process authorization decision' },
+    });
+  }
+});
+
+// ── Device flow approval (RFC 8628 §3.3) — session-authed, CSRF at mount ─────
+// These back the `/device` SPA page where a signed-in user enters the user_code
+// shown on their device and approves/denies it.
+
+// GET /api/oauth/device/validate?user_code= — render-time check (always 200 with
+// a discriminated payload, mirroring /authorize/validate).
+oauthConsentRouter.get('/device/validate', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  const userCode = typeof req.query.user_code === 'string' ? req.query.user_code : '';
+  try {
+    const row = userCode ? await findDeviceByUserCode(userCode) : null;
+    if (!row) {
+      res.json({ success: true, data: { valid: false, reason: 'That code wasn’t found. Check it and try again.' } });
+      return;
+    }
+    if (row.status !== 'pending' || new Date(row.expires_at) < new Date()) {
+      const reason =
+        row.status === 'approved'
+          ? 'This code has already been approved.'
+          : row.status === 'denied'
+            ? 'This code was denied.'
+            : 'This code has expired. Start over on your device.';
+      res.json({ success: true, data: { valid: false, reason, status: row.status } });
+      return;
+    }
+    const app = await findOAuthAppById(row.app_id);
+    res.json({
+      success: true,
+      data: {
+        valid: true,
+        app_name: app?.name ?? 'An application',
+        scopes: row.scopes,
+        user_code: formatUserCode(row.user_code),
+      },
+    });
+  } catch (error) {
+    console.error('OAuth device validate error:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      error: { code: ERROR_CODES.INTERNAL_ERROR, message: 'Failed to validate the device code' },
+    });
+  }
+});
+
+const deviceDecisionSchema = z.object({
+  user_code: z.string(),
+  decision: z.enum(['approve', 'deny']),
+});
+
+// POST /api/oauth/device/decision — approve/deny, binding the eventual token to
+// the signed-in user + their current workspace.
+oauthConsentRouter.post('/device/decision', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  if (!assertAuthed(req, res)) return; // needs userId + a selected workspaceId
+
+  const parsed = deviceDecisionSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(HTTP_STATUS.BAD_REQUEST).json({
+      success: false,
+      error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'Invalid request', details: parsed.error.flatten() },
+    });
+    return;
+  }
+
+  try {
+    if (parsed.data.decision === 'deny') {
+      await denyDeviceCode(parsed.data.user_code);
+      res.json({ success: true, data: { status: 'denied' } });
+      return;
+    }
+
+    const approved = await approveDeviceCode({
+      userCode: parsed.data.user_code,
+      userId: req.userId,
+      workspaceId: req.workspaceId,
+    });
+    if (!approved) {
+      res.status(HTTP_STATUS.BAD_REQUEST).json({
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'That code is no longer valid (expired or already handled).' },
+      });
+      return;
+    }
+    res.json({ success: true, data: { status: 'approved' } });
+  } catch (error) {
+    console.error('OAuth device decision error:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      error: { code: ERROR_CODES.INTERNAL_ERROR, message: 'Failed to process device decision' },
     });
   }
 });

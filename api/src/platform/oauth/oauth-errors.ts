@@ -12,7 +12,12 @@ export type OAuthErrorCode =
   | 'unauthorized_client'
   | 'unsupported_grant_type'
   | 'invalid_scope'
-  | 'server_error';
+  | 'server_error'
+  // RFC 8628 §3.5 device-flow token-endpoint polling responses.
+  | 'authorization_pending'
+  | 'slow_down'
+  | 'access_denied'
+  | 'expired_token';
 
 export function sendOAuthError(
   res: Response,

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
-import { ShipClient, ShipApiError } from '@ship/sdk';
+import { ShipClient, ShipApiError } from '@ryanjagger/ship-sdk';
 import { createApp } from '../../../../app.js';
 import { pool } from '../../../../db/client.js';
 import { createOAuthApp } from '../../../oauth/apps.js';
@@ -34,7 +34,7 @@ function makeAppFetch(app: Express): typeof fetch {
   return impl as unknown as typeof fetch;
 }
 
-describe('@ship/sdk · ShipClient against the in-process app', () => {
+describe('@ryanjagger/ship-sdk · ShipClient against the in-process app', () => {
   const app = createApp();
   const appFetch = makeAppFetch(app);
   let workspaceId: string;
