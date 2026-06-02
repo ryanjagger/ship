@@ -2,8 +2,9 @@
  * @ship/sdk — typed client for the Ship Platform API (`/api/v1`).
  *
  * MVP surface (PRD §5.8): `new ShipClient({ token }).me()` returns the typed
- * authenticated user. The `documents` / `issues` resource clients keep the shape
- * from the brief so later work slots in without reshaping the public surface.
+ * authenticated user. `documents` is the superset resource; `issues`, `sprints`,
+ * and `wiki` are typed resources pinned to one document_type (the same shape,
+ * minus the `type` selector).
  *
  * Types are defined here (not imported from @ship/shared) so the SDK is an
  * independently publishable package with no monorepo coupling. Runtime uses the
@@ -93,6 +94,21 @@ export interface CreateDocumentInput {
   content?: unknown;
 }
 
+/** List params for a typed resource (`issues`/`sprints`/`wiki`) — no `type` selector. */
+export interface ListTypedParams {
+  limit?: number;
+  cursor?: string;
+}
+
+/** Create body for a typed resource — `document_type` is fixed by the route. */
+export interface CreateTypedDocumentInput {
+  title?: string;
+  parent_id?: string | null;
+  properties?: Record<string, unknown>;
+  visibility?: 'private' | 'workspace';
+  content?: unknown;
+}
+
 /** Internal transport shared by the client and its resource sub-clients. */
 interface Transport {
   request<T>(method: string, path: string, body?: unknown): Promise<T>;
@@ -119,14 +135,40 @@ export class DocumentsClient {
   }
 }
 
-/** Stub for a future typed issues surface — keeps the ShipClient shape stable. */
-export class IssuesClient {
-  constructor(private readonly _transport: Transport) {}
+/**
+ * Client for a typed resource (`issues`, `sprints`, `wiki`). Backed by the same
+ * documents engine server-side, pinned to one document_type — so it returns
+ * `ShipDocument`s of that type and create() never takes a `document_type`.
+ */
+export class TypedResourceClient {
+  constructor(
+    private readonly transport: Transport,
+    /** URL segment under /api/v1, e.g. "issues". */
+    private readonly resource: string
+  ) {}
+
+  list(params: ListTypedParams = {}): Promise<DocumentList> {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.cursor) qs.set('cursor', params.cursor);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.transport.request<DocumentList>('GET', `/api/v1/${this.resource}${suffix}`);
+  }
+
+  get(id: string): Promise<ShipDocument> {
+    return this.transport.request<ShipDocument>('GET', `/api/v1/${this.resource}/${encodeURIComponent(id)}`);
+  }
+
+  create(input: CreateTypedDocumentInput): Promise<ShipDocument> {
+    return this.transport.request<ShipDocument>('POST', `/api/v1/${this.resource}`, input);
+  }
 }
 
 export class ShipClient implements Transport {
   readonly documents: DocumentsClient;
-  readonly issues: IssuesClient;
+  readonly issues: TypedResourceClient;
+  readonly sprints: TypedResourceClient;
+  readonly wiki: TypedResourceClient;
 
   private readonly token: string;
   private readonly baseUrl: string;
@@ -143,7 +185,9 @@ export class ShipClient implements Transport {
     this.fetchImpl = fetchImpl;
 
     this.documents = new DocumentsClient(this);
-    this.issues = new IssuesClient(this);
+    this.issues = new TypedResourceClient(this, 'issues');
+    this.sprints = new TypedResourceClient(this, 'sprints');
+    this.wiki = new TypedResourceClient(this, 'wiki');
   }
 
   /** GET /api/v1/me — the authenticated user + current workspace. */

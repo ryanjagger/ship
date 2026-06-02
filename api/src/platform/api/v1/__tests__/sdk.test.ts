@@ -101,4 +101,15 @@ describe('@ship/sdk · ShipClient against the in-process app', () => {
     expect(page.data.some((d) => d.id === created.id)).toBe(true);
     expect(page).toHaveProperty('next_cursor');
   });
+
+  it('issues.create pins the type and issues.list returns only issues', async () => {
+    const client = new ShipClient({ token, baseUrl: 'http://app.local', fetch: appFetch });
+    const created = await client.issues.create({ title: 'Issue via SDK' });
+    expect(created.document_type).toBe('issue');
+    const fetched = await client.issues.get(created.id);
+    expect(fetched.id).toBe(created.id);
+    const page = await client.issues.list({ limit: 50 });
+    expect(page.data.every((d) => d.document_type === 'issue')).toBe(true);
+    expect(page.data.some((d) => d.id === created.id)).toBe(true);
+  });
 });
