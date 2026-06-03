@@ -21,7 +21,7 @@ export function credentialsPath(env: NodeJS.ProcessEnv = process.env): string {
 export async function saveCredentials(creds: Credentials, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const path = credentialsPath(env);
   await fs.mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  // 0600 — the token is a bearer credential; keep it owner-only.
+  // 0600: the token is a bearer credential; keep it owner-only.
   await fs.writeFile(path, `${JSON.stringify(creds, null, 2)}\n`, { mode: 0o600 });
   return path;
 }

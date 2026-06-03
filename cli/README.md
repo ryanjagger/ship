@@ -1,8 +1,9 @@
-# @ship/cli
+# ship CLI
 
-A small command-line client for the Ship Platform API. Authenticates with the
-OAuth 2.0 Device Authorization Grant (RFC 8628) — no browser redirect or client
-secret on the device — and talks to the API through [`@ryanjagger/ship-sdk`](../sdk).
+A small command-line client for the Ship Platform API. The published `ship`
+binary is packaged with [`@ryanjagger/ship-sdk`](../sdk), so a clean drill can
+install one package and then run `ship login`. This workspace package is kept as
+an internal development wrapper; the CLI source lives in `sdk/src/cli`.
 
 ## Usage
 
@@ -21,14 +22,15 @@ re-run `ship login` after they expire.
 
 | Env | Default | Purpose |
 |-----|---------|---------|
-| `SHIP_API_URL` | `http://localhost:3000` | Ship API base URL |
-| `SHIP_CLIENT_ID` | `client_ship_cli` | OAuth client (provisioned automatically by a DB migration; no manual step) |
+| `SHIP_API_URL` | `https://ship-app-development-development.up.railway.app` | Ship API base URL |
+| `SHIP_CLIENT_ID` | `client_ship_cli` | OAuth client (seed with `pnpm --filter @ship/api db:seed:cli`) |
 
 ### Local dev note
 
-In local dev the API (`:3000`) and web app (`:5173`) run on different ports. The
-`/device` page is served by the web app, but the API builds the verification URL
-from its own host. So when running against `pnpm dev`, start the API with:
+In local dev the API (`:3000`) and web app (`:5173`) run on different ports. Run
+the CLI with `SHIP_API_URL=http://localhost:3000`. The `/device` page is served
+by the web app, but the API builds the verification URL from its own host. So
+when running against `pnpm dev`, start the API with:
 
 ```bash
 PUBLIC_BASE_URL=http://localhost:5173
@@ -40,6 +42,6 @@ production (single origin) this isn't needed.
 ## Build
 
 ```bash
-pnpm --filter @ship/cli build
-node cli/dist/index.js login
+pnpm --filter @ryanjagger/ship-sdk build
+node sdk/dist/cli/index.js login
 ```

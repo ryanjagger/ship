@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { requestDeviceAuthorization, pollDeviceToken, DeviceFlowError } from '@ryanjagger/ship-sdk';
+import { requestDeviceAuthorization, pollDeviceToken, DeviceFlowError } from '../../index.js';
 import type { CliConfig } from '../config.js';
 import { saveCredentials } from '../credentials.js';
 
@@ -10,7 +10,7 @@ function openBrowser(url: string): void {
   try {
     const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
     child.on('error', () => {
-      /* ignore — the URL is already printed for manual use */
+      /* ignore: the URL is already printed for manual use */
     });
     child.unref();
   } catch {
@@ -31,7 +31,7 @@ export async function login(config: CliConfig): Promise<number> {
     console.log(`  ${auth.verification_uri}`);
     console.log(`\nand enter the code:  ${auth.user_code}\n`);
     console.log(`(or open the direct link: ${auth.verification_uri_complete} )\n`);
-    console.log('Waiting for approval…');
+    console.log('Waiting for approval...');
     openBrowser(auth.verification_uri_complete);
 
     const token = await pollDeviceToken({
@@ -47,14 +47,14 @@ export async function login(config: CliConfig): Promise<number> {
       obtainedAt: new Date().toISOString(),
     });
 
-    console.log(`\n✓ Signed in. Token saved to ${path}`);
-    console.log(`  (expires in ~${Math.round(token.expires_in / 60)} min — re-run \`ship login\` after that.)`);
+    console.log(`\nSigned in. Token saved to ${path}`);
+    console.log(`  (expires in ~${Math.round(token.expires_in / 60)} min; re-run \`ship login\` after that.)`);
     return 0;
   } catch (err) {
     if (err instanceof DeviceFlowError) {
-      console.error(`\n✗ Login failed: ${err.error}${err.description ? ` — ${err.description}` : ''}`);
+      console.error(`\nLogin failed: ${err.error}${err.description ? ` - ${err.description}` : ''}`);
     } else {
-      console.error(`\n✗ Login failed: ${(err as Error).message}`);
+      console.error(`\nLogin failed: ${(err as Error).message}`);
     }
     return 1;
   }

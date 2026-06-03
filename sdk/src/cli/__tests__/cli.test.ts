@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { parseArgs } from '../args.js';
-import { loadConfig } from '../config.js';
+import { DEFAULT_BASE_URL, loadConfig } from '../config.js';
 import { saveCredentials, loadCredentials, clearCredentials, credentialsPath } from '../credentials.js';
 
 describe('ship CLI · arg parsing', () => {
@@ -26,7 +26,7 @@ describe('ship CLI · arg parsing', () => {
 describe('ship CLI · config', () => {
   it('defaults baseUrl + clientId', () => {
     const c = loadConfig({} as NodeJS.ProcessEnv);
-    expect(c.baseUrl).toBe('http://localhost:3000');
+    expect(c.baseUrl).toBe(DEFAULT_BASE_URL);
     expect(c.clientId).toBe('client_ship_cli');
   });
 
@@ -51,7 +51,7 @@ describe('ship CLI · credentials store', () => {
 
   it('saves with 0600 perms and round-trips', async () => {
     const path = await saveCredentials(
-      { token: 'ship_at_abc', baseUrl: 'http://localhost:3000', obtainedAt: '2026-01-01T00:00:00Z' },
+      { token: 'ship_at_abc', baseUrl: DEFAULT_BASE_URL, obtainedAt: '2026-01-01T00:00:00Z' },
       env
     );
     expect(path).toBe(credentialsPath(env));
@@ -60,7 +60,7 @@ describe('ship CLI · credentials store', () => {
 
     const loaded = await loadCredentials(env);
     expect(loaded?.token).toBe('ship_at_abc');
-    expect(loaded?.baseUrl).toBe('http://localhost:3000');
+    expect(loaded?.baseUrl).toBe(DEFAULT_BASE_URL);
   });
 
   it('returns null when absent, and after clear', async () => {

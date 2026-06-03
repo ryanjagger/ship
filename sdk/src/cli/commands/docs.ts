@@ -1,4 +1,4 @@
-import { ShipClient, ShipApiError } from '@ryanjagger/ship-sdk';
+import { ShipClient, ShipApiError } from '../../index.js';
 import type { CliConfig } from '../config.js';
 import { loadCredentials } from '../credentials.js';
 
@@ -27,7 +27,7 @@ export async function docsCreate(config: CliConfig, title: string): Promise<numb
   if (!client) return 1;
   try {
     const doc = await client.documents.create({ title });
-    console.log(`✓ Created ${doc.document_type} ${doc.id}`);
+    console.log(`Created ${doc.document_type} ${doc.id}`);
     console.log(`  ${doc.title}`);
     return 0;
   } catch (err) {
@@ -41,7 +41,7 @@ export async function docsList(config: CliConfig): Promise<number> {
   try {
     const page = await client.documents.list({ limit: 50 });
     if (page.data.length === 0) {
-      console.log('No documents yet. Create one with:  ship docs create --title "…"');
+      console.log('No documents yet. Create one with:  ship docs create --title "..."');
       return 0;
     }
     for (const d of page.data) {
