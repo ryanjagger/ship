@@ -5,6 +5,11 @@ const Uuid = z.string().uuid();
 const DateTime = z.string();
 const JsonContent = z.unknown().nullable().optional();
 
+export interface BelongsToInput {
+  id: string;
+  type: 'program' | 'project' | 'sprint' | 'parent';
+}
+
 export interface TypedDocumentRow {
   id: string;
   document_type: string;
@@ -24,6 +29,16 @@ export interface TypedDocumentRow {
   converted_from_id?: string | null;
   content?: unknown;
   created_at_raw?: string;
+  belongs_to?: unknown;
+  issue_count?: string | number | null;
+  sprint_count?: string | number | null;
+  completed_count?: string | number | null;
+  started_count?: string | number | null;
+  has_plan?: boolean | string | null;
+  has_retro?: boolean | string | null;
+  retro_outcome?: string | null;
+  retro_id?: string | null;
+  inferred_status?: string | null;
 }
 
 export interface DocumentWriteInput {
@@ -32,6 +47,7 @@ export interface DocumentWriteInput {
   visibility?: 'private' | 'workspace';
   content?: unknown;
   properties: Record<string, unknown>;
+  belongs_to?: BelongsToInput[];
 }
 
 export interface DocumentUpdateInput {
@@ -40,6 +56,7 @@ export interface DocumentUpdateInput {
   visibility?: 'private' | 'workspace';
   content?: unknown;
   properties?: Record<string, unknown>;
+  belongs_to?: BelongsToInput[];
 }
 
 export interface TypedDocumentResource {
@@ -82,12 +99,46 @@ function num(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function int(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 function bool(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
+function boolish(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 't' || value === 'true';
+  return false;
+}
+
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function belongsTo(value: unknown): Array<BelongsToInput & { title?: string; color?: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const entry = item as Record<string, unknown>;
+    const id = str(entry.id);
+    const type = str(entry.type);
+    if (!id || !['program', 'project', 'sprint', 'parent'].includes(type ?? '')) return [];
+    return [
+      {
+        id,
+        type: type as BelongsToInput['type'],
+        ...(str(entry.title) ? { title: str(entry.title)! } : {}),
+        ...(str(entry.color) ? { color: str(entry.color)! } : {}),
+      },
+    ];
+  });
 }
 
 function base(row: TypedDocumentRow) {
@@ -187,6 +238,7 @@ const CreateIssueSchema = BaseCreateSchema.omit({ parent_id: true }).extend({
   is_system_generated: z.boolean().optional().default(false),
   accountability_target_id: Uuid.nullable().optional(),
   accountability_type: z.string().nullable().optional(),
+  belongs_to: z.array(BelongsToSchema).optional().default([]),
 });
 const UpdateIssueSchema = BaseUpdateSchema.omit({ parent_id: true }).extend({
   state: IssueStateSchema.optional(),
@@ -195,6 +247,7 @@ const UpdateIssueSchema = BaseUpdateSchema.omit({ parent_id: true }).extend({
   estimate: z.number().positive().nullable().optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   rejection_reason: z.string().nullable().optional(),
+  belongs_to: z.array(BelongsToSchema).optional(),
 });
 
 const ProgramSchema = z.object({
@@ -461,7 +514,7 @@ function issueResponse(row: TypedDocumentRow) {
     cancelled_at: isoNullable(row.cancelled_at),
     reopened_at: isoNullable(row.reopened_at),
     converted_from_id: row.converted_from_id ?? null,
-    belongs_to: [],
+    belongs_to: belongsTo(row.belongs_to),
     ...withContent(row),
   };
 }
@@ -478,6 +531,7 @@ function writeFromKnownFields(input: Record<string, unknown>, propertyKeys: stri
     visibility: input.visibility as 'private' | 'workspace' | undefined,
     content: input.content,
     properties,
+    belongs_to: Array.isArray(input.belongs_to) ? (input.belongs_to as BelongsToInput[]) : undefined,
   };
 }
 
@@ -492,6 +546,7 @@ function updateFromKnownFields(input: Record<string, unknown>, propertyKeys: str
     visibility: input.visibility as 'private' | 'workspace' | undefined,
     content: Object.prototype.hasOwnProperty.call(input, 'content') ? input.content : undefined,
     properties: Object.keys(properties).length > 0 ? properties : undefined,
+    belongs_to: Array.isArray(input.belongs_to) ? (input.belongs_to as BelongsToInput[]) : undefined,
   };
 }
 
@@ -569,8 +624,8 @@ export const TYPED_DOCUMENT_RESOURCES = [
         accountable_id: str(p.accountable_id),
         consulted_ids: stringArray(p.consulted_ids),
         informed_ids: stringArray(p.informed_ids),
-        issue_count: 0,
-        sprint_count: 0,
+        issue_count: int(row.issue_count),
+        sprint_count: int(row.sprint_count),
         archived_at: isoNullable(row.archived_at),
         created_at: iso(row.created_at),
         updated_at: iso(row.updated_at),
@@ -615,9 +670,9 @@ export const TYPED_DOCUMENT_RESOURCES = [
         has_design_review: bool(p.has_design_review),
         design_review_notes: str(p.design_review_notes),
         target_date: str(p.target_date),
-        inferred_status: str(p.status) ?? 'backlog',
-        sprint_count: 0,
-        issue_count: 0,
+        inferred_status: str(row.inferred_status) ?? 'backlog',
+        sprint_count: int(row.sprint_count),
+        issue_count: int(row.issue_count),
         is_complete: bool(p.is_complete),
         missing_fields: stringArray(p.missing_fields),
         created_at: iso(row.created_at),
@@ -660,13 +715,13 @@ export const TYPED_DOCUMENT_RESOURCES = [
         review_approval: (p.review_approval as Record<string, unknown> | null | undefined) ?? null,
         review_rating: (p.review_rating as Record<string, unknown> | null | undefined) ?? null,
         accountable_id: str(p.accountable_id),
-        issue_count: 0,
-        completed_count: 0,
-        started_count: 0,
-        has_plan: false,
-        has_retro: false,
-        retro_outcome: null,
-        retro_id: null,
+        issue_count: int(row.issue_count),
+        completed_count: int(row.completed_count),
+        started_count: int(row.started_count),
+        has_plan: boolish(row.has_plan),
+        has_retro: boolish(row.has_retro),
+        retro_outcome: row.retro_outcome ?? null,
+        retro_id: row.retro_id ?? null,
         created_at: iso(row.created_at),
         updated_at: iso(row.updated_at),
       };

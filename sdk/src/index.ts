@@ -269,6 +269,7 @@ export interface CreateIssueInput extends Omit<CreateTypedResourceInput, 'parent
   state?: IssueState;
   priority?: IssuePriority;
   assignee_id?: string | null;
+  belongs_to?: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent' }>;
   estimate?: number | null;
   source?: IssueSource;
   due_date?: string | null;
@@ -280,6 +281,7 @@ export interface UpdateIssueInput extends Omit<UpdateTypedResourceInput, 'parent
   state?: IssueState;
   priority?: IssuePriority;
   assignee_id?: string | null;
+  belongs_to?: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent' }>;
   estimate?: number | null;
   due_date?: string | null;
   rejection_reason?: string | null;

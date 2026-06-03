@@ -125,18 +125,127 @@ describe('Platform API · typed document-backed resources', () => {
   });
 
   it('creates issues with native fields and ticket numbering', async () => {
+    const project = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by)
+       VALUES ($1, 'project', 'Issue Target Project', 'workspace', $2)
+       RETURNING id`,
+      [workspaceId, userId]
+    );
+    const projectId = project.rows[0]!.id;
+
     const created = await request(app)
       .post('/api/v1/issues')
       .set('Authorization', `Bearer ${typedToken}`)
-      .send({ title: 'Typed Native Issue', state: 'todo', priority: 'high' });
+      .send({
+        title: 'Typed Native Issue',
+        state: 'todo',
+        priority: 'high',
+        belongs_to: [{ id: projectId, type: 'project' }],
+      });
     expect(created.status).toBe(201);
     expect(created.body).not.toHaveProperty('document_type');
     expect(created.body).not.toHaveProperty('properties');
     expect(created.body).toMatchObject({ title: 'Typed Native Issue', state: 'todo', priority: 'high' });
     expect(created.body.ticket_number).toEqual(expect.any(Number));
     expect(created.body.display_id).toBe(`#${created.body.ticket_number}`);
+    expect(created.body.belongs_to).toEqual([
+      expect.objectContaining({ id: projectId, type: 'project', title: 'Issue Target Project' }),
+    ]);
+    const association = await pool.query(
+      `SELECT 1 FROM document_associations
+       WHERE document_id = $1 AND related_id = $2 AND relationship_type = 'project'`,
+      [created.body.id, projectId]
+    );
+    expect(association.rowCount).toBe(1);
 
     await request(app).delete(`/api/v1/issues/${created.body.id}`).set('Authorization', `Bearer ${typedToken}`);
+  });
+
+  it('returns relational fields computed from associations', async () => {
+    const program = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by)
+       VALUES ($1, 'program', 'Rel Program', 'workspace', $2)
+       RETURNING id`,
+      [workspaceId, userId]
+    );
+    const project = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by, properties)
+       VALUES ($1, 'project', 'Rel Project', 'workspace', $2, $3)
+       RETURNING id`,
+      [workspaceId, userId, JSON.stringify({ status: 'not-a-real-status' })]
+    );
+    const sprint = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by, properties)
+       VALUES ($1, 'sprint', 'Rel Sprint', 'workspace', $2, $3)
+       RETURNING id`,
+      [workspaceId, userId, JSON.stringify({ sprint_number: 12, status: 'active' })]
+    );
+    const issueRows = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by, properties, ticket_number)
+       VALUES
+         ($1, 'issue', 'Rel Done Issue', 'workspace', $2, $3, 9001),
+         ($1, 'issue', 'Rel Started Issue', 'workspace', $2, $4, 9002)
+       RETURNING id`,
+      [
+        workspaceId,
+        userId,
+        JSON.stringify({ state: 'done', priority: 'high' }),
+        JSON.stringify({ state: 'in_review', priority: 'medium' }),
+      ]
+    );
+    const [programId, projectId, sprintId] = [program.rows[0]!.id, project.rows[0]!.id, sprint.rows[0]!.id];
+    const issueIds = issueRows.rows.map((row) => row.id);
+    await pool.query(
+      `INSERT INTO document_associations (document_id, related_id, relationship_type)
+       VALUES
+         ($1, $3, 'program'),
+         ($2, $3, 'program'),
+         ($4, $3, 'program'),
+         ($1, $5, 'project'),
+         ($2, $5, 'project'),
+         ($4, $5, 'project'),
+         ($1, $6, 'sprint'),
+         ($2, $6, 'sprint')`,
+      [issueIds[0], issueIds[1], programId, sprintId, projectId, sprintId]
+    );
+    const plan = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, parent_id, visibility, created_by)
+       VALUES ($1, 'weekly_plan', 'Rel Plan', $2, 'workspace', $3)
+       RETURNING id`,
+      [workspaceId, sprintId, userId]
+    );
+    const retro = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by, properties)
+       VALUES ($1, 'weekly_retro', 'Rel Retro', 'workspace', $2, $3)
+       RETURNING id`,
+      [workspaceId, userId, JSON.stringify({ outcome: 'validated' })]
+    );
+    await pool.query(
+      `INSERT INTO document_associations (document_id, related_id, relationship_type)
+       VALUES ($1, $2, 'sprint')`,
+      [retro.rows[0]!.id, sprintId]
+    );
+
+    const programRes = await request(app).get(`/api/v1/programs/${programId}`).set('Authorization', `Bearer ${typedToken}`);
+    expect(programRes.status).toBe(200);
+    expect(programRes.body).toMatchObject({ issue_count: 2, sprint_count: 1 });
+
+    const projectRes = await request(app).get(`/api/v1/projects/${projectId}`).set('Authorization', `Bearer ${typedToken}`);
+    expect(projectRes.status).toBe(200);
+    expect(projectRes.body).toMatchObject({ issue_count: 2, sprint_count: 1, inferred_status: 'backlog' });
+
+    const sprintRes = await request(app).get(`/api/v1/sprints/${sprintId}`).set('Authorization', `Bearer ${typedToken}`);
+    expect(sprintRes.status).toBe(200);
+    expect(sprintRes.body).toMatchObject({
+      issue_count: 2,
+      completed_count: 1,
+      started_count: 1,
+      has_plan: true,
+      has_retro: true,
+      retro_outcome: 'validated',
+      retro_id: retro.rows[0]!.id,
+    });
+    expect(plan.rows[0]!.id).toBeTruthy();
   });
 
   it('does not expose internal conversation/insight routes', async () => {

@@ -1009,6 +1009,38 @@
               "string",
               "null"
             ]
+          },
+          "belongs_to": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "program",
+                    "project",
+                    "sprint",
+                    "parent"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "type"
+              ]
+            },
+            "default": []
           }
         }
       },
@@ -1076,6 +1108,37 @@
               "string",
               "null"
             ]
+          },
+          "belongs_to": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "program",
+                    "project",
+                    "sprint",
+                    "parent"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "type"
+              ]
+            }
           }
         }
       },
