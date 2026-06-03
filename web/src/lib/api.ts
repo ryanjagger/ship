@@ -311,6 +311,8 @@ export interface OAuthAppSummary {
   redirect_uris: string[];
   requested_scopes: string[];
   allow_device_flow: boolean;
+  /** Platform-managed first-party client (e.g. the Ship CLI): read-only, cannot be deleted/rotated. */
+  is_system: boolean;
   owner_user_id: string | null;
   owner_email: string | null;
   owner_name: string | null;

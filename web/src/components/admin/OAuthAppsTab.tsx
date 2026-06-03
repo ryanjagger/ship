@@ -136,7 +136,16 @@ export function OAuthAppsTab() {
             ) : (
               apps.map((app) => (
                 <tr key={app.id}>
-                  <td className={cn(TD, 'font-medium text-foreground')}>{app.name}</td>
+                  <td className={cn(TD, 'font-medium text-foreground')}>
+                    <div className="flex items-center gap-2">
+                      {app.name}
+                      {app.is_system && (
+                        <span className="rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                          System
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className={TD}>
                     <div className="flex items-center gap-2">
                       <code className="font-mono text-xs text-muted break-all">{app.client_id}</code>
@@ -158,18 +167,31 @@ export function OAuthAppsTab() {
                     {new Date(app.created_at).toLocaleDateString()}
                   </td>
                   <td className={cn(TD, 'text-right whitespace-nowrap')}>
-                    <button
-                      onClick={() => setPending({ kind: 'rotate', app })}
-                      className="text-sm text-accent-text hover:underline"
-                    >
-                      Rotate secret
-                    </button>
-                    <button
-                      onClick={() => setPending({ kind: 'delete', app })}
-                      className="ml-4 text-sm text-red-500 hover:text-red-400 transition-colors"
-                    >
-                      Delete
-                    </button>
+                    {app.is_system ? (
+                      <span
+                        className="inline-flex items-center gap-1.5 text-sm text-muted"
+                        title="This client is provisioned and managed by the platform."
+                        data-testid="oauth-app-system-managed"
+                      >
+                        <LockIcon />
+                        Managed by platform
+                      </span>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setPending({ kind: 'rotate', app })}
+                          className="text-sm text-accent-text hover:underline"
+                        >
+                          Rotate secret
+                        </button>
+                        <button
+                          onClick={() => setPending({ kind: 'delete', app })}
+                          className="ml-4 text-sm text-red-500 hover:text-red-400 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))
@@ -406,6 +428,19 @@ function PlusIcon() {
   return (
     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 0h10.5a.75.75 0 0 1 .75.75v8.25a.75.75 0 0 1-.75.75H6.75a.75.75 0 0 1-.75-.75v-8.25a.75.75 0 0 1 .75-.75Z"
+      />
     </svg>
   );
 }
