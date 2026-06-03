@@ -68,7 +68,7 @@ sed -i "s/__LISTEN_PORT__/${LISTEN_PORT}/g; s/__API_PORT__/${API_PORT}/g" /etc/n
 
 cd /app/api
 node dist/db/migrate.js
-node dist/db/seedCliApp.js
+node dist/db/seedCliApp.js || echo "cli seed failed; continuing boot"
 
 if [ "${ENVIRONMENT:-}" = "dev-railway" ] && [ "${ALLOW_DEVELOP_DB_SEED:-}" = "true" ]; then
   node dist/db/seedDevelop.js || echo "develop seed failed; continuing boot"
