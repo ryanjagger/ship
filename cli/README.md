@@ -22,7 +22,7 @@ re-run `ship login` after they expire.
 | Env | Default | Purpose |
 |-----|---------|---------|
 | `SHIP_API_URL` | `http://localhost:3000` | Ship API base URL |
-| `SHIP_CLIENT_ID` | `client_ship_cli` | OAuth client (seed with `pnpm --filter @ship/api db:seed:cli`) |
+| `SHIP_CLIENT_ID` | `client_ship_cli` | OAuth client (provisioned automatically by a DB migration; no manual step) |
 
 ### Local dev note
 
