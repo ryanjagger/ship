@@ -3,10 +3,8 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { parseArgs } from '../args.js';
-import { loadConfig } from '../config.js';
+import { DEFAULT_BASE_URL, loadConfig } from '../config.js';
 import { saveCredentials, loadCredentials, clearCredentials, credentialsPath } from '../credentials.js';
-
-const DEFAULT_BASE_URL = 'https://ship-app-development-development.up.railway.app';
 
 describe('ship CLI · arg parsing', () => {
   it('parses command + subcommand + value flag', () => {

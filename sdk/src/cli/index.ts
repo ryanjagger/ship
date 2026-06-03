@@ -4,11 +4,11 @@ import { parseArgs } from './args.js';
 import { login } from './commands/login.js';
 import { docsCreate, docsList } from './commands/docs.js';
 
-const HELP = `ship — Ship Platform CLI
+const HELP = `ship - Ship Platform CLI
 
 Usage:
   ship login                       Sign in via OAuth device flow (opens a browser)
-  ship docs create --title "…"     Create a document
+  ship docs create --title "..."   Create a document
   ship docs list                   List your documents
 
 Environment:

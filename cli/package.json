@@ -9,12 +9,12 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm --filter @ryanjagger/ship-sdk build",
+    "dev": "pnpm --filter @ryanjagger/ship-sdk dev",
     "clean": "rm -rf dist",
-    "type-check": "tsc --noEmit",
-    "test": "vitest run",
-    "start": "node dist/index.js"
+    "type-check": "pnpm --filter @ryanjagger/ship-sdk type-check",
+    "test": "pnpm --filter @ryanjagger/ship-sdk test",
+    "start": "node ../sdk/dist/cli/index.js"
   },
   "dependencies": {
     "@ryanjagger/ship-sdk": "workspace:*"

@@ -11,7 +11,7 @@ export interface CliConfig {
   clientId: string;
 }
 
-const DEFAULT_BASE_URL = 'https://ship-app-development-development.up.railway.app';
+export const DEFAULT_BASE_URL = 'https://ship-app-development-development.up.railway.app';
 const DEFAULT_CLIENT_ID = 'client_ship_cli';
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
