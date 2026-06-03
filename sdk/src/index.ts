@@ -2,8 +2,8 @@
  * @ryanjagger/ship-sdk — typed client for the Ship Platform API (`/api/v1`).
  *
  * MVP surface (PRD §5.8): `new ShipClient({ token }).me()` returns the typed
- * authenticated user. The `documents` / `issues` resource clients keep the shape
- * from the brief so later work slots in without reshaping the public surface.
+ * authenticated user. Typed resource clients expose the document-backed public
+ * API while `documents` remains available as the legacy broad surface.
  *
  * Types are defined here (not imported from @ship/shared) so the SDK is an
  * independently publishable package with no monorepo coupling. Runtime uses the
@@ -93,6 +93,272 @@ export interface CreateDocumentInput {
   content?: unknown;
 }
 
+export interface UpdateDocumentInput {
+  title?: string;
+  parent_id?: string | null;
+  properties?: Record<string, unknown>;
+  visibility?: 'private' | 'workspace';
+  content?: unknown;
+}
+
+export interface ListTypedResourceParams {
+  limit?: number;
+  cursor?: string;
+}
+
+export type CreateTypedResourceInput = Omit<CreateDocumentInput, 'document_type'>;
+export type UpdateTypedResourceInput = UpdateDocumentInput;
+
+export interface Page<T> {
+  data: T[];
+  next_cursor: string | null;
+}
+
+interface BaseResource {
+  id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ContentResource extends BaseResource {
+  title: string;
+  content?: unknown;
+  created_by: string | null;
+}
+
+export interface ShipWikiPage extends ContentResource {
+  parent_id: string | null;
+  visibility: string;
+  maintainer_id: string | null;
+}
+
+export type IssueState = 'triage' | 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled';
+export type IssuePriority = 'urgent' | 'high' | 'medium' | 'low' | 'none';
+export type IssueSource = 'internal' | 'external' | 'action_items';
+
+export interface ShipIssue extends ContentResource {
+  display_id: string;
+  ticket_number: number | null;
+  state: IssueState;
+  priority: IssuePriority;
+  assignee_id: string | null;
+  estimate: number | null;
+  source: IssueSource;
+  due_date: string | null;
+  is_system_generated: boolean;
+  accountability_target_id: string | null;
+  accountability_type: string | null;
+  rejection_reason: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  reopened_at?: string | null;
+  converted_from_id?: string | null;
+  belongs_to: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent'; title?: string; color?: string }>;
+}
+
+export interface ShipProgram extends BaseResource {
+  name: string;
+  color: string;
+  emoji: string | null;
+  owner_id: string | null;
+  accountable_id: string | null;
+  consulted_ids: string[];
+  informed_ids: string[];
+  issue_count: number;
+  sprint_count: number;
+  archived_at: string | null;
+}
+
+export interface ShipProject extends BaseResource {
+  title: string;
+  impact: number | null;
+  confidence: number | null;
+  ease: number | null;
+  ice_score: number | null;
+  color: string;
+  emoji: string | null;
+  program_id: string | null;
+  owner_id: string | null;
+  accountable_id: string | null;
+  consulted_ids: string[];
+  informed_ids: string[];
+  plan: string | null;
+  plan_approval: Record<string, unknown> | null;
+  retro_approval: Record<string, unknown> | null;
+  has_retro: boolean;
+  has_design_review: boolean | null;
+  design_review_notes: string | null;
+  target_date: string | null;
+  inferred_status: string;
+  sprint_count: number;
+  issue_count: number;
+  is_complete: boolean | null;
+  missing_fields: string[];
+  archived_at: string | null;
+  converted_from_id: string | null;
+}
+
+export interface ShipSprint extends BaseResource {
+  name: string;
+  sprint_number: number;
+  status: 'planning' | 'active' | 'completed';
+  owner_id: string | null;
+  program_id: string | null;
+  plan: string | null;
+  success_criteria: string[] | null;
+  confidence: number | null;
+  plan_history: Array<Record<string, unknown>> | null;
+  is_complete: boolean | null;
+  missing_fields: string[];
+  planned_issue_ids: string[] | null;
+  snapshot_taken_at: string | null;
+  plan_approval: Record<string, unknown> | null;
+  review_approval: Record<string, unknown> | null;
+  review_rating: Record<string, unknown> | null;
+  accountable_id: string | null;
+  issue_count: number;
+  completed_count: number;
+  started_count: number;
+  has_plan: boolean;
+  has_retro: boolean;
+  retro_outcome: string | null;
+  retro_id: string | null;
+}
+
+export interface ShipPerson extends BaseResource {
+  name: string;
+  email: string | null;
+  role: string | null;
+  capacity_hours: number | null;
+  reports_to: string | null;
+  visibility: string;
+  created_by: string | null;
+}
+
+export interface ShipWeeklyPlan extends ContentResource {
+  person_id: string | null;
+  project_id: string | null;
+  week_number: number | null;
+  submitted_at: string | null;
+}
+
+export type ShipWeeklyRetro = ShipWeeklyPlan;
+
+export interface ShipStandup extends ContentResource {
+  author_id: string | null;
+  date: string | null;
+  submitted_at: string | null;
+}
+
+export interface ShipWeeklyReview extends ContentResource {
+  sprint_id: string | null;
+  owner_id: string | null;
+  plan_validated: boolean | null;
+}
+
+export interface CreateWikiPageInput extends Omit<CreateTypedResourceInput, 'properties'> {
+  maintainer_id?: string | null;
+}
+export interface UpdateWikiPageInput extends Omit<UpdateTypedResourceInput, 'properties'> {
+  maintainer_id?: string | null;
+}
+
+export interface CreateIssueInput extends Omit<CreateTypedResourceInput, 'parent_id' | 'properties'> {
+  title?: string;
+  state?: IssueState;
+  priority?: IssuePriority;
+  assignee_id?: string | null;
+  belongs_to?: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent' }>;
+  estimate?: number | null;
+  source?: IssueSource;
+  due_date?: string | null;
+  is_system_generated?: boolean;
+  accountability_target_id?: string | null;
+  accountability_type?: string | null;
+}
+export interface UpdateIssueInput extends Omit<UpdateTypedResourceInput, 'parent_id' | 'properties'> {
+  state?: IssueState;
+  priority?: IssuePriority;
+  assignee_id?: string | null;
+  belongs_to?: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent' }>;
+  estimate?: number | null;
+  due_date?: string | null;
+  rejection_reason?: string | null;
+}
+
+export interface CreateProgramInput extends Omit<CreateTypedResourceInput, 'content' | 'parent_id' | 'properties'> {
+  title?: string;
+  color?: string;
+  emoji?: string | null;
+  owner_id?: string | null;
+  accountable_id?: string | null;
+  consulted_ids?: string[];
+  informed_ids?: string[];
+}
+export type UpdateProgramInput = Partial<CreateProgramInput>;
+
+export interface CreateProjectInput extends Omit<CreateTypedResourceInput, 'parent_id' | 'properties'> {
+  impact?: number | null;
+  confidence?: number | null;
+  ease?: number | null;
+  color?: string;
+  emoji?: string | null;
+  program_id?: string | null;
+  owner_id?: string | null;
+  accountable_id?: string | null;
+  consulted_ids?: string[];
+  informed_ids?: string[];
+  plan?: string | null;
+  target_date?: string | null;
+}
+export interface UpdateProjectInput extends Partial<CreateProjectInput> {
+  has_design_review?: boolean | null;
+  design_review_notes?: string | null;
+}
+
+export interface CreateSprintInput extends Omit<CreateTypedResourceInput, 'parent_id' | 'properties'> {
+  sprint_number: number;
+  owner_id?: string | null;
+  program_id?: string | null;
+  status?: 'planning' | 'active' | 'completed';
+  plan?: string | null;
+  success_criteria?: string[] | null;
+  confidence?: number | null;
+}
+export type UpdateSprintInput = Partial<CreateSprintInput>;
+
+export interface CreatePersonInput extends Omit<CreateTypedResourceInput, 'content' | 'parent_id' | 'properties'> {
+  name?: string;
+  email?: string | null;
+  role?: string | null;
+  capacity_hours?: number | null;
+  reports_to?: string | null;
+}
+export type UpdatePersonInput = Partial<CreatePersonInput>;
+
+export interface CreateWeeklyDocInput extends Omit<CreateTypedResourceInput, 'parent_id' | 'properties'> {
+  person_id?: string | null;
+  project_id?: string | null;
+  week_number?: number | null;
+  submitted_at?: string | null;
+}
+export type UpdateWeeklyDocInput = Partial<CreateWeeklyDocInput>;
+
+export interface CreateStandupInput extends Omit<CreateTypedResourceInput, 'parent_id' | 'properties'> {
+  author_id?: string | null;
+  date?: string | null;
+  submitted_at?: string | null;
+}
+export type UpdateStandupInput = Partial<CreateStandupInput>;
+
+export interface CreateWeeklyReviewInput extends Omit<CreateTypedResourceInput, 'parent_id' | 'properties'> {
+  sprint_id?: string | null;
+  owner_id?: string | null;
+  plan_validated?: boolean | null;
+}
+export type UpdateWeeklyReviewInput = Partial<CreateWeeklyReviewInput>;
+
 /** Internal transport shared by the client and its resource sub-clients. */
 interface Transport {
   request<T>(method: string, path: string, body?: unknown): Promise<T>;
@@ -119,14 +385,49 @@ export class DocumentsClient {
   }
 }
 
-/** Stub for a future typed issues surface — keeps the ShipClient shape stable. */
-export class IssuesClient {
-  constructor(private readonly _transport: Transport) {}
+export class TypedResourceClient<TResource = unknown, TCreate = CreateTypedResourceInput, TUpdate = UpdateTypedResourceInput> {
+  constructor(
+    private readonly transport: Transport,
+    private readonly path: string
+  ) {}
+
+  list(params: ListTypedResourceParams = {}): Promise<Page<TResource>> {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.cursor) qs.set('cursor', params.cursor);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.transport.request<Page<TResource>>('GET', `/api/v1/${this.path}${suffix}`);
+  }
+
+  get(id: string): Promise<TResource> {
+    return this.transport.request<TResource>('GET', `/api/v1/${this.path}/${encodeURIComponent(id)}`);
+  }
+
+  create(input: TCreate): Promise<TResource> {
+    return this.transport.request<TResource>('POST', `/api/v1/${this.path}`, input);
+  }
+
+  update(id: string, input: TUpdate): Promise<TResource> {
+    return this.transport.request<TResource>('PATCH', `/api/v1/${this.path}/${encodeURIComponent(id)}`, input);
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.transport.request<null>('DELETE', `/api/v1/${this.path}/${encodeURIComponent(id)}`);
+  }
 }
 
 export class ShipClient implements Transport {
   readonly documents: DocumentsClient;
-  readonly issues: IssuesClient;
+  readonly wikiPages: TypedResourceClient<ShipWikiPage, CreateWikiPageInput, UpdateWikiPageInput>;
+  readonly issues: TypedResourceClient<ShipIssue, CreateIssueInput, UpdateIssueInput>;
+  readonly programs: TypedResourceClient<ShipProgram, CreateProgramInput, UpdateProgramInput>;
+  readonly projects: TypedResourceClient<ShipProject, CreateProjectInput, UpdateProjectInput>;
+  readonly sprints: TypedResourceClient<ShipSprint, CreateSprintInput, UpdateSprintInput>;
+  readonly people: TypedResourceClient<ShipPerson, CreatePersonInput, UpdatePersonInput>;
+  readonly weeklyPlans: TypedResourceClient<ShipWeeklyPlan, CreateWeeklyDocInput, UpdateWeeklyDocInput>;
+  readonly weeklyRetros: TypedResourceClient<ShipWeeklyRetro, CreateWeeklyDocInput, UpdateWeeklyDocInput>;
+  readonly standups: TypedResourceClient<ShipStandup, CreateStandupInput, UpdateStandupInput>;
+  readonly weeklyReviews: TypedResourceClient<ShipWeeklyReview, CreateWeeklyReviewInput, UpdateWeeklyReviewInput>;
 
   private readonly token: string;
   private readonly baseUrl: string;
@@ -143,7 +444,16 @@ export class ShipClient implements Transport {
     this.fetchImpl = fetchImpl;
 
     this.documents = new DocumentsClient(this);
-    this.issues = new IssuesClient(this);
+    this.wikiPages = new TypedResourceClient(this, 'wiki-pages');
+    this.issues = new TypedResourceClient(this, 'issues');
+    this.programs = new TypedResourceClient(this, 'programs');
+    this.projects = new TypedResourceClient(this, 'projects');
+    this.sprints = new TypedResourceClient(this, 'sprints');
+    this.people = new TypedResourceClient(this, 'people');
+    this.weeklyPlans = new TypedResourceClient(this, 'weekly-plans');
+    this.weeklyRetros = new TypedResourceClient(this, 'weekly-retros');
+    this.standups = new TypedResourceClient(this, 'standups');
+    this.weeklyReviews = new TypedResourceClient(this, 'weekly-reviews');
   }
 
   /** GET /api/v1/me — the authenticated user + current workspace. */

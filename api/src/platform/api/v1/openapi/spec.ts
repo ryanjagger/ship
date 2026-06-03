@@ -12,6 +12,10 @@ import {
   CreateDocumentSchema,
   ListDocumentsQuerySchema,
 } from '../schemas/document.js';
+import {
+  TYPED_DOCUMENT_RESOURCES,
+  TypedDocumentListQuerySchema,
+} from '../schemas/typed-document.js';
 import { ApiErrorSchema } from '../schemas/error.js';
 
 /**
@@ -38,7 +42,6 @@ function buildRegistry(): OpenAPIRegistry {
   const DocumentDetail = registry.register('DocumentDetail', DocumentDetailSchema);
   const DocumentListResponse = registry.register('DocumentListResponse', DocumentListResponseSchema);
   const CreateDocument = registry.register('CreateDocument', CreateDocumentSchema);
-
   const errorResponse = (description: string) => ({
     description,
     content: { 'application/json': { schema: ApiError } },
@@ -105,6 +108,103 @@ function buildRegistry(): OpenAPIRegistry {
       403: errorResponse('Insufficient scope (documents:write)'),
     },
   });
+
+  for (const resource of TYPED_DOCUMENT_RESOURCES) {
+    const tag = resource.path;
+    const readScopes = `\`${resource.readScope}\` or broad superscope \`documents:read\``;
+    const writeScopes = `\`${resource.writeScope}\` or broad superscope \`documents:write\``;
+    const ResponseSchema = registry.register(resource.name, resource.responseSchema);
+    const ListResponseSchema = registry.register(`${resource.name}ListResponse`, resource.listResponseSchema);
+    const CreateSchema = registry.register(`Create${resource.name}`, resource.createSchema);
+    const UpdateSchema = registry.register(`Update${resource.name}`, resource.updateSchema);
+
+    registry.registerPath({
+      method: 'get',
+      path: `/${resource.path}`,
+      tags: [tag],
+      summary: `List ${resource.description.toLowerCase()}`,
+      description: `Requires ${readScopes}. Returns only rows backed by document_type=\`${resource.documentType}\`.`,
+      security: [{ bearerAuth: [] }],
+      request: { query: TypedDocumentListQuerySchema },
+      responses: {
+        200: {
+          description: `A page of ${resource.description.toLowerCase()}`,
+          content: { 'application/json': { schema: ListResponseSchema } },
+        },
+        400: errorResponse('Invalid query parameters'),
+        401: errorResponse('Unauthorized'),
+        403: errorResponse(`Insufficient scope (${resource.readScope} or documents:read)`),
+      },
+    });
+
+    registry.registerPath({
+      method: 'get',
+      path: `/${resource.path}/{id}`,
+      tags: [tag],
+      summary: `Get a ${resource.name}`,
+      description: `Requires ${readScopes}.`,
+      security: [{ bearerAuth: [] }],
+      request: { params: z.object({ id: z.string().uuid() }) },
+      responses: {
+        200: { description: `The ${resource.name}`, content: { 'application/json': { schema: ResponseSchema } } },
+        401: errorResponse('Unauthorized'),
+        403: errorResponse(`Insufficient scope (${resource.readScope} or documents:read)`),
+        404: errorResponse(`${resource.name} not found`),
+      },
+    });
+
+    registry.registerPath({
+      method: 'post',
+      path: `/${resource.path}`,
+      tags: [tag],
+      summary: `Create a ${resource.name}`,
+      description: `Requires ${writeScopes}. The route fixes document_type to \`${resource.documentType}\`; clients do not send document_type.`,
+      security: [{ bearerAuth: [] }],
+      request: { body: { content: { 'application/json': { schema: CreateSchema } } } },
+      responses: {
+        201: { description: `The created ${resource.name}`, content: { 'application/json': { schema: ResponseSchema } } },
+        400: errorResponse(`Invalid ${resource.name}`),
+        401: errorResponse('Unauthorized'),
+        403: errorResponse(`Insufficient scope (${resource.writeScope} or documents:write)`),
+      },
+    });
+
+    registry.registerPath({
+      method: 'patch',
+      path: `/${resource.path}/{id}`,
+      tags: [tag],
+      summary: `Update a ${resource.name}`,
+      description: `Requires ${writeScopes}.`,
+      security: [{ bearerAuth: [] }],
+      request: {
+        params: z.object({ id: z.string().uuid() }),
+        body: { content: { 'application/json': { schema: UpdateSchema } } },
+      },
+      responses: {
+        200: { description: `The updated ${resource.name}`, content: { 'application/json': { schema: ResponseSchema } } },
+        400: errorResponse(`Invalid ${resource.name}`),
+        401: errorResponse('Unauthorized'),
+        403: errorResponse(`Insufficient scope (${resource.writeScope} or documents:write)`),
+        404: errorResponse(`${resource.name} not found`),
+      },
+    });
+
+    registry.registerPath({
+      method: 'delete',
+      path: `/${resource.path}/{id}`,
+      tags: [tag],
+      summary: `Delete a ${resource.name}`,
+      description: `Requires ${writeScopes}.`,
+      security: [{ bearerAuth: [] }],
+      request: { params: z.object({ id: z.string().uuid() }) },
+      responses: {
+        204: { description: `${resource.name} deleted` },
+        401: errorResponse('Unauthorized'),
+        403: errorResponse(`Insufficient scope (${resource.writeScope} or documents:write)`),
+        404: errorResponse(`${resource.name} not found`),
+      },
+    });
+  }
 
   return registry;
 }

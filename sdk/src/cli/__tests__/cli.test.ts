@@ -5,6 +5,7 @@ import { join } from 'path';
 import { parseArgs } from '../args.js';
 import { DEFAULT_BASE_URL, loadConfig } from '../config.js';
 import { saveCredentials, loadCredentials, clearCredentials, credentialsPath } from '../credentials.js';
+import { findResourceCommand } from '../commands/resources.js';
 
 describe('ship CLI · arg parsing', () => {
   it('parses command + subcommand + value flag', () => {
@@ -20,6 +21,12 @@ describe('ship CLI · arg parsing', () => {
 
   it('handles no args', () => {
     expect(parseArgs([])).toEqual({ command: null, sub: null, flags: {}, rest: [] });
+  });
+
+  it('recognizes typed resource commands', () => {
+    expect(findResourceCommand('issues')?.clientKey).toBe('issues');
+    expect(findResourceCommand('projects')?.clientKey).toBe('projects');
+    expect(findResourceCommand('wiki')?.clientKey).toBe('wikiPages');
   });
 });
 

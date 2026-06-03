@@ -3,13 +3,18 @@ import { loadConfig } from './config.js';
 import { parseArgs } from './args.js';
 import { login } from './commands/login.js';
 import { docsCreate, docsList } from './commands/docs.js';
+import { findResourceCommand, runResourceCommand } from './commands/resources.js';
 
 const HELP = `ship - Ship Platform CLI
 
 Usage:
   ship login                       Sign in via OAuth device flow (opens a browser)
-  ship docs create --title "..."   Create a document
-  ship docs list                   List your documents
+  ship issues list                 List issues
+  ship issues create --title "..." Create an issue
+  ship projects list               List projects
+  ship sprints list                List sprints
+  ship wiki list                   List wiki pages
+  ship docs list                   Legacy broad document list
 
 Environment:
   SHIP_API_URL     Ship API base URL   (default Railway development deployment)
@@ -37,6 +42,10 @@ export async function run(argv: string[], env: NodeJS.ProcessEnv = process.env):
       console.error('Usage: ship docs <create|list>');
       return 1;
     default:
+      {
+        const resource = findResourceCommand(command);
+        if (resource) return runResourceCommand(config, resource, sub, flags);
+      }
       console.error(`Unknown command: ${command}\n`);
       console.log(HELP);
       return 1;

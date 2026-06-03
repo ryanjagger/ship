@@ -25,7 +25,14 @@ function makeAppFetch(app: Express): typeof fetch {
     const { pathname, search } = new URL(url);
     const path = pathname + search;
     const method = (init.method ?? 'GET').toUpperCase();
-    let req = method === 'POST' ? request(app).post(path) : request(app).get(path);
+    let req =
+      method === 'POST'
+        ? request(app).post(path)
+        : method === 'PATCH'
+          ? request(app).patch(path)
+          : method === 'DELETE'
+            ? request(app).delete(path)
+            : request(app).get(path);
     for (const [k, v] of Object.entries(init.headers ?? {})) req = req.set(k, v);
     const res = init.body !== undefined ? await req.send(JSON.parse(init.body)) : await req;
     const text = res.text && res.text.length > 0 ? res.text : res.body ? JSON.stringify(res.body) : '';
@@ -100,5 +107,20 @@ describe('@ryanjagger/ship-sdk · ShipClient against the in-process app', () => 
     const page = await client.documents.list({ limit: 50 });
     expect(page.data.some((d) => d.id === created.id)).toBe(true);
     expect(page).toHaveProperty('next_cursor');
+  });
+
+  it('typed resource clients use the typed public routes', async () => {
+    const client = new ShipClient({ token, baseUrl: 'http://app.local', fetch: appFetch });
+    const created = await client.issues.create({ title: 'Typed SDK Issue', state: 'todo', priority: 'high' });
+    expect(created.state).toBe('todo');
+    expect(created.priority).toBe('high');
+    expect(created.display_id).toBe(`#${created.ticket_number}`);
+
+    const updated = await client.issues.update(created.id, { title: 'Typed SDK Issue Updated' });
+    expect(updated.title).toBe('Typed SDK Issue Updated');
+
+    const page = await client.issues.list({ limit: 50 });
+    expect(page.data.every((d) => d.state && 'display_id' in d)).toBe(true);
+    await client.issues.delete(created.id);
   });
 });

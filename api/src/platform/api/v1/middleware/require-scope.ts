@@ -26,6 +26,27 @@ export function requireScope(scope: string) {
 }
 
 /**
+ * Scope middleware for routes that accept a typed scope OR a documented broad
+ * superscope during migration (for example `issues:read` or `documents:read`).
+ */
+export function requireAnyScope(scopes: string[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const platform = req.platform;
+    if (!platform) {
+      sendApiError(res, req, 'unauthorized', 'Missing bearer token', { details: { reason: 'missing_token' } });
+      return;
+    }
+    if (!scopes.some((scope) => platform.grantedScopes.includes(scope))) {
+      sendApiError(res, req, 'forbidden', `Insufficient scope: this action requires one of ${scopes.map((s) => `"${s}"`).join(', ')}.`, {
+        details: { required_scopes: scopes, granted_scopes: platform.grantedScopes },
+      });
+      return;
+    }
+    next();
+  };
+}
+
+/**
  * Auth-only marker (PRD §5.4): a valid token is required (enforced by
  * `bearerAuth`) but NO scope. Modeled explicitly so the §5.6 fitness test and
  * the OpenAPI generator treat "valid token, no scope" as a legitimate

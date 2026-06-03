@@ -4,6 +4,7 @@ import { requestIdMiddleware } from './request-id.js';
 import { notFoundHandler, errorHandler } from './error-middleware.js';
 import { meRouter } from './routes/me.js';
 import { documentsRouter } from './routes/documents.js';
+import { typedDocumentRouters } from './routes/typed-documents.js';
 import { generateV1OpenApiDocument } from './openapi/spec.js';
 
 /**
@@ -37,6 +38,9 @@ v1Router.get('/openapi.json', (_req, res) => {
 });
 
 v1Router.use('/me', meRouter);
+for (const resource of typedDocumentRouters) {
+  v1Router.use(`/${resource.path}`, resource.router);
+}
 v1Router.use('/documents', documentsRouter);
 
 // ── Terminators — keep LAST ─────────────────────────────────────────────────
