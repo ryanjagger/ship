@@ -3,13 +3,15 @@ import type { Router as RouterType, Request, Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware, superAdminMiddleware, assertUserAuthed } from '../../middleware/auth.js';
 import { ERROR_CODES, HTTP_STATUS } from '@ship/shared';
-import { createOAuthApp, listOAuthApps, rotateClientSecret, deleteOAuthApp } from './apps.js';
+import { createOAuthApp, listOAuthApps, rotateClientSecret, deleteOAuthApp, findOAuthAppById } from './apps.js';
 import { scopeRegistry } from '../api/v1/scopes/registry.js';
 // Audit lives in services/ (not routes/), so importing it from the platform layer
 // does not trip the no-cross-import ESLint boundary.
 import { logAuditEvent } from '../../services/audit.js';
 
 const SECRET_WARNING = 'Save this client_secret now. It will not be shown again.';
+const SYSTEM_CLIENT_PROTECTED =
+  'This is a platform-managed system client and cannot be modified or deleted.';
 
 /**
  * Admin-only OAuth app registration (PRD §5.2). This is internal tooling — it
@@ -144,6 +146,22 @@ router.post('/:id/rotate-secret', authMiddleware, superAdminMiddleware, async (r
   }
 
   try {
+    const existing = await findOAuthAppById(idParse.data);
+    if (!existing) {
+      res.status(HTTP_STATUS.NOT_FOUND).json({
+        success: false,
+        error: { code: ERROR_CODES.NOT_FOUND, message: 'OAuth app not found' },
+      });
+      return;
+    }
+    if (existing.is_system) {
+      res.status(HTTP_STATUS.CONFLICT).json({
+        success: false,
+        error: { code: ERROR_CODES.FORBIDDEN, message: SYSTEM_CLIENT_PROTECTED },
+      });
+      return;
+    }
+
     const rotated = await rotateClientSecret(idParse.data);
     if (!rotated) {
       res.status(HTTP_STATUS.NOT_FOUND).json({
@@ -197,6 +215,22 @@ router.delete('/:id', authMiddleware, superAdminMiddleware, async (req: Request,
   }
 
   try {
+    const existing = await findOAuthAppById(idParse.data);
+    if (!existing) {
+      res.status(HTTP_STATUS.NOT_FOUND).json({
+        success: false,
+        error: { code: ERROR_CODES.NOT_FOUND, message: 'OAuth app not found' },
+      });
+      return;
+    }
+    if (existing.is_system) {
+      res.status(HTTP_STATUS.CONFLICT).json({
+        success: false,
+        error: { code: ERROR_CODES.FORBIDDEN, message: SYSTEM_CLIENT_PROTECTED },
+      });
+      return;
+    }
+
     const deleted = await deleteOAuthApp(idParse.data);
     if (!deleted) {
       res.status(HTTP_STATUS.NOT_FOUND).json({

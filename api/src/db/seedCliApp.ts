@@ -40,11 +40,12 @@ async function main(): Promise<void> {
     // the existing hash untouched and only refresh the scopes.
     const throwawayHash = await bcrypt.hash(`unused_${crypto.randomBytes(16).toString('hex')}`, 12);
     await pool.query(
-      `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow)
-       VALUES ($1, $2, 'Ship CLI', ARRAY[]::text[], NULL, $3, true)
+      `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system)
+       VALUES ($1, $2, 'Ship CLI', ARRAY[]::text[], NULL, $3, true, true)
        ON CONFLICT (client_id) DO UPDATE SET
          requested_scopes  = EXCLUDED.requested_scopes,
          allow_device_flow = true,
+         is_system         = true,
          updated_at        = now()`,
       [CLI_CLIENT_ID, throwawayHash, CLI_SCOPES]
     );

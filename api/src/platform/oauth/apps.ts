@@ -23,6 +23,12 @@ export interface OAuthApp {
   requested_scopes: string[];
   /** Whether this client may use the Device Authorization Grant (RFC 8628). */
   allow_device_flow: boolean;
+  /**
+   * Platform-managed first-party client (e.g. the `ship` CLI). System clients are
+   * provisioned by migration, shown read-only in the admin UI, and cannot be
+   * deleted or rotated. Admin-created apps are always false.
+   */
+  is_system: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -62,7 +68,7 @@ export async function createOAuthApp(input: CreateOAuthAppInput): Promise<Create
   const result = await pool.query<OAuthApp>(
     `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at`,
+     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system, created_at, updated_at`,
     [clientId, secretHash, input.name, input.redirectUris, input.ownerUserId, input.requestedScopes, input.allowDeviceFlow ?? false]
   );
 
@@ -73,7 +79,7 @@ export async function createOAuthApp(input: CreateOAuthAppInput): Promise<Create
 
 export async function findOAuthAppByClientId(clientId: string): Promise<OAuthAppRow | null> {
   const result = await pool.query<OAuthAppRow>(
-    `SELECT id, client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at
+    `SELECT id, client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system, created_at, updated_at
      FROM oauth_apps WHERE client_id = $1`,
     [clientId]
   );
@@ -83,7 +89,7 @@ export async function findOAuthAppByClientId(clientId: string): Promise<OAuthApp
 /** Look up an app by its internal id (e.g. to display the name on /device). */
 export async function findOAuthAppById(id: string): Promise<OAuthApp | null> {
   const result = await pool.query<OAuthApp>(
-    `SELECT id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at
+    `SELECT id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system, created_at, updated_at
      FROM oauth_apps WHERE id = $1`,
     [id]
   );
@@ -107,7 +113,7 @@ export interface OAuthAppListItem extends OAuthApp {
 export async function listOAuthApps(): Promise<OAuthAppListItem[]> {
   const result = await pool.query<OAuthAppListItem>(
     `SELECT a.id, a.client_id, a.name, a.redirect_uris, a.owner_user_id,
-            a.requested_scopes, a.allow_device_flow, a.created_at, a.updated_at,
+            a.requested_scopes, a.allow_device_flow, a.is_system, a.created_at, a.updated_at,
             u.email AS owner_email, u.name AS owner_name
      FROM oauth_apps a
      LEFT JOIN users u ON u.id = a.owner_user_id
@@ -121,14 +127,17 @@ export async function listOAuthApps(): Promise<OAuthAppListItem[]> {
  * as creation). The old secret stops working immediately; `client_id` is
  * unchanged. Returns null when no app has that id. Already-issued access tokens
  * are unaffected — they're validated by token hash, not the client secret.
+ *
+ * System (platform-managed) clients are never rotated — the `AND is_system = false`
+ * guard makes this a no-op (returns null) for them, independent of the route check.
  */
 export async function rotateClientSecret(id: string): Promise<CreatedOAuthApp | null> {
   const clientSecret = generateClientSecret();
   const secretHash = await bcrypt.hash(clientSecret, BCRYPT_ROUNDS);
 
   const result = await pool.query<OAuthApp>(
-    `UPDATE oauth_apps SET client_secret_hash = $1, updated_at = now() WHERE id = $2
-     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at`,
+    `UPDATE oauth_apps SET client_secret_hash = $1, updated_at = now() WHERE id = $2 AND is_system = false
+     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system, created_at, updated_at`,
     [secretHash, id]
   );
 
@@ -141,10 +150,13 @@ export async function rotateClientSecret(id: string): Promise<CreatedOAuthApp | 
  * Hard-delete an app. `access_tokens.app_id … ON DELETE CASCADE` (migration 050)
  * removes every token issued to it — this IS the revocation. Returns the deleted
  * row's id/name (for the audit detail), or null when no app had that id.
+ *
+ * System (platform-managed) clients cannot be deleted — the `AND is_system = false`
+ * guard makes this a no-op (returns null) for them, independent of the route check.
  */
 export async function deleteOAuthApp(id: string): Promise<{ id: string; name: string } | null> {
   const result = await pool.query<{ id: string; name: string }>(
-    `DELETE FROM oauth_apps WHERE id = $1 RETURNING id, name`,
+    `DELETE FROM oauth_apps WHERE id = $1 AND is_system = false RETURNING id, name`,
     [id]
   );
   return result.rows[0] ?? null;

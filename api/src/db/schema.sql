@@ -286,6 +286,9 @@ CREATE TABLE IF NOT EXISTS oauth_apps (
   -- Opt-in to the Device Authorization Grant (RFC 8628). OFF by default: a
   -- public device flow must never borrow a confidential client's identity.
   allow_device_flow  BOOLEAN NOT NULL DEFAULT false,
+  -- Platform-managed first-party client (e.g. the `ship` CLI). System clients are
+  -- provisioned by migration and cannot be deleted or rotated from the admin UI.
+  is_system          BOOLEAN NOT NULL DEFAULT false,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
