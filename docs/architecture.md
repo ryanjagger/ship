@@ -2,10 +2,10 @@
 
 > **Status.** This document reflects the system **as built**: the Plugforge MVP
 > gate (public `/api/v1`, OAuth 2.0 Authorization Code + PKCE, scopes, `ApiError`, generated
-> OpenAPI 3.1, `@ryanjagger/ship-sdk`), plus the RFC 8628 Device Authorization Grant and the
-> `ship` CLI. Sections marked **Planned** track the full PRD roadmap (webhooks, agent-as-citizen,
-> refresh rotation) and are **not yet implemented** — they are documented so the contract and the
-> module seams are visible before the code lands.
+> OpenAPI 3.1, typed document-backed resources, `@ryanjagger/ship-sdk`), plus the RFC 8628
+> Device Authorization Grant and the `ship` CLI. Sections marked **Planned** track the full PRD
+> roadmap (webhooks, agent-as-citizen, refresh rotation) and are **not yet implemented** — they
+> are documented so the contract and the module seams are visible before the code lands.
 
 The public platform is a hermetic layer under `api/src/platform/`. It shares the database and
 domain logic with Ship's internal `/api/` app but attaches its own authentication, scope
@@ -33,8 +33,8 @@ api/src/platform/
     ├── middleware/bearer.ts       authN: validates the bearer token, attaches req.platform
     ├── middleware/require-scope.ts authZ: requireScope(scope) + authOnly() factories
     ├── scopes/registry.ts         ScopeRegistry — scopes-as-data
-    ├── routes/{me,documents}.ts   resource handlers (call the shared DB directly)
-    ├── schemas/{error,document,me}.ts  Zod request/response schemas (also feed OpenAPI)
+    ├── routes/{me,documents,typed-documents}.ts  resource handlers (call the shared DB directly)
+    ├── schemas/{error,document,typed-document,me}.ts  Zod schemas (also feed OpenAPI)
     ├── openapi/{spec,export}.ts   OpenAPI 3.1 generated from the schemas above
     ├── errors.ts                  ApiError contract + sendApiError
     ├── error-middleware.ts        404 + global handler — guarantees ApiError on every failure
@@ -42,7 +42,7 @@ api/src/platform/
     ├── rate-limit.ts              reshapes the global limiter's 429 into ApiError (v1 only)
     └── cursor.ts                  opaque keyset cursor encode/decode ({id, created_at})
 
-sdk/src/index.ts                   @ryanjagger/ship-sdk (v0.1.0-rc.0) — zero-dep, injectable fetch
+sdk/src/index.ts                   @ryanjagger/ship-sdk (v0.1.0-rc.2) — zero-dep, injectable fetch
 sdk/src/cli/                       `ship` binary packaged by @ryanjagger/ship-sdk
 ```
 
@@ -63,10 +63,11 @@ no module yet — only the `webhooks:manage` scope is registered (Planned).
   (authentication), `require-scope.ts` (authorization), `request-id.ts` (correlation),
   `rate-limit.ts` (429 shaping), `error-middleware.ts` (error shape). Routes compose them; none
   of them knows about the others.
-- **ISP — resource-segregated SDK clients.** `ShipClient` exposes `.documents` and `.issues`
-  (`sdk/src/index.ts`) as separate interfaces, so a consumer that only reads documents depends on
-  the documents surface alone. New resources (`webhooks`, `sprints`) slot in without widening the
-  existing clients.
+- **ISP — resource-segregated SDK clients.** `ShipClient` exposes `.documents` plus typed
+  clients (`.wikiPages`, `.issues`, `.programs`, `.projects`, `.sprints`, `.people`,
+  `.weeklyPlans`, `.weeklyRetros`, `.standups`, `.weeklyReviews`) as separate interfaces, so a
+  consumer that only reads one resource depends on that resource surface alone. New resources
+  (`webhooks`) slot in without widening the existing clients.
 - **DIP — injected `fetch`.** The SDK depends on the `fetch` abstraction, not a concrete HTTP
   library: `new ShipClient({ token, fetch? })` and the device helpers take `fetch`/`sleep`. That
   inversion is why the API test suite drives the real `ShipClient` through a supertest-backed
@@ -113,8 +114,8 @@ The split is enforced by lint, not convention. `eslint.config.mjs` (`:110`) appl
 `no-restricted-imports` **error** to `api/src/platform/**` blocking `../**/routes/*` and
 `../**/routes/**` — a public route physically cannot import an internal handler. v1 routes reach
 data through the shared `pool` (`db/client.js`) directly and reuse the shared
-`HIDDEN_DOCUMENT_TYPES` exclusion from `@ship/shared`, so the public document filter can't drift
-from the internal one.
+`HIDDEN_DOCUMENT_TYPES` exclusion from `@ship/shared`, so the broad public document filter can't
+drift from the internal one.
 
 ```mermaid
 sequenceDiagram
@@ -132,6 +133,55 @@ sequenceDiagram
 Auth, scope, request-id, and the `ApiError` shape attach **only** at the public layer; the
 internal `/api/*` routes use session cookies + CSRF and the internal `{ success, data }`
 envelope. *(Audit logging and webhook publication are intended to attach here too — Planned.)*
+
+---
+
+## Typed Document-Backed Resources
+
+The canonical storage model is still the unified `documents` table. Public v1 exposes that model
+in two layers:
+
+- `GET/POST /api/v1/documents` is the broad compatibility surface. It returns the public document
+  DTO with `document_type`, `properties`, and optional `content`.
+- Typed collections fix the backing `document_type` by route and return native DTOs instead of
+  leaking `document_type` / raw `properties`:
+  `/wiki-pages`, `/issues`, `/programs`, `/projects`, `/sprints`, `/people`, `/weekly-plans`,
+  `/weekly-retros`, `/standups`, `/weekly-reviews`.
+
+Each typed resource is declared as data in `schemas/typed-document.ts`: path, schema name,
+backing `document_type`, read/write scopes, Zod create/update/response schemas, and mapper
+functions. `routes/typed-documents.ts` loops over that registry to mount equivalent REST handlers
+for every collection; `openapi/spec.ts` loops over the same registry to register concrete schemas
+such as `Issue`, `CreateIssue`, `Sprint`, and `WikiPageListResponse`.
+
+Scopes are per resource with broad migration superscopes:
+
+| Route family | Narrow scopes | Broad superscope |
+|---|---|---|
+| `/api/v1/issues` | `issues:read`, `issues:write` | `documents:read`, `documents:write` |
+| `/api/v1/sprints` | `sprints:read`, `sprints:write` | `documents:read`, `documents:write` |
+| `/api/v1/wiki-pages`, `/programs`, `/projects`, etc. | matching resource scopes | `documents:*` |
+
+Typed create/update requests are translated into `documents.title`, `documents.content`, and
+known JSONB `properties` keys inside the public route transaction. The route then reloads the row
+with computed columns before responding, so the public DTO reflects database state rather than
+the request body.
+
+Relational fields are derived from `document_associations`, not stubbed:
+
+- `Issue.belongs_to` is returned from real associations. Typed issue create/update accepts
+  `belongs_to`, validates same-workspace targets (`program`, `project`, `sprint`, or parent
+  `issue`), and writes/syncs the association rows in the same transaction as the issue document.
+- Program and project `issue_count` / `sprint_count` are same-workspace counts over associated
+  issue and sprint documents.
+- Sprint `issue_count`, `completed_count`, `started_count`, `has_plan`, `has_retro`,
+  `retro_outcome`, and `retro_id` are computed from associated issues, weekly plans, and retros.
+- Project `inferred_status` is derived on read (`archived` > `completed` > current/future sprint
+  allocation > `backlog`) rather than reading a raw `properties.status` value.
+
+This keeps the public API native to each resource while preserving the internal document-backed
+storage model and the platform boundary rule: v1 still does not import internal Express route
+handlers.
 
 ---
 
@@ -204,20 +254,21 @@ subscribers for dedupe.
 
 ## SDK Surface
 
-`@ryanjagger/ship-sdk` (`sdk/src/index.ts`), v0.1.0-rc.0 — zero runtime deps, injectable `fetch`.
+`@ryanjagger/ship-sdk` (`sdk/src/index.ts`), v0.1.0-rc.2 — zero runtime deps, injectable `fetch`.
 
 | Surface | Status | Notes |
 |---|---|---|
 | `new ShipClient({ token, baseUrl?, fetch? })` | Pre-1.0 | constructor; injectable transport |
 | `client.me()` | Pre-1.0 | `GET /api/v1/me` → typed user + workspace |
 | `client.documents.{list,get,create}` | Pre-1.0 | real `documents` resource client |
+| `client.wikiPages`, `.issues`, `.programs`, `.projects`, `.sprints`, `.people`, `.weeklyPlans`, `.weeklyRetros`, `.standups`, `.weeklyReviews` | Pre-1.0 | typed resource clients returning native DTOs |
 | `requestDeviceAuthorization()`, `pollDeviceToken()` | Pre-1.0 | module-level device-flow helpers (pre-auth) |
 | `ShipApiError`, `DeviceFlowError` | Pre-1.0 | thrown on non-2xx / device terminal states |
-| `client.issues` | Stub | shape reserved; no methods yet |
-| `verifyWebhook()`, async-iterator pagination, typed discriminated error union, `webhooks`/`sprints` clients | **Planned** | land with webhooks/refresh epics |
+| `ship wiki/issues/programs/projects/sprints/people/weekly-plans/weekly-retros/standups/weekly-reviews` | Pre-1.0 | CLI resource commands: `list`, `get`, `create`, `update`, `delete` |
+| `verifyWebhook()`, async-iterator pagination, typed discriminated error union, `webhooks` client | **Planned** | land with webhooks/refresh epics |
 
-The `class ShipClient { readonly documents; readonly issues; … }` shape is intentionally held
-from the brief so later resources slot in without reshaping the public surface.
+The broad `.documents` client remains available for migration and generic integrations. Typed
+clients are the preferred public surface when the caller knows the resource type.
 
 ---
 
