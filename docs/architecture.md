@@ -43,7 +43,7 @@ api/src/platform/
     └── cursor.ts                  opaque keyset cursor encode/decode ({id, created_at})
 
 sdk/src/index.ts                   @ryanjagger/ship-sdk (v0.1.0-rc.0) — zero-dep, injectable fetch
-cli/src/                           @ship/cli — `ship` binary (login, docs)
+sdk/src/cli/                       `ship` binary packaged by @ryanjagger/ship-sdk
 ```
 
 Notes: **rate-limiting** today is `api/v1/rate-limit.ts` (a reshape of the existing global

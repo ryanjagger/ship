@@ -3,7 +3,7 @@
 A small command-line client for the Ship Platform API. The published `ship`
 binary is packaged with [`@ryanjagger/ship-sdk`](../sdk), so a clean drill can
 install one package and then run `ship login`. This workspace package is kept as
-an internal development wrapper.
+an internal development wrapper; the CLI source lives in `sdk/src/cli`.
 
 ## Usage
 
