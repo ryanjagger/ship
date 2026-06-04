@@ -408,6 +408,37 @@ async function seedMinimalTestData(pool: Pool): Promise<void> {
     [workspaceId, JSON.stringify({ user_id: memberId, email: 'bob.martinez@ship.local' }), userId]
   );
 
+  // Developer-portal seed (PRD §8): a dev-owned OAuth app + a webhook subscription
+  // with one dead-lettered delivery, so the portal's delivery log + replay flow is
+  // exercisable end-to-end. Owner is the dev user (a workspace member), so the app
+  // is visible to the workspace-scoped portal. The secret columns hold placeholders
+  // — this delivery is never actually dispatched in the E2E.
+  const devApp = await pool.query(
+    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system)
+     VALUES ('client_seed_webhooks', 'seed-hash', 'Seed Webhook App', ARRAY['https://example.com/cb']::text[], $1, ARRAY['issues:read', 'webhooks:manage'], false, false)
+     RETURNING id`,
+    [userId]
+  );
+  const devAppId = devApp.rows[0].id;
+  const seedSub = await pool.query(
+    `INSERT INTO webhook_subscriptions (app_id, workspace_id, created_by, url, events, encrypted_secret, secret_fingerprint, active)
+     VALUES ($1, $2, $3, 'https://example.com/webhooks/ship', ARRAY['issue.created']::text[], 'seed-encrypted-secret', 'sha256:seed', true)
+     RETURNING id`,
+    [devAppId, workspaceId, userId]
+  );
+  const seedSubId = seedSub.rows[0].id;
+  const seedEvent = await pool.query(
+    `INSERT INTO webhook_events (id, workspace_id, actor_user_id, type, api_version, payload, idempotency_key)
+     VALUES ('evt_seed_deadletter', $1, $2, 'issue.created', 'v1', $3, 'evt_seed_deadletter')
+     RETURNING id`,
+    [workspaceId, userId, JSON.stringify({ id: 'evt_seed_deadletter', type: 'issue.created', data: { object: { id: 'seed' } } })]
+  );
+  await pool.query(
+    `INSERT INTO webhook_deliveries (subscription_id, event_id, status, attempt_count, next_attempt_at, last_response_status, last_error, dead_lettered_at)
+     VALUES ($1, $2, 'dead_lettered', 7, NULL, 500, 'Seed: target returned 500', now())`,
+    [seedSubId, seedEvent.rows[0].id]
+  );
+
   // Create programs (matching full seed)
   // 'key' is used for test referencing only, not stored in database
   const programs = [

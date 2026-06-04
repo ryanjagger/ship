@@ -39,6 +39,7 @@ import { documentCommentsRouter, commentsRouter } from './routes/comments.js';
 import { v1Router } from './platform/api/v1/router.js';
 import { apiRateLimitHandler } from './platform/api/v1/rate-limit.js';
 import oauthAdminRoutes from './platform/oauth/admin-routes.js';
+import developerRoutes from './routes/developer.js';
 import { oauthPublicRouter, oauthConsentRouter } from './platform/oauth/routes.js';
 import { setupSwagger } from './swagger.js';
 import { initializeCAIA } from './services/caia.js';
@@ -282,6 +283,10 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
   // the generic /api/admin router so this more specific path is handled here;
   // same fall-through pattern as /api/admin/credentials above.
   app.use('/api/admin/oauth-apps', conditionalCsrf, oauthAdminRoutes);
+
+  // Workspace-scoped developer portal (PRD §8): session-authed + CSRF +
+  // workspace-admin guarded; wraps the OAuth/webhook/audit services.
+  app.use('/api/developer', conditionalCsrf, developerRoutes);
 
   // File upload routes (CSRF protected for POST endpoints)
   app.use('/api/files', conditionalCsrf, filesRouter);

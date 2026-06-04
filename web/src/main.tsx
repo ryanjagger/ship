@@ -48,6 +48,7 @@ const StatusOverviewPage = React.lazy(() => import('@/pages/StatusOverviewPage')
 const ReviewsPage = React.lazy(() => import('@/pages/ReviewsPage').then(m => ({ default: m.ReviewsPage })));
 const OrgChartPage = React.lazy(() => import('@/pages/OrgChartPage').then(m => ({ default: m.OrgChartPage })));
 const OAuthConsentPage = React.lazy(() => import('@/pages/OAuthConsent').then(m => ({ default: m.OAuthConsentPage })));
+const DeveloperPortalPage = React.lazy(() => import('@/pages/DeveloperPortal').then(m => ({ default: m.DeveloperPortalPage })));
 const DeviceVerifyPage = React.lazy(() => import('@/pages/DeviceVerify').then(m => ({ default: m.DeviceVerifyPage })));
 
 /**
@@ -276,6 +277,7 @@ function AppRoutes() {
         {/* Person profile stays in Teams context - no redirect to /documents */}
         <Route path="team/:id" element={<PersonEditorPage />} />
         <Route path="feedback/:id" element={<FeedbackEditorPage />} />
+        <Route path="developer" element={<DeveloperPortalPage />} />
         <Route path="settings" element={<WorkspaceSettingsPage />} />
         <Route path="settings/conversions" element={<ConvertedDocumentsPage />} />
         <Route path="settings/fleet" element={<FleetGraphSettingsPage />} />
