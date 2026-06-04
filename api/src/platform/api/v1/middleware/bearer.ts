@@ -1,6 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import { validateAccessToken } from '../../../oauth/tokens.js';
 import { sendApiError } from '../errors.js';
+import { applyRateLimit } from '../rate-limit/middleware.js';
+import { beginAudit } from '../audit/middleware.js';
 
 /**
  * Bearer-token authentication for the Platform API (PRD §5.4). Validates an
@@ -16,10 +18,14 @@ import { sendApiError } from '../errors.js';
  */
 export interface PlatformAuth {
   appId: string;
+  /** OAuth app client_id, denormalized for the audit trail. */
+  clientId: string;
   userId: string;
   workspaceId: string;
   grantedScopes: string[];
   tokenId: string;
+  /** The scope actually matched by requireScope/requireAnyScope (for audit). */
+  matchedScope?: string;
 }
 
 declare global {
@@ -63,11 +69,22 @@ export async function bearerAuth(req: Request, res: Response, next: NextFunction
 
     req.platform = {
       appId: result.token.appId,
+      clientId: result.token.clientId,
       userId: result.token.userId,
       workspaceId: result.token.workspaceId,
       grantedScopes: result.token.scopes,
       tokenId: result.token.tokenId,
     };
+
+    // Record the request to the public audit trail on res.finish (PRD §7). Hooked
+    // here, after token validation, so it covers every token-validated outcome —
+    // success, 403 scope denials, validation errors, and 429s alike.
+    beginAudit(req, res);
+
+    // Enforce per-app + per-token rate limits now that app_id/token_id are
+    // known (PRD §6). On a 429 the limiter has already sent the response.
+    if (!(await applyRateLimit(req, res))) return;
+
     next();
   } catch (error) {
     console.error('[api/v1] bearer auth error:', error);

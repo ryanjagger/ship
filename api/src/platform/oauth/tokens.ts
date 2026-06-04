@@ -45,6 +45,8 @@ export async function issueAccessToken(input: IssueAccessTokenInput): Promise<Is
 export interface ValidatedAccessToken {
   tokenId: string;
   appId: string;
+  /** Denormalized for the audit trail (survives app deletion). */
+  clientId: string;
   userId: string;
   workspaceId: string;
   scopes: string[];
@@ -57,6 +59,7 @@ export type AccessTokenLookup =
 interface AccessTokenRow {
   id: string;
   app_id: string;
+  client_id: string;
   user_id: string;
   workspace_id: string;
   scopes: string[];
@@ -82,11 +85,12 @@ const TOKEN_USE_REFRESH_THRESHOLD_MS = 60 * 1000;
  */
 export async function validateAccessToken(token: string): Promise<AccessTokenLookup> {
   const result = await pool.query<AccessTokenRow>(
-    `SELECT t.id, t.app_id, t.user_id, t.workspace_id, t.scopes, t.expires_at, t.last_used_at,
+    `SELECT t.id, t.app_id, a.client_id, t.user_id, t.workspace_id, t.scopes, t.expires_at, t.last_used_at,
             u.is_super_admin,
             (m.user_id IS NOT NULL) AS has_membership
        FROM access_tokens t
        JOIN users u ON u.id = t.user_id
+       JOIN oauth_apps a ON a.id = t.app_id
        LEFT JOIN workspace_memberships m
          ON m.workspace_id = t.workspace_id AND m.user_id = t.user_id
       WHERE t.token_hash = $1 AND t.revoked_at IS NULL`,
@@ -108,6 +112,7 @@ export async function validateAccessToken(token: string): Promise<AccessTokenLoo
     token: {
       tokenId: row.id,
       appId: row.app_id,
+      clientId: row.client_id,
       userId: row.user_id,
       workspaceId: row.workspace_id,
       scopes: row.scopes,

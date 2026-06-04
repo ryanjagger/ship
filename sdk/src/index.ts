@@ -10,6 +10,20 @@
  * global `fetch` (Node ≥18 / browsers) — no dependencies.
  */
 
+import {
+  buildAuthorizeUrl,
+  exchangeAuthorizationCode,
+  loopbackRedirectAdapter,
+  browserRedirectAdapter,
+  generatePkce,
+  generateState,
+  BROWSER_VERIFIER_KEY,
+  BROWSER_STATE_KEY,
+  type AuthCodeRedirectAdapter,
+} from './auth/flows.js';
+import type { PkcePair } from './auth/pkce.js';
+import type { ITokenStore, ShipTokenSet } from './auth/token-store.js';
+
 export interface ShipClientOptions {
   /** OAuth 2.0 access token (Authorization Code + PKCE). Sent as a Bearer token. */
   token: string;
@@ -29,21 +43,137 @@ export interface ApiErrorBody {
   request_id: string;
 }
 
-/** Thrown for any non-2xx Platform API response, carrying the ApiError contract. */
+/**
+ * Stable, exhaustively-switchable discriminator for every SDK error (PRD §5).
+ * Consumers `switch (error.kind)` and the compiler enforces exhaustiveness.
+ */
+export type ShipSDKError =
+  | { kind: 'auth'; status: 401 | 403; code: string; message: string; requestId?: string; details?: unknown }
+  | { kind: 'rate_limit'; status: 429; retryAfter?: number; resetAt?: Date; limit?: number; remaining?: number; message: string; requestId?: string }
+  | { kind: 'not_found'; status: 404; code: string; message: string; requestId?: string }
+  | { kind: 'validation'; status: 400 | 422; code: string; message: string; details?: unknown; requestId?: string }
+  | { kind: 'server'; status: number; code: string; message: string; requestId?: string; cause?: unknown };
+
+export type ShipSDKErrorKind = ShipSDKError['kind'];
+
+/** Rate-limit metadata parsed from response headers (X-RateLimit-* + Retry-After). */
+export interface RateLimitInfo {
+  limit?: number;
+  remaining?: number;
+  resetAt?: Date;
+  retryAfter?: number;
+}
+
+/** Map a public `ApiError.code` (+ status) to the stable SDK error `kind`. */
+function kindForApiError(code: string, status: number): ShipSDKErrorKind {
+  switch (code) {
+    case 'unauthorized':
+    case 'forbidden':
+      return 'auth';
+    case 'rate_limited':
+      return 'rate_limit';
+    case 'not_found':
+      return 'not_found';
+    case 'validation_failed':
+      return 'validation';
+    default:
+      // Status-based fallback for codes we don't recognize.
+      if (status === 401 || status === 403) return 'auth';
+      if (status === 429) return 'rate_limit';
+      if (status === 404) return 'not_found';
+      if (status === 400 || status === 422) return 'validation';
+      return 'server';
+  }
+}
+
+function parseRateLimitHeaders(headers?: Headers): RateLimitInfo | undefined {
+  if (!headers) return undefined;
+  const num = (name: string): number | undefined => {
+    const raw = headers.get(name);
+    if (raw == null) return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const limit = num('x-ratelimit-limit');
+  const remaining = num('x-ratelimit-remaining');
+  const resetSec = num('x-ratelimit-reset');
+  const retryAfter = num('retry-after');
+  if (limit == null && remaining == null && resetSec == null && retryAfter == null) return undefined;
+  return {
+    limit,
+    remaining,
+    resetAt: resetSec != null ? new Date(resetSec * 1000) : undefined,
+    retryAfter,
+  };
+}
+
+/**
+ * Thrown for any non-2xx Platform API response, carrying the ApiError contract.
+ * Also exposes the stable SDK discriminator (`kind`) + parsed rate-limit
+ * metadata so it doubles as a `ShipSDKError` source (PRD §5: legacy
+ * `ShipApiError` contains the new shape). Convert with `toSDKError()`.
+ */
 export class ShipApiError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly kind: ShipSDKErrorKind;
   readonly requestId?: string;
   readonly details?: Record<string, unknown>;
+  readonly rateLimit?: RateLimitInfo;
 
-  constructor(status: number, body: Partial<ApiErrorBody> | null) {
+  constructor(status: number, body: Partial<ApiErrorBody> | null, headers?: Headers) {
     super(body?.message ?? `Ship API request failed with status ${status}`);
     this.name = 'ShipApiError';
     this.status = status;
     this.code = body?.code ?? 'unknown';
+    this.kind = kindForApiError(this.code, status);
     this.requestId = body?.request_id;
     this.details = body?.details;
+    if (this.kind === 'rate_limit') this.rateLimit = parseRateLimitHeaders(headers);
   }
+
+  /** Project onto the discriminated `ShipSDKError` union for exhaustive switching. */
+  toSDKError(): ShipSDKError {
+    return toShipSDKError(this);
+  }
+}
+
+/**
+ * Normalize any thrown value into the `ShipSDKError` union. `ShipApiError`
+ * becomes its mapped `kind`; network/parse failures and unknown values become
+ * `{ kind: 'server' }` (PRD §5: "everything else or network/parse → server").
+ */
+export function toShipSDKError(err: unknown): ShipSDKError {
+  if (err instanceof ShipApiError) {
+    const base = { message: err.message, requestId: err.requestId };
+    switch (err.kind) {
+      case 'auth':
+        return { kind: 'auth', status: (err.status === 403 ? 403 : 401), code: err.code, details: err.details, ...base };
+      case 'rate_limit':
+        return {
+          kind: 'rate_limit',
+          status: 429,
+          retryAfter: err.rateLimit?.retryAfter,
+          resetAt: err.rateLimit?.resetAt,
+          limit: err.rateLimit?.limit,
+          remaining: err.rateLimit?.remaining,
+          ...base,
+        };
+      case 'not_found':
+        return { kind: 'not_found', status: 404, code: err.code, ...base };
+      case 'validation':
+        return { kind: 'validation', status: (err.status === 422 ? 422 : 400), code: err.code, details: err.details, ...base };
+      case 'server':
+        return { kind: 'server', status: err.status, code: err.code, ...base };
+    }
+  }
+  return {
+    kind: 'server',
+    status: 0,
+    code: 'network_error',
+    message: err instanceof Error ? err.message : 'Network or parse error',
+    cause: err,
+  };
 }
 
 export interface Workspace {
@@ -462,6 +592,21 @@ export class DocumentsClient {
   create(input: CreateDocumentInput): Promise<ShipDocument> {
     return this.transport.request<ShipDocument>('POST', '/api/v1/documents', input);
   }
+
+  /**
+   * Lazily iterate every document across pages, hiding cursor walking. Fetches
+   * the next page only when iteration continues; all filters except `cursor`
+   * are preserved across pages.
+   */
+  async *iterate(params: Omit<ListDocumentsParams, 'cursor'> = {}): AsyncGenerator<ShipDocument, void, unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const page: DocumentList = await this.list({ ...params, cursor });
+      for (const item of page.data) yield item;
+      if (!page.next_cursor) return;
+      cursor = page.next_cursor;
+    }
+  }
 }
 
 export class TypedResourceClient<TResource = unknown, TCreate = CreateTypedResourceInput, TUpdate = UpdateTypedResourceInput> {
@@ -492,6 +637,21 @@ export class TypedResourceClient<TResource = unknown, TCreate = CreateTypedResou
 
   async delete(id: string): Promise<void> {
     await this.transport.request<null>('DELETE', `/api/v1/${this.path}/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Lazily iterate every resource across pages, hiding cursor walking. Fetches
+   * the next page only when iteration continues; all filters except `cursor`
+   * are preserved across pages.
+   */
+  async *iterate(params: Omit<ListTypedResourceParams, 'cursor'> = {}): AsyncGenerator<TResource, void, unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const page: Page<TResource> = await this.list({ ...params, cursor });
+      for (const item of page.data) yield item;
+      if (!page.next_cursor) return;
+      cursor = page.next_cursor;
+    }
   }
 }
 
@@ -598,24 +758,185 @@ export class ShipClient implements Transport {
     return this.request<AuthenticatedUser>('GET', '/api/v1/me');
   }
 
+  /**
+   * Device Authorization Grant (RFC 8628) end-to-end (PRD §2). Requests a device
+   * code, invokes `onUserCode` so the consumer can display/open the verification
+   * URL, polls at the server interval, persists the token via `store` (if given),
+   * and resolves with an authenticated `ShipClient`.
+   */
+  static async deviceLogin(options: DeviceLoginOptions): Promise<ShipClient> {
+    const auth = await requestDeviceAuthorization({
+      clientId: options.clientId,
+      baseUrl: options.baseUrl,
+      scope: options.scope,
+      fetch: options.fetch,
+    });
+    await options.onUserCode?.(auth);
+    const token = await pollDeviceToken({
+      clientId: options.clientId,
+      baseUrl: options.baseUrl,
+      deviceCode: auth.device_code,
+      intervalSeconds: auth.interval,
+      fetch: options.fetch,
+      signal: options.signal,
+      sleep: options.sleep,
+    });
+    await persistTokenSet(options.store, token);
+    return new ShipClient({ token: token.access_token, baseUrl: options.baseUrl, fetch: options.fetch });
+  }
+
+  /**
+   * Authorization Code + PKCE end-to-end (PRD §2) across three environments via
+   * `redirect`: `'loopback'` (Node CLI/dev), `'browser'` (window.location +
+   * storage, two-phase across the redirect), or a custom `AuthCodeRedirectAdapter`.
+   * Persists the token via `store` (if given) and resolves with an authenticated
+   * `ShipClient`.
+   */
+  static async authorizationCodeFlow(options: AuthorizationCodeFlowOptions): Promise<ShipClient> {
+    const isBrowser = options.redirect === 'browser';
+    const storage =
+      options.storage ?? (isBrowser ? (globalThis as { localStorage?: NonNullable<AuthorizationCodeFlowOptions['storage']> }).localStorage : undefined);
+    const loc = (globalThis as { location?: { search: string } }).location;
+    const returningCode = isBrowser && loc ? new URLSearchParams(loc.search).get('code') : null;
+
+    let pkce: PkcePair;
+    let state: string;
+    if (returningCode && storage) {
+      // Returning leg of the browser redirect: restore the verifier + state.
+      const verifier = storage.getItem(BROWSER_VERIFIER_KEY);
+      if (!verifier) throw new Error('Missing PKCE verifier in storage; restart the authorization flow');
+      pkce = { verifier, challenge: '', method: 'S256' };
+      state = storage.getItem(BROWSER_STATE_KEY) ?? '';
+    } else {
+      pkce = await generatePkce();
+      state = generateState();
+      if (isBrowser && storage) {
+        storage.setItem(BROWSER_VERIFIER_KEY, pkce.verifier);
+        storage.setItem(BROWSER_STATE_KEY, state);
+      }
+    }
+
+    const adapter: AuthCodeRedirectAdapter =
+      typeof options.redirect === 'object'
+        ? options.redirect
+        : options.redirect === 'loopback'
+          ? loopbackRedirectAdapter({ openBrowser: options.openBrowser })
+          : browserRedirectAdapter(storage);
+
+    const authUrl = buildAuthorizeUrl({
+      baseUrl: options.baseUrl,
+      clientId: options.clientId,
+      redirectUri: options.redirectUri,
+      scope: options.scope,
+      state,
+      pkce,
+    });
+
+    const result = await adapter.authorize(authUrl, options.redirectUri);
+    // We always send a generated `state`; the callback MUST echo it back. A
+    // missing or differing `result.state` is treated as a mismatch (CSRF guard).
+    if (state && result.state !== state) {
+      throw new Error('OAuth state mismatch (possible CSRF); aborting');
+    }
+
+    const token = await exchangeAuthorizationCode({
+      baseUrl: options.baseUrl,
+      clientId: options.clientId,
+      clientSecret: options.clientSecret,
+      redirectUri: options.redirectUri,
+      code: result.code,
+      codeVerifier: pkce.verifier,
+      fetch: resolveFetch(options.fetch),
+    });
+
+    if (isBrowser && storage) {
+      storage.removeItem(BROWSER_VERIFIER_KEY);
+      storage.removeItem(BROWSER_STATE_KEY);
+    }
+    await persistTokenSet(options.store, token);
+    return new ShipClient({ token: token.access_token, baseUrl: options.baseUrl, fetch: options.fetch });
+  }
+
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = { Authorization: `Bearer ${this.token}` };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch (cause) {
+      // Network failure (DNS, connection refused, abort): surface as a typed
+      // server error rather than a raw fetch rejection (PRD §5).
+      throw new ShipApiError(0, { code: 'network_error', message: (cause as Error)?.message ?? 'Network error' });
+    }
 
     const text = await res.text();
-    const json: unknown = text ? JSON.parse(text) : null;
+    let json: unknown = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      if (res.ok) {
+        throw new ShipApiError(res.status, { code: 'parse_error', message: 'Failed to parse response body' });
+      }
+    }
 
     if (!res.ok) {
-      throw new ShipApiError(res.status, json as Partial<ApiErrorBody> | null);
+      throw new ShipApiError(res.status, json as Partial<ApiErrorBody> | null, res.headers);
     }
     return json as T;
   }
+}
+
+// ── Auth helper option types (PRD §2) ───────────────────────────────────────
+
+export interface DeviceLoginOptions {
+  clientId: string;
+  baseUrl?: string;
+  scope?: string;
+  fetch?: typeof fetch;
+  /** Display/open callback — show the user_code + verification URL (or open it). */
+  onUserCode?: (auth: DeviceAuthorization) => void | Promise<void>;
+  /** Persist the resulting token set (e.g. FileTokenStore / LocalStorageTokenStore). */
+  store?: ITokenStore;
+  signal?: AbortSignal;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export interface AuthorizationCodeFlowOptions {
+  clientId: string;
+  /** Confidential clients exchange the code with their secret (Ship requires it). */
+  clientSecret: string;
+  redirectUri: string;
+  baseUrl?: string;
+  scope?: string;
+  fetch?: typeof fetch;
+  /** 'loopback' (Node), 'browser' (window.location), or a custom adapter. */
+  redirect: 'loopback' | 'browser' | AuthCodeRedirectAdapter;
+  /** Loopback only: open the authorize URL in a browser (default true). */
+  openBrowser?: boolean;
+  /** Browser only: storage for the PKCE verifier/state across the redirect. */
+  storage?: { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void };
+  /** Persist the resulting token set. */
+  store?: ITokenStore;
+}
+
+/** Persist an OAuth token response into a token store (no-op without a store). */
+async function persistTokenSet(
+  store: ITokenStore | undefined,
+  token: { access_token: string; token_type: string; expires_in: number; scope: string }
+): Promise<void> {
+  if (!store) return;
+  const tokenSet: ShipTokenSet = {
+    accessToken: token.access_token,
+    tokenType: token.token_type,
+    scope: token.scope,
+    expiresAt: Date.now() + token.expires_in * 1000,
+  };
+  await store.set(tokenSet);
 }
 
 // ── Device Authorization Grant (RFC 8628) — `ship login` ────────────────────
@@ -762,5 +1083,36 @@ export {
   type VerifyWebhookOptions,
   type WebhookHeaders,
 } from './webhooks.js';
+
+// Generated OpenAPI types (regenerate with `pnpm gen:types`). Consumers can use
+// these as the authoritative wire contract; the hand-written interfaces above
+// are kept in lockstep via `contract-types.ts`.
+export type {
+  paths as OpenApiPaths,
+  components as OpenApiComponents,
+  Schemas as OpenApiSchemas,
+  Schema as OpenApiSchema,
+} from './generated/index.js';
+
+// Operation manifest + drift gate (see `contract.test.ts`).
+export { OPERATION_MANIFEST, operationKey, type ManifestEntry } from './manifest.js';
+
+// Token stores + OAuth flow adapters (PRD §2).
+export {
+  type ITokenStore,
+  type ShipTokenSet,
+  type WebStorageLike,
+  MemoryTokenStore,
+  FileTokenStore,
+  LocalStorageTokenStore,
+  coerceTokenSet,
+} from './auth/token-store.js';
+export {
+  type AuthCodeRedirectAdapter,
+  type AuthorizeResult,
+  loopbackRedirectAdapter,
+  browserRedirectAdapter,
+} from './auth/flows.js';
+export { generatePkce, generateState, type PkcePair } from './auth/pkce.js';
 
 export default ShipClient;

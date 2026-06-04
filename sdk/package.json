@@ -1,6 +1,6 @@
 {
   "name": "@ryanjagger/ship-sdk",
-  "version": "0.1.0-rc.4",
+  "version": "0.1.0-rc.5",
   "description": "Ship Platform API client SDK",
   "license": "MIT",
   "author": "Ryan Jagger",
@@ -41,11 +41,13 @@
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit",
+    "gen:types": "openapi-typescript ../docs/openapi.json -o src/generated/openapi-types.ts",
     "test": "vitest run",
     "prepublishOnly": "pnpm run clean && pnpm run build"
   },
   "devDependencies": {
     "@types/node": "^22.19.3",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.7.2",
     "vitest": "^4.0.16"
   }

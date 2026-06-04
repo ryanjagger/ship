@@ -123,6 +123,43 @@ export async function listOAuthApps(): Promise<OAuthAppListItem[]> {
 }
 
 /**
+ * List OAuth apps for the developer portal, scoped to a workspace (PRD §8). Apps
+ * are owned by a user (no workspace_id column), so "apps in the workspace" means
+ * apps owned by any member of that workspace — the model agreed for v1
+ * (workspace admins manage every such app). Never selects the secret hash.
+ */
+export async function listOAuthAppsForWorkspace(workspaceId: string): Promise<OAuthAppListItem[]> {
+  const result = await pool.query<OAuthAppListItem>(
+    `SELECT a.id, a.client_id, a.name, a.redirect_uris, a.owner_user_id,
+            a.requested_scopes, a.allow_device_flow, a.is_system, a.created_at, a.updated_at,
+            u.email AS owner_email, u.name AS owner_name
+     FROM oauth_apps a
+     JOIN workspace_memberships m ON m.user_id = a.owner_user_id AND m.workspace_id = $1
+     LEFT JOIN users u ON u.id = a.owner_user_id
+     ORDER BY a.created_at DESC`,
+    [workspaceId]
+  );
+  return result.rows;
+}
+
+/**
+ * Fetch an app only if its owner is a member of the given workspace — the
+ * authorization gate for every workspace-scoped developer-portal app action.
+ * Returns null when the app doesn't exist or isn't visible to the workspace.
+ */
+export async function findOAuthAppForWorkspace(id: string, workspaceId: string): Promise<OAuthApp | null> {
+  const result = await pool.query<OAuthApp>(
+    `SELECT a.id, a.client_id, a.name, a.redirect_uris, a.owner_user_id,
+            a.requested_scopes, a.allow_device_flow, a.is_system, a.created_at, a.updated_at
+     FROM oauth_apps a
+     JOIN workspace_memberships m ON m.user_id = a.owner_user_id AND m.workspace_id = $2
+     WHERE a.id = $1`,
+    [id, workspaceId]
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
  * Mint a fresh client_secret for an existing app (same one-time-secret semantics
  * as creation). The old secret stops working immediately; `client_id` is
  * unchanged. Returns null when no app has that id. Already-issued access tokens

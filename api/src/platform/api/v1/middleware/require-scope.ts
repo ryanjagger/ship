@@ -21,6 +21,8 @@ export function requireScope(scope: string) {
       });
       return;
     }
+    // Record the matched scope for the audit trail (PRD §7).
+    platform.matchedScope = scope;
     next();
   };
 }
@@ -36,12 +38,15 @@ export function requireAnyScope(scopes: string[]) {
       sendApiError(res, req, 'unauthorized', 'Missing bearer token', { details: { reason: 'missing_token' } });
       return;
     }
-    if (!scopes.some((scope) => platform.grantedScopes.includes(scope))) {
+    const matched = scopes.find((scope) => platform.grantedScopes.includes(scope));
+    if (!matched) {
       sendApiError(res, req, 'forbidden', `Insufficient scope: this action requires one of ${scopes.map((s) => `"${s}"`).join(', ')}.`, {
         details: { required_scopes: scopes, granted_scopes: platform.grantedScopes },
       });
       return;
     }
+    // Record the matched scope for the audit trail (PRD §7).
+    platform.matchedScope = matched;
     next();
   };
 }
