@@ -93,6 +93,16 @@ export async function loadProductionSecrets(): Promise<void> {
     console.log('LANGSMITH_API_KEY loaded from SSM (Fleet tracing enabled if LANGSMITH_TRACING=true)');
   }
 
+  // Optional: AES-256-GCM key for encrypting webhook signing secrets. Required
+  // only when webhooks are in use (WEBHOOKS_DELIVERY_ENABLED=true and apps create
+  // subscriptions), so a missing key must NOT block startup — load best-effort.
+  // Runs before app.js import, so the key is present before any encrypt/decrypt.
+  const webhookEncKey = await getSSMSecretOptional(`${basePath}/WEBHOOK_SECRET_ENC_KEY`);
+  if (webhookEncKey) {
+    process.env.WEBHOOK_SECRET_ENC_KEY = webhookEncKey;
+    console.log('WEBHOOK_SECRET_ENC_KEY loaded from SSM (webhook signing-secret encryption enabled)');
+  }
+
   console.log('Secrets loaded from SSM Parameter Store');
   console.log(`CORS_ORIGIN: ${corsOrigin}`);
   console.log(`CDN_DOMAIN: ${cdnDomain}`);

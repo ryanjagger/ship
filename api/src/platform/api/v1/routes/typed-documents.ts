@@ -14,9 +14,17 @@ import {
   type DocumentUpdateInput,
   type DocumentWriteInput,
   type BelongsToInput,
+  type ResourceDto,
   type TypedDocumentRow,
   type TypedDocumentResource,
 } from '../schemas/typed-document.js';
+import { eventBus } from '../../../webhooks/event-bus.js';
+import { buildEvents } from '../../../webhooks/events.js';
+
+/** Webhook actor context derived from the authenticated platform request. */
+function eventActor(platform: PlatformAuth) {
+  return { workspaceId: platform.workspaceId, actorUserId: platform.userId };
+}
 
 interface Queryable {
   query<T = unknown>(text: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -430,8 +438,15 @@ function createTypedDocumentRouter(resource: TypedDocumentResource): RouterType 
       if (!row) {
         throw new Error(`Created ${resource.name} could not be reloaded`);
       }
+      const afterDto = resource.toResponse(row) as ResourceDto;
+      const eventIds = await eventBus.publish(
+        client,
+        buildEvents(resource, eventActor(platform), { kind: 'created', after: afterDto }),
+        { visibility: row.visibility, ownerId: row.created_by }
+      );
       await client.query('COMMIT');
-      res.status(201).json(resource.toResponse(row));
+      eventBus.dispatchSoon(eventIds);
+      res.status(201).json(afterDto);
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       console.error(`[api/v1] POST /${resource.path} error:`, error);
@@ -470,17 +485,11 @@ function createTypedDocumentRouter(resource: TypedDocumentResource): RouterType 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const existing = await client.query<{ id: string }>(
-        `SELECT id FROM documents
-         WHERE id = $1
-           AND workspace_id = $2
-           AND document_type::text = $3
-           AND archived_at IS NULL
-           AND deleted_at IS NULL
-           AND (visibility = 'workspace' OR created_by = $4)`,
-        [id.data, platform.workspaceId, resource.documentType, platform.userId]
-      );
-      if (!existing.rows[0]) {
+      // Load the pre-update row (also serves as the existence/visibility check).
+      // It's mapped through toResponse below to compute previous_attributes and
+      // detect semantic transitions generically.
+      const beforeRow = await loadDocument(client, platform, resource, id.data);
+      if (!beforeRow) {
         await client.query('ROLLBACK');
         sendApiError(res, req, 'not_found', `${resource.name} not found`);
         return;
@@ -506,8 +515,16 @@ function createTypedDocumentRouter(resource: TypedDocumentResource): RouterType 
       if (!row) {
         throw new Error(`Updated ${resource.name} could not be reloaded`);
       }
+      const beforeDto = resource.toResponse(beforeRow) as ResourceDto;
+      const afterDto = resource.toResponse(row) as ResourceDto;
+      const eventIds = await eventBus.publish(
+        client,
+        buildEvents(resource, eventActor(platform), { kind: 'updated', before: beforeDto, after: afterDto }),
+        { visibility: row.visibility, ownerId: row.created_by }
+      );
       await client.query('COMMIT');
-      res.json(resource.toResponse(row));
+      eventBus.dispatchSoon(eventIds);
+      res.json(afterDto);
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       console.error(`[api/v1] PATCH /${resource.path}/:id error:`, error);
@@ -530,24 +547,40 @@ function createTypedDocumentRouter(resource: TypedDocumentResource): RouterType 
       return;
     }
 
+    // Wrapped in a transaction (unlike a bare DELETE) so the tombstone event +
+    // its fanned-out deliveries commit atomically with the document removal.
+    const client = await pool.connect();
     try {
-      const result = await pool.query<{ id: string }>(
+      await client.query('BEGIN');
+      const result = await client.query<{ id: string; visibility: string; created_by: string | null }>(
         `DELETE FROM documents
          WHERE id = $1
            AND workspace_id = $2
            AND document_type::text = $3
            AND (visibility = 'workspace' OR created_by = $4)
-         RETURNING id`,
+         RETURNING id, visibility, created_by`,
         [id.data, platform.workspaceId, resource.documentType, platform.userId]
       );
-      if (!result.rows[0]) {
+      const deleted = result.rows[0];
+      if (!deleted) {
+        await client.query('ROLLBACK');
         sendApiError(res, req, 'not_found', `${resource.name} not found`);
         return;
       }
+      const eventIds = await eventBus.publish(
+        client,
+        buildEvents(resource, eventActor(platform), { kind: 'deleted', id: id.data }),
+        { visibility: deleted.visibility, ownerId: deleted.created_by }
+      );
+      await client.query('COMMIT');
+      eventBus.dispatchSoon(eventIds);
       res.status(204).send();
     } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
       console.error(`[api/v1] DELETE /${resource.path}/:id error:`, error);
       sendApiError(res, req, 'server_error', `Failed to delete ${resource.name}`);
+    } finally {
+      client.release();
     }
   });
 

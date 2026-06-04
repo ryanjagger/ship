@@ -17,6 +17,18 @@ import {
   TypedDocumentListQuerySchema,
 } from '../schemas/typed-document.js';
 import { ApiErrorSchema } from '../schemas/error.js';
+import {
+  WebhookSubscriptionSchema,
+  CreatedWebhookSubscriptionSchema,
+  CreateWebhookSubscriptionSchema,
+  UpdateWebhookSubscriptionSchema,
+  WebhookSubscriptionListSchema,
+  WebhookDeliverySchema,
+  WebhookDeliveryDetailSchema,
+  WebhookDeliveryListSchema,
+  ListDeliveriesQuerySchema,
+  ReplayResponseSchema,
+} from '../schemas/webhook.js';
 
 /**
  * The Platform API OpenAPI 3.1 spec (PRD §5.7). Generated in-process from the
@@ -205,6 +217,165 @@ function buildRegistry(): OpenAPIRegistry {
       },
     });
   }
+
+  // ── Webhooks ────────────────────────────────────────────────────────────
+  const WebhookSubscription = registry.register('WebhookSubscription', WebhookSubscriptionSchema);
+  const CreatedWebhookSubscription = registry.register('CreatedWebhookSubscription', CreatedWebhookSubscriptionSchema);
+  const CreateWebhookSubscription = registry.register('CreateWebhookSubscription', CreateWebhookSubscriptionSchema);
+  const UpdateWebhookSubscription = registry.register('UpdateWebhookSubscription', UpdateWebhookSubscriptionSchema);
+  const WebhookSubscriptionList = registry.register('WebhookSubscriptionList', WebhookSubscriptionListSchema);
+  const WebhookDelivery = registry.register('WebhookDelivery', WebhookDeliverySchema);
+  const WebhookDeliveryDetail = registry.register('WebhookDeliveryDetail', WebhookDeliveryDetailSchema);
+  const WebhookDeliveryList = registry.register('WebhookDeliveryList', WebhookDeliveryListSchema);
+  const ReplayResponse = registry.register('WebhookReplayResponse', ReplayResponseSchema);
+  const webhookSecurity = [{ bearerAuth: [] }];
+  const webhookScopeNote = 'Requires scope `webhooks:manage`. Subscribing to an event family also requires its read scope.';
+
+  registry.registerPath({
+    method: 'get',
+    path: '/webhooks',
+    tags: ['webhooks'],
+    summary: 'List webhook subscriptions',
+    description: 'Requires scope `webhooks:manage`.',
+    security: webhookSecurity,
+    responses: {
+      200: { description: 'The app\'s webhook subscriptions', content: { 'application/json': { schema: WebhookSubscriptionList } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage)'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/webhooks',
+    tags: ['webhooks'],
+    summary: 'Create a webhook subscription',
+    description: `${webhookScopeNote} The raw signing \`secret\` is returned ONLY here and on rotation.`,
+    security: webhookSecurity,
+    request: { body: { content: { 'application/json': { schema: CreateWebhookSubscription } } } },
+    responses: {
+      201: { description: 'The created subscription (with one-time secret)', content: { 'application/json': { schema: CreatedWebhookSubscription } } },
+      400: errorResponse('Invalid subscription or unknown event type'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage or a required read scope)'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/webhooks/{id}',
+    tags: ['webhooks'],
+    summary: 'Get a webhook subscription',
+    description: 'Requires scope `webhooks:manage`.',
+    security: webhookSecurity,
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      200: { description: 'The subscription', content: { 'application/json': { schema: WebhookSubscription } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage)'),
+      404: errorResponse('Subscription not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/webhooks/{id}',
+    tags: ['webhooks'],
+    summary: 'Update a webhook subscription',
+    description: webhookScopeNote,
+    security: webhookSecurity,
+    request: {
+      params: z.object({ id: z.string().uuid() }),
+      body: { content: { 'application/json': { schema: UpdateWebhookSubscription } } },
+    },
+    responses: {
+      200: { description: 'The updated subscription', content: { 'application/json': { schema: WebhookSubscription } } },
+      400: errorResponse('Invalid subscription or unknown event type'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage or a required read scope)'),
+      404: errorResponse('Subscription not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/webhooks/{id}',
+    tags: ['webhooks'],
+    summary: 'Delete a webhook subscription',
+    description: 'Requires scope `webhooks:manage`.',
+    security: webhookSecurity,
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      204: { description: 'Subscription deleted' },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage)'),
+      404: errorResponse('Subscription not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/webhooks/{id}/rotate-secret',
+    tags: ['webhooks'],
+    summary: 'Rotate a webhook signing secret',
+    description: `${webhookScopeNote} Returns a new one-time \`secret\`; the previous secret stops signing immediately.`,
+    security: webhookSecurity,
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      200: { description: 'The subscription with a fresh one-time secret', content: { 'application/json': { schema: CreatedWebhookSubscription } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage)'),
+      404: errorResponse('Subscription not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/webhook-deliveries',
+    tags: ['webhooks'],
+    summary: 'List webhook deliveries',
+    description: 'Requires scope `webhooks:manage`. Filter by subscription, event type, and status.',
+    security: webhookSecurity,
+    request: { query: ListDeliveriesQuerySchema },
+    responses: {
+      200: { description: 'A page of deliveries', content: { 'application/json': { schema: WebhookDeliveryList } } },
+      400: errorResponse('Invalid query parameters'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage)'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/webhook-deliveries/{id}',
+    tags: ['webhooks'],
+    summary: 'Get a webhook delivery with attempt history',
+    description: 'Requires scope `webhooks:manage`.',
+    security: webhookSecurity,
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      200: { description: 'The delivery and its attempts', content: { 'application/json': { schema: WebhookDeliveryDetail } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage)'),
+      404: errorResponse('Delivery not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/webhook-deliveries/{id}/replay',
+    tags: ['webhooks'],
+    summary: 'Replay a webhook delivery',
+    description: 'Requires scope `webhooks:manage`. Re-sends the original event (same idempotency key) as a new linked delivery with a fresh signature timestamp.',
+    security: webhookSecurity,
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      202: { description: 'A new replay delivery was created', content: { 'application/json': { schema: ReplayResponse } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (webhooks:manage)'),
+      404: errorResponse('Delivery not found'),
+    },
+  });
 
   return registry;
 }

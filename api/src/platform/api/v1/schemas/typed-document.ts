@@ -59,6 +59,9 @@ export interface DocumentUpdateInput {
   belongs_to?: BelongsToInput[];
 }
 
+/** A public DTO as produced by `toResponse` — used for event payloads + diffing. */
+export type ResourceDto = Record<string, unknown>;
+
 export interface TypedDocumentResource {
   /** Public collection path segment under /api/v1. */
   path: string;
@@ -66,6 +69,12 @@ export interface TypedDocumentResource {
   name: string;
   /** Backing unified-document type. */
   documentType: z.infer<typeof PublicDocumentTypeSchema>;
+  /**
+   * Public webhook event family + tombstone `object` name (e.g. 'issue',
+   * 'wiki_page'). Distinct from `documentType` because the public family for the
+   * `wiki` type is `wiki_page`. Events are `${eventResource}.created` etc.
+   */
+  eventResource: string;
   readScope: string;
   writeScope: string;
   description: string;
@@ -77,6 +86,18 @@ export interface TypedDocumentResource {
   toCreate: (input: unknown) => DocumentWriteInput;
   toUpdate: (input: unknown) => DocumentUpdateInput;
   assignTicketNumber?: boolean;
+  /**
+   * Extra semantic event actions (without the `${eventResource}.` prefix) emitted
+   * on update when a meaningful workflow transition is detected from the before/
+   * after DTOs (PRD §Event Semantics). Omitted for resources with no clear-cut
+   * write-time signal (sprint/project status is inferred at read time — deferred).
+   */
+  semanticEvents?: (before: ResourceDto, after: ResourceDto) => string[];
+}
+
+/** True when a value went from null/absent to present (for `*.submitted`). */
+function becamePresent(before: unknown, after: unknown): boolean {
+  return (before === null || before === undefined) && after !== null && after !== undefined;
 }
 
 function iso(v: Date | string): string {
@@ -572,6 +593,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
     path: 'wiki-pages',
     name: 'WikiPage',
     documentType: 'wiki',
+    eventResource: 'wiki_page',
     readScope: 'wiki:read',
     writeScope: 'wiki:write',
     description: 'Wiki pages.',
@@ -592,6 +614,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
     path: 'issues',
     name: 'Issue',
     documentType: 'issue',
+    eventResource: 'issue',
     readScope: 'issues:read',
     writeScope: 'issues:write',
     description: 'Issues.',
@@ -600,6 +623,12 @@ export const TYPED_DOCUMENT_RESOURCES = [
     updateSchema: UpdateIssueSchema,
     assignTicketNumber: true,
     toResponse: issueResponse,
+    semanticEvents: (before, after) => {
+      const events: string[] = [];
+      if (before.assignee_id !== after.assignee_id) events.push('assigned');
+      if (before.state !== after.state) events.push('status_changed');
+      return events;
+    },
     toCreate: (input) => writeFromKnownFields(input as Record<string, unknown>, issueKeys),
     toUpdate: (input) => updateFromKnownFields(input as Record<string, unknown>, issueKeys),
   }),
@@ -607,6 +636,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
     path: 'programs',
     name: 'Program',
     documentType: 'program',
+    eventResource: 'program',
     readScope: 'programs:read',
     writeScope: 'programs:write',
     description: 'Programs.',
@@ -638,6 +668,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
     path: 'projects',
     name: 'Project',
     documentType: 'project',
+    eventResource: 'project',
     readScope: 'projects:read',
     writeScope: 'projects:write',
     description: 'Projects.',
@@ -688,6 +719,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
     path: 'sprints',
     name: 'Sprint',
     documentType: 'sprint',
+    eventResource: 'sprint',
     readScope: 'sprints:read',
     writeScope: 'sprints:write',
     description: 'Sprints.',
@@ -745,6 +777,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
     path: 'people',
     name: 'Person',
     documentType: 'person',
+    eventResource: 'person',
     readScope: 'people:read',
     writeScope: 'people:write',
     description: 'People directory entries.',
@@ -776,6 +809,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
     path: 'weekly-plans',
     name: 'WeeklyPlan',
     documentType: 'weekly_plan',
+    eventResource: 'weekly_plan',
     readScope: 'weekly_plans:read',
     writeScope: 'weekly_plans:write',
     description: 'Weekly plans.',
@@ -788,11 +822,13 @@ export const TYPED_DOCUMENT_RESOURCES = [
     },
     toCreate: (input) => writeFromKnownFields(input as Record<string, unknown>, weeklyKeys),
     toUpdate: (input) => updateFromKnownFields(input as Record<string, unknown>, weeklyKeys),
+    semanticEvents: (before, after) => (becamePresent(before.submitted_at, after.submitted_at) ? ['submitted'] : []),
   }),
   createResource({
     path: 'weekly-retros',
     name: 'WeeklyRetro',
     documentType: 'weekly_retro',
+    eventResource: 'weekly_retro',
     readScope: 'weekly_retros:read',
     writeScope: 'weekly_retros:write',
     description: 'Weekly retros.',
@@ -805,11 +841,13 @@ export const TYPED_DOCUMENT_RESOURCES = [
     },
     toCreate: (input) => writeFromKnownFields(input as Record<string, unknown>, weeklyKeys),
     toUpdate: (input) => updateFromKnownFields(input as Record<string, unknown>, weeklyKeys),
+    semanticEvents: (before, after) => (becamePresent(before.submitted_at, after.submitted_at) ? ['submitted'] : []),
   }),
   createResource({
     path: 'standups',
     name: 'Standup',
     documentType: 'standup',
+    eventResource: 'standup',
     readScope: 'standups:read',
     writeScope: 'standups:write',
     description: 'Standups.',
@@ -822,11 +860,13 @@ export const TYPED_DOCUMENT_RESOURCES = [
     },
     toCreate: (input) => writeFromKnownFields(input as Record<string, unknown>, standupKeys),
     toUpdate: (input) => updateFromKnownFields(input as Record<string, unknown>, standupKeys),
+    semanticEvents: (before, after) => (becamePresent(before.submitted_at, after.submitted_at) ? ['submitted'] : []),
   }),
   createResource({
     path: 'weekly-reviews',
     name: 'WeeklyReview',
     documentType: 'weekly_review',
+    eventResource: 'weekly_review',
     readScope: 'weekly_reviews:read',
     writeScope: 'weekly_reviews:write',
     description: 'Weekly reviews.',

@@ -21,6 +21,7 @@ async function main() {
   const { createApp } = await import('./app.js');
   const { setupCollaboration } = await import('./collaboration/index.js');
   const { startScheduler } = await import('./scheduler/index.js');
+  const { startWebhookScheduler } = await import('./platform/webhooks/scheduler.js');
 
   const PORT = process.env.PORT || 3000;
   const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
@@ -45,6 +46,10 @@ async function main() {
   // Register the FleetGraph hourly sweep (gated by FLEETGRAPH_SWEEP_ENABLED;
   // returns silently when the env flag is not 'true').
   startScheduler();
+
+  // Register the webhook delivery tick (gated by WEBHOOKS_DELIVERY_ENABLED;
+  // returns silently when the env flag is not 'true').
+  startWebhookScheduler();
 }
 
 main().catch((err) => {
