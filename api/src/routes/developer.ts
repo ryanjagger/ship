@@ -27,7 +27,7 @@ import {
   createReplay,
   type DeliveryStatus,
 } from '../platform/webhooks/deliveries.js';
-import { isKnownEventType } from '../platform/webhooks/registry.js';
+import { isKnownEventType, requiredReadScopes } from '../platform/webhooks/registry.js';
 import { webhookTargetError } from '../platform/webhooks/target-url.js';
 import { queryPublicApiAudit } from '../platform/api/v1/audit/service.js';
 
@@ -225,8 +225,15 @@ const subscriptionPatchSchema = z.object({
   active: z.boolean().optional(),
 });
 
-/** Validate URL + known event types (delivery fan-out itself is visibility-aware). */
-function validateSubscription(url: string | undefined, events: string[] | undefined): string | null {
+/**
+ * Validate URL + event types for a subscription. Mirrors the read-scope gate on
+ * the public `/api/v1/webhooks` path (PRD §Scope Requirements): an app may only
+ * subscribe to an event family it holds a read scope for. Here the app — not a
+ * bearer token — is the subscriber, so we gate on the app's `requested_scopes`.
+ * Without this, fan-out (`eventBus.publish` matches only workspace/active/events)
+ * would deliver e.g. `issue.*` payloads to an app lacking `issues:read`.
+ */
+function validateSubscription(url: string | undefined, events: string[] | undefined, appScopes: string[]): string | null {
   if (url !== undefined) {
     const urlError = webhookTargetError(url);
     if (urlError) return `Invalid webhook url: ${urlError}`;
@@ -234,6 +241,13 @@ function validateSubscription(url: string | undefined, events: string[] | undefi
   if (events !== undefined) {
     const unknownEvents = events.filter((e) => !isKnownEventType(e));
     if (unknownEvents.length > 0) return `Unknown event type(s): ${unknownEvents.join(', ')}`;
+    const granted = new Set(appScopes);
+    for (const event of events) {
+      const accepted = requiredReadScopes(event);
+      if (accepted.length > 0 && !accepted.some((scope) => granted.has(scope))) {
+        return `Subscribing to "${event}" requires the app to hold one of: ${accepted.join(', ')}.`;
+      }
+    }
   }
   return null;
 }
@@ -259,7 +273,7 @@ router.post('/apps/:appId/webhooks', async (req: Request, res: Response): Promis
     fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid subscription', parsed.error.flatten());
     return;
   }
-  const invalid = validateSubscription(parsed.data.url, parsed.data.events);
+  const invalid = validateSubscription(parsed.data.url, parsed.data.events, app.requested_scopes);
   if (invalid) {
     fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, invalid);
     return;
@@ -294,7 +308,7 @@ router.patch('/apps/:appId/webhooks/:subscriptionId', async (req: Request, res: 
     fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid subscription', parsed.error.flatten());
     return;
   }
-  const invalid = validateSubscription(parsed.data.url, parsed.data.events);
+  const invalid = validateSubscription(parsed.data.url, parsed.data.events, app.requested_scopes);
   if (invalid) {
     fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, invalid);
     return;

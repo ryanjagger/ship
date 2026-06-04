@@ -125,4 +125,24 @@ describe('ShipClient.authorizationCodeFlow (custom adapter)', () => {
       })
     ).rejects.toThrow(/state mismatch/i);
   });
+
+  it('rejects a callback that omits state entirely (CSRF guard)', async () => {
+    const { fetchImpl } = oauthFetch({});
+    const adapter: AuthCodeRedirectAdapter = {
+      async authorize() {
+        // A proxy/provider dropped state, or a custom adapter forgot to echo it.
+        return { code: 'c' };
+      },
+    };
+    await expect(
+      ShipClient.authorizationCodeFlow({
+        clientId: 'c',
+        clientSecret: 's',
+        redirectUri: 'http://127.0.0.1:9/cb',
+        baseUrl: 'https://api.test',
+        fetch: fetchImpl,
+        redirect: adapter,
+      })
+    ).rejects.toThrow(/state mismatch/i);
+  });
 });

@@ -833,7 +833,9 @@ export class ShipClient implements Transport {
     });
 
     const result = await adapter.authorize(authUrl, options.redirectUri);
-    if (state && result.state && result.state !== state) {
+    // We always send a generated `state`; the callback MUST echo it back. A
+    // missing or differing `result.state` is treated as a mismatch (CSRF guard).
+    if (state && result.state !== state) {
       throw new Error('OAuth state mismatch (possible CSRF); aborting');
     }
 
