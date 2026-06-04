@@ -617,4 +617,13 @@ export async function pollDeviceToken(opts: PollDeviceTokenOptions): Promise<Dev
   }
 }
 
+// Webhook signature verification (server-side; uses node:crypto).
+export {
+  verifyWebhook,
+  signWebhookPayload,
+  DEFAULT_TOLERANCE_SEC,
+  type VerifyWebhookOptions,
+  type WebhookHeaders,
+} from './webhooks.js';
+
 export default ShipClient;

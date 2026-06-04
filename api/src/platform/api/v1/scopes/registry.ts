@@ -49,7 +49,7 @@ const SCOPES: ScopeDefinition[] = [
   { scope: 'standups:write', description: 'Create, update, and delete standups.', exercised: true },
   { scope: 'weekly_reviews:read', description: 'Read weekly reviews.', exercised: true },
   { scope: 'weekly_reviews:write', description: 'Create, update, and delete weekly reviews.', exercised: true },
-  { scope: 'webhooks:manage', description: 'Manage webhook subscriptions.', exercised: false },
+  { scope: 'webhooks:manage', description: 'Manage webhook subscriptions.', exercised: true },
 ];
 
 export class ScopeRegistry {
