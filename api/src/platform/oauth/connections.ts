@@ -80,7 +80,8 @@ export async function revokeWorkspaceConnection(
     `WITH revoked AS (
        UPDATE access_tokens
           SET revoked_at = now()
-        WHERE workspace_id = $1 AND app_id = $2 AND user_id = $3 AND revoked_at IS NULL
+        WHERE workspace_id = $1 AND app_id = $2 AND user_id = $3
+          AND revoked_at IS NULL AND expires_at > now()
         RETURNING id
      )
      SELECT count(*)::int AS revoked_count,
