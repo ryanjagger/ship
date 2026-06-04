@@ -24,7 +24,7 @@ export async function login(config: CliConfig): Promise<number> {
     const auth = await requestDeviceAuthorization({
       baseUrl: config.baseUrl,
       clientId: config.clientId,
-      scope: 'documents:read documents:write',
+      scope: 'documents:read documents:write webhooks:manage people:read',
     });
 
     console.log('\nTo sign in, open this page in your browser:\n');

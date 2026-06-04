@@ -4,6 +4,7 @@ import { parseArgs } from './args.js';
 import { login } from './commands/login.js';
 import { docsCreate, docsList } from './commands/docs.js';
 import { findResourceCommand, runResourceCommand } from './commands/resources.js';
+import { runWebhooksCommand } from './commands/webhooks.js';
 
 const HELP = `ship - Ship Platform CLI
 
@@ -16,13 +17,20 @@ Usage:
   ship wiki list                   List wiki pages
   ship docs list                   Legacy broad document list
 
+  ship webhooks list                            List webhook subscriptions
+  ship webhooks create --url <u> --events <a,b> Create a subscription (prints the secret once)
+  ship webhooks delete <id>                     Delete a subscription
+  ship webhooks tail                            Live-stream the delivery log (Ctrl-C to stop)
+  ship webhooks replay <delivery-id>            Re-fire a delivery
+    (webhooks needs the webhooks:manage scope — run \`ship login\` to refresh your token)
+
 Environment:
   SHIP_API_URL     Ship API base URL   (default Railway development deployment)
   SHIP_CLIENT_ID   OAuth client_id     (default client_ship_cli)
 `;
 
 export async function run(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
-  const { command, sub, flags } = parseArgs(argv);
+  const { command, sub, flags, rest } = parseArgs(argv);
   const config = loadConfig(env);
 
   if (!command || command === 'help' || flags.help) {
@@ -41,6 +49,8 @@ export async function run(argv: string[], env: NodeJS.ProcessEnv = process.env):
       if (sub === 'list') return docsList(config);
       console.error('Usage: ship docs <create|list>');
       return 1;
+    case 'webhooks':
+      return runWebhooksCommand(config, sub, flags, rest);
     default:
       {
         const resource = findResourceCommand(command);
