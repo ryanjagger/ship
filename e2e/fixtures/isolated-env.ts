@@ -174,6 +174,12 @@ export const test = base.extend<
           NODE_ENV: 'test',
           // Prevent dotenv from overriding our DATABASE_URL
           DOTENV_CONFIG_PATH: '/dev/null',
+          // Because dotenv is bypassed above, .env.local's webhook key never
+          // loads — supply a fixed test key so webhook signing-secret
+          // encryption (AES-256-GCM, crypto.ts) works in the portal e2e flow.
+          WEBHOOK_SECRET_ENC_KEY:
+            process.env.WEBHOOK_SECRET_ENC_KEY ??
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });

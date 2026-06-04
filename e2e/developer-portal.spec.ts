@@ -28,6 +28,9 @@ test.describe('Developer Portal', () => {
     await page.getByTestId('dev-app-name-input').fill(appName);
     await page.getByTestId('dev-app-redirects-input').fill(`${baseURL}/callback`);
     await page.getByTestId('dev-scope-webhooks:manage').check();
+    // issue.created delivery requires the app to hold a matching read scope
+    // (the webhook read-scope gate); without this the subscription is rejected.
+    await page.getByTestId('dev-scope-issues:read').check();
     await page.getByTestId('dev-app-create-submit').click();
 
     await expect(page.getByTestId('dev-secret-modal')).toBeVisible();
