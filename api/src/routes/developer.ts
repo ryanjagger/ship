@@ -11,6 +11,7 @@ import {
   listOAuthAppsForWorkspace,
   findOAuthAppForWorkspace,
 } from '../platform/oauth/apps.js';
+import { listWorkspaceConnections, revokeWorkspaceConnection } from '../platform/oauth/connections.js';
 import { scopeRegistry } from '../platform/api/v1/scopes/registry.js';
 import {
   createSubscription,
@@ -209,6 +210,60 @@ router.delete('/apps/:appId', async (req: Request, res: Response): Promise<void>
   } catch (error) {
     console.error('[developer] delete app error:', error);
     fail(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, ERROR_CODES.INTERNAL_ERROR, 'Failed to delete app');
+  }
+});
+
+// ── Connected apps (live access tokens) ──────────────────────────────────────
+
+/**
+ * Apps with live tokens in this workspace — the device/auth-code flows leave no
+ * standing grant, so a "connection" is just one or more unexpired, unrevoked
+ * access tokens (see platform/oauth/connections.ts). This is the answer to
+ * "which apps did I authorize, and what can they read?"
+ */
+router.get('/connections', async (req: Request, res: Response): Promise<void> => {
+  if (!assertAuthed(req, res)) return;
+  try {
+    ok(res, await listWorkspaceConnections(req.workspaceId));
+  } catch (error) {
+    console.error('[developer] list connections error:', error);
+    fail(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, ERROR_CODES.INTERNAL_ERROR, 'Failed to list connections');
+  }
+});
+
+router.delete('/connections/:appId/users/:userId', async (req: Request, res: Response): Promise<void> => {
+  if (!assertAuthed(req, res)) return;
+  const appId = uuid.safeParse(req.params.appId);
+  const userId = uuid.safeParse(req.params.userId);
+  if (!appId.success || !userId.success) {
+    fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid app or user id');
+    return;
+  }
+  try {
+    const revoked = await revokeWorkspaceConnection(req.workspaceId, appId.data, userId.data);
+    if (revoked.revoked_count === 0) {
+      fail(res, HTTP_STATUS.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'No active connection found to revoke');
+      return;
+    }
+    await logAuditEvent({
+      workspaceId: req.workspaceId,
+      actorUserId: req.userId,
+      action: 'oauth_connection.revoked',
+      resourceType: 'oauth_app',
+      resourceId: appId.data,
+      details: {
+        client_id: revoked.client_id,
+        app_name: revoked.app_name,
+        revoked_user_id: userId.data,
+        tokens_revoked: revoked.revoked_count,
+        via: 'developer_portal',
+      },
+      req,
+    });
+    ok(res, { message: 'Connection revoked', tokens_revoked: revoked.revoked_count });
+  } catch (error) {
+    console.error('[developer] revoke connection error:', error);
+    fail(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, ERROR_CODES.INTERNAL_ERROR, 'Failed to revoke connection');
   }
 });
 

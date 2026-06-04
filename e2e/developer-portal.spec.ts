@@ -87,6 +87,24 @@ test.describe('Developer Portal', () => {
     await expect(page.getByText(/Replayed — new delivery/i)).toBeVisible({ timeout: 5000 });
   });
 
+  test('Connections tab lists a live token and revokes it', async ({ page }) => {
+    await login(page);
+    await page.goto('/developer');
+    await page.getByTestId('dev-tab-connections').click();
+    await expect(page.getByTestId('dev-connections')).toBeVisible();
+
+    // The seeded dev app holds a live access token, so it appears here.
+    const row = page.getByTestId('dev-connection-row').filter({ hasText: 'Seed Webhook App' });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('issues:read');
+
+    // Revoke it; the row disappears once its only live token is killed.
+    await row.getByTestId('dev-revoke-connection').click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
+    await expect(page.getByText('Connection revoked')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('dev-connection-row').filter({ hasText: 'Seed Webhook App' })).toHaveCount(0);
+  });
+
   test('API audit tab renders', async ({ page }) => {
     await login(page);
     await page.goto('/developer');
