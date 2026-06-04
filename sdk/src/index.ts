@@ -462,6 +462,21 @@ export class DocumentsClient {
   create(input: CreateDocumentInput): Promise<ShipDocument> {
     return this.transport.request<ShipDocument>('POST', '/api/v1/documents', input);
   }
+
+  /**
+   * Lazily iterate every document across pages, hiding cursor walking. Fetches
+   * the next page only when iteration continues; all filters except `cursor`
+   * are preserved across pages.
+   */
+  async *iterate(params: Omit<ListDocumentsParams, 'cursor'> = {}): AsyncGenerator<ShipDocument, void, unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const page: DocumentList = await this.list({ ...params, cursor });
+      for (const item of page.data) yield item;
+      if (!page.next_cursor) return;
+      cursor = page.next_cursor;
+    }
+  }
 }
 
 export class TypedResourceClient<TResource = unknown, TCreate = CreateTypedResourceInput, TUpdate = UpdateTypedResourceInput> {
@@ -492,6 +507,21 @@ export class TypedResourceClient<TResource = unknown, TCreate = CreateTypedResou
 
   async delete(id: string): Promise<void> {
     await this.transport.request<null>('DELETE', `/api/v1/${this.path}/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Lazily iterate every resource across pages, hiding cursor walking. Fetches
+   * the next page only when iteration continues; all filters except `cursor`
+   * are preserved across pages.
+   */
+  async *iterate(params: Omit<ListTypedResourceParams, 'cursor'> = {}): AsyncGenerator<TResource, void, unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const page: Page<TResource> = await this.list({ ...params, cursor });
+      for (const item of page.data) yield item;
+      if (!page.next_cursor) return;
+      cursor = page.next_cursor;
+    }
   }
 }
 
@@ -762,5 +792,18 @@ export {
   type VerifyWebhookOptions,
   type WebhookHeaders,
 } from './webhooks.js';
+
+// Generated OpenAPI types (regenerate with `pnpm gen:types`). Consumers can use
+// these as the authoritative wire contract; the hand-written interfaces above
+// are kept in lockstep via `contract-types.ts`.
+export type {
+  paths as OpenApiPaths,
+  components as OpenApiComponents,
+  Schemas as OpenApiSchemas,
+  Schema as OpenApiSchema,
+} from './generated/index.js';
+
+// Operation manifest + drift gate (see `contract.test.ts`).
+export { OPERATION_MANIFEST, operationKey, type ManifestEntry } from './manifest.js';
 
 export default ShipClient;
