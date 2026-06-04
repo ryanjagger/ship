@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { createApp } from '../../../../../app.js';
 import { pool } from '../../../../../db/client.js';
@@ -105,13 +106,15 @@ describe('rate-limit service · stricter-of-two buckets', () => {
       requestedScopes: ['documents:read'],
     });
     const appId = created.app.id;
-    const issued = await issueAccessToken({ appId, userId, workspaceId, scopes: ['documents:read'] });
+    await issueAccessToken({ appId, userId, workspaceId, scopes: ['documents:read'] });
+    // The service treats the token id purely as a distinct bucket key.
+    const tokenId = randomUUID();
     const config = { appLimit: 1, tokenLimit: 100, windowSeconds: 60 };
 
     try {
-      const first = await consumeRateLimit(appId, issued.tokenId, config);
+      const first = await consumeRateLimit(appId, tokenId, config);
       expect(first.allowed).toBe(true);
-      const second = await consumeRateLimit(appId, issued.tokenId, config);
+      const second = await consumeRateLimit(appId, tokenId, config);
       expect(second.allowed).toBe(false);
       // The limiting bucket is the app bucket, and Retry-After is positive.
       expect(second.limiting.key).toBe(`app:${appId}`);
@@ -119,7 +122,7 @@ describe('rate-limit service · stricter-of-two buckets', () => {
       // Token bucket still has plenty of room (proves "stricter of the two").
       expect(second.token.remaining).toBeGreaterThan(50);
     } finally {
-      await pool.query(`DELETE FROM public_api_rate_limit_buckets WHERE bucket_key IN ($1, $2)`, [`app:${appId}`, `token:${issued.tokenId}`]);
+      await pool.query(`DELETE FROM public_api_rate_limit_buckets WHERE bucket_key IN ($1, $2)`, [`app:${appId}`, `token:${tokenId}`]);
       await pool.query('DELETE FROM oauth_apps WHERE id = $1', [appId]);
       await pool.query('DELETE FROM workspaces WHERE id = $1', [workspaceId]);
       await pool.query('DELETE FROM users WHERE id = $1', [userId]);
