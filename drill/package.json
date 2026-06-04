@@ -1,0 +1,21 @@
+{
+  "name": "@ship/drill",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Time-to-First-Event (TTFE) drill harness — proves the Ship platform contract end-to-end (issue #73)",
+  "type": "module",
+  "scripts": {
+    "drill": "tsx src/bin.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ryanjagger/ship-sdk": "workspace:*",
+    "@testcontainers/postgresql": "^11.11.0",
+    "get-port": "^7.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

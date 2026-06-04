@@ -5,3 +5,4 @@ packages:
   - 'probe'
   - 'sdk'
   - 'cli'
+  - 'drill'
