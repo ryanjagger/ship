@@ -439,7 +439,11 @@ function createTypedDocumentRouter(resource: TypedDocumentResource): RouterType 
         throw new Error(`Created ${resource.name} could not be reloaded`);
       }
       const afterDto = resource.toResponse(row) as ResourceDto;
-      const eventIds = await eventBus.publish(client, buildEvents(resource, eventActor(platform), { kind: 'created', after: afterDto }));
+      const eventIds = await eventBus.publish(
+        client,
+        buildEvents(resource, eventActor(platform), { kind: 'created', after: afterDto }),
+        { visibility: row.visibility, ownerId: row.created_by }
+      );
       await client.query('COMMIT');
       eventBus.dispatchSoon(eventIds);
       res.status(201).json(afterDto);
@@ -515,7 +519,8 @@ function createTypedDocumentRouter(resource: TypedDocumentResource): RouterType 
       const afterDto = resource.toResponse(row) as ResourceDto;
       const eventIds = await eventBus.publish(
         client,
-        buildEvents(resource, eventActor(platform), { kind: 'updated', before: beforeDto, after: afterDto })
+        buildEvents(resource, eventActor(platform), { kind: 'updated', before: beforeDto, after: afterDto }),
+        { visibility: row.visibility, ownerId: row.created_by }
       );
       await client.query('COMMIT');
       eventBus.dispatchSoon(eventIds);
@@ -547,23 +552,25 @@ function createTypedDocumentRouter(resource: TypedDocumentResource): RouterType 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const result = await client.query<{ id: string }>(
+      const result = await client.query<{ id: string; visibility: string; created_by: string | null }>(
         `DELETE FROM documents
          WHERE id = $1
            AND workspace_id = $2
            AND document_type::text = $3
            AND (visibility = 'workspace' OR created_by = $4)
-         RETURNING id`,
+         RETURNING id, visibility, created_by`,
         [id.data, platform.workspaceId, resource.documentType, platform.userId]
       );
-      if (!result.rows[0]) {
+      const deleted = result.rows[0];
+      if (!deleted) {
         await client.query('ROLLBACK');
         sendApiError(res, req, 'not_found', `${resource.name} not found`);
         return;
       }
       const eventIds = await eventBus.publish(
         client,
-        buildEvents(resource, eventActor(platform), { kind: 'deleted', id: id.data })
+        buildEvents(resource, eventActor(platform), { kind: 'deleted', id: id.data }),
+        { visibility: deleted.visibility, ownerId: deleted.created_by }
       );
       await client.query('COMMIT');
       eventBus.dispatchSoon(eventIds);

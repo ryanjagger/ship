@@ -44,6 +44,7 @@ describe('Webhook publication at the write boundary', () => {
     await createSubscription({
       appId,
       workspaceId,
+      createdBy: userId,
       url: 'https://example.com/hook',
       events: ['issue.created', 'issue.updated', 'issue.status_changed', 'issue.assigned', 'issue.deleted'],
     });

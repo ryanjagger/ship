@@ -1,6 +1,7 @@
 import { buildSignatureHeader } from './signing.js';
 import { decryptSecret } from './crypto.js';
 import { classifyStatus, nextAttemptAt } from './retry.js';
+import { webhookTargetError } from './target-url.js';
 import {
   markDelivered,
   markDeadLettered,
@@ -36,6 +37,14 @@ export async function deliverOne(claimed: ClaimedDelivery): Promise<void> {
   // Subscription deactivated/removed between fan-out and delivery → permanent.
   if (!claimed.active) {
     await markDeadLettered(claimed.delivery_id, attemptNumber, null, null, 'subscription inactive');
+    return;
+  }
+
+  // Re-validate the target at dispatch (defense in depth — config/policy may have
+  // changed since create, and we never want to fetch a blocked private address).
+  const urlError = webhookTargetError(claimed.url);
+  if (urlError) {
+    await markDeadLettered(claimed.delivery_id, attemptNumber, null, null, `blocked target url: ${urlError}`);
     return;
   }
 

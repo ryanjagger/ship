@@ -19,6 +19,7 @@ import {
   type WebhookSubscription,
 } from '../../../webhooks/subscriptions.js';
 import { isKnownEventType, requiredReadScopes } from '../../../webhooks/registry.js';
+import { webhookTargetError } from '../../../webhooks/target-url.js';
 
 /**
  * Webhook subscription management (PRD §Subscriptions API).
@@ -78,6 +79,11 @@ export function createWebhooksRouter(): RouterType {
       sendApiError(res, req, 'validation_failed', 'Invalid webhook subscription', { details: parsed.error.flatten() });
       return;
     }
+    const urlError = webhookTargetError(parsed.data.url);
+    if (urlError) {
+      sendApiError(res, req, 'validation_failed', `Invalid webhook url: ${urlError}`, { details: { reason: 'invalid_url' } });
+      return;
+    }
     const eventError = validateEvents(platform, parsed.data.events);
     if (eventError) {
       sendApiError(res, req, eventError.code, eventError.message, { details: eventError.details });
@@ -87,6 +93,7 @@ export function createWebhooksRouter(): RouterType {
       const { subscription, secret } = await createSubscription({
         appId: platform.appId,
         workspaceId: platform.workspaceId,
+        createdBy: platform.userId,
         url: parsed.data.url,
         events: parsed.data.events,
         active: parsed.data.active,
@@ -129,6 +136,13 @@ export function createWebhooksRouter(): RouterType {
     if (!parsed.success) {
       sendApiError(res, req, 'validation_failed', 'Invalid webhook subscription', { details: parsed.error.flatten() });
       return;
+    }
+    if (parsed.data.url !== undefined) {
+      const urlError = webhookTargetError(parsed.data.url);
+      if (urlError) {
+        sendApiError(res, req, 'validation_failed', `Invalid webhook url: ${urlError}`, { details: { reason: 'invalid_url' } });
+        return;
+      }
     }
     if (parsed.data.events) {
       const eventError = validateEvents(platform, parsed.data.events);

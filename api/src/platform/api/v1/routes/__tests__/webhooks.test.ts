@@ -77,6 +77,31 @@ describe('Platform API · webhook subscriptions + deliveries', () => {
     expect(res.body.details.required_read_scopes).toEqual(['people:read']);
   });
 
+  it('rejects SSRF / private-network webhook targets', async () => {
+    const blocked = [
+      'http://169.254.169.254/latest/meta-data/', // cloud metadata
+      'http://127.0.0.1:9000/hook', // loopback
+      'http://10.0.0.5/hook', // RFC 1918
+      'http://localhost/hook', // loopback name
+      'ftp://example.com/hook', // bad scheme
+    ];
+    for (const url of blocked) {
+      const res = await request(app)
+        .post('/api/v1/webhooks')
+        .set(auth(manageToken))
+        .send({ url, events: ['issue.created'] });
+      expect(res.status, `expected ${url} to be rejected`).toBe(400);
+      expect(res.body.details.reason).toBe('invalid_url');
+    }
+    // A public https target is accepted.
+    const ok = await request(app)
+      .post('/api/v1/webhooks')
+      .set(auth(manageToken))
+      .send({ url: 'https://hooks.example.com/ship', events: ['issue.created'] });
+    expect(ok.status).toBe(201);
+    await request(app).delete(`/api/v1/webhooks/${ok.body.id}`).set(auth(manageToken));
+  });
+
   it('rejects unknown event types', async () => {
     const res = await request(app)
       .post('/api/v1/webhooks')

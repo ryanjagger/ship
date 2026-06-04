@@ -31,6 +31,8 @@ const PUBLIC_COLUMNS = `id, app_id, workspace_id, url, events, secret_fingerprin
 export interface CreateSubscriptionInput {
   appId: string;
   workspaceId: string;
+  /** The user who authorized the app — used to gate private-document fan-out. */
+  createdBy: string | null;
   url: string;
   events: string[];
   active?: boolean;
@@ -45,10 +47,10 @@ export interface CreatedSubscription {
 export async function createSubscription(input: CreateSubscriptionInput): Promise<CreatedSubscription> {
   const secret = generateWebhookSecret();
   const result = await pool.query<WebhookSubscription>(
-    `INSERT INTO webhook_subscriptions (app_id, workspace_id, url, events, encrypted_secret, secret_fingerprint, active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO webhook_subscriptions (app_id, workspace_id, created_by, url, events, encrypted_secret, secret_fingerprint, active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING ${PUBLIC_COLUMNS}`,
-    [input.appId, input.workspaceId, input.url, input.events, encryptSecret(secret), secretFingerprint(secret), input.active ?? true]
+    [input.appId, input.workspaceId, input.createdBy, input.url, input.events, encryptSecret(secret), secretFingerprint(secret), input.active ?? true]
   );
   const subscription = result.rows[0];
   if (!subscription) throw new Error('webhook_subscriptions INSERT did not return a row');

@@ -322,6 +322,13 @@ one-way `secret_fingerprint` for display; the raw secret is shown only on create
 new linked delivery (`replay_of_delivery_id`) reusing the original event — so the `id` /
 `Idempotency-Key` are preserved while the signature timestamp is fresh at send time.
 
+**Security gates.** Fan-out mirrors the read path's visibility rule: a `private` document is only
+delivered to subscriptions whose owner (`webhook_subscriptions.created_by`, the authorizing user)
+created it, so an app can't receive private DTOs its token couldn't read. Target URLs are
+SSRF-screened at create/update *and* re-checked at dispatch (`target-url.ts`) — non-http(s)
+schemes and loopback/private/link-local/metadata hosts are rejected, with a
+`WEBHOOK_ALLOW_PRIVATE_TARGETS` escape hatch for local dev only.
+
 ---
 
 ## SDK Surface
