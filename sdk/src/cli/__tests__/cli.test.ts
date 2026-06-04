@@ -6,6 +6,7 @@ import { parseArgs } from '../args.js';
 import { DEFAULT_BASE_URL, loadConfig } from '../config.js';
 import { saveCredentials, loadCredentials, clearCredentials, credentialsPath } from '../credentials.js';
 import { findResourceCommand } from '../commands/resources.js';
+import { runWebhooksCommand } from '../commands/webhooks.js';
 
 describe('ship CLI · arg parsing', () => {
   it('parses command + subcommand + value flag', () => {
@@ -27,6 +28,59 @@ describe('ship CLI · arg parsing', () => {
     expect(findResourceCommand('issues')?.clientKey).toBe('issues');
     expect(findResourceCommand('projects')?.clientKey).toBe('projects');
     expect(findResourceCommand('wiki')?.clientKey).toBe('wikiPages');
+  });
+
+  it('parses webhooks tail flags and replay positional', () => {
+    const tail = parseArgs(['webhooks', 'tail', '--interval', '5', '--subscription', 'w1']);
+    expect(tail).toMatchObject({ command: 'webhooks', sub: 'tail' });
+    expect(tail.flags).toMatchObject({ interval: '5', subscription: 'w1' });
+    const replay = parseArgs(['webhooks', 'replay', 'del_123']);
+    expect(replay).toMatchObject({ command: 'webhooks', sub: 'replay', rest: ['del_123'] });
+  });
+});
+
+describe('ship CLI · webhooks command', () => {
+  let env: NodeJS.ProcessEnv;
+  let dir: string;
+  let prevConfigDir: string | undefined;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(join(tmpdir(), 'ship-cli-wh-'));
+    env = { SHIP_CONFIG_DIR: dir } as unknown as NodeJS.ProcessEnv;
+    // requireClient reads process.env (no env arg), so set it for these cases.
+    prevConfigDir = process.env.SHIP_CONFIG_DIR;
+    process.env.SHIP_CONFIG_DIR = dir;
+  });
+  afterEach(async () => {
+    if (prevConfigDir === undefined) delete process.env.SHIP_CONFIG_DIR;
+    else process.env.SHIP_CONFIG_DIR = prevConfigDir;
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  const config = loadConfig({} as NodeJS.ProcessEnv);
+
+  it('prints usage and exits 1 with no subcommand', async () => {
+    expect(await runWebhooksCommand(config, null, {}, [])).toBe(1);
+  });
+
+  it('requires sign-in', async () => {
+    // No credentials saved → requireClient fails before any network call.
+    expect(await runWebhooksCommand(config, 'list', {}, [])).toBe(1);
+  });
+
+  it('validates create flags before any network call (signed in)', async () => {
+    await saveCredentials({ token: 'ship_at_x', baseUrl: DEFAULT_BASE_URL, obtainedAt: '2026-01-01T00:00:00Z' }, env);
+    // Missing --url/--events → returns 1 without hitting the API.
+    expect(await runWebhooksCommand(config, 'create', {}, [])).toBe(1);
+    // Missing delivery id for replay → returns 1 without hitting the API.
+    expect(await runWebhooksCommand(config, 'replay', {}, [])).toBe(1);
+  });
+
+  it('rejects a non-numeric tail --interval before polling (signed in)', async () => {
+    await saveCredentials({ token: 'ship_at_x', baseUrl: DEFAULT_BASE_URL, obtainedAt: '2026-01-01T00:00:00Z' }, env);
+    // NaN interval must fail fast, not spin polling the API.
+    expect(await runWebhooksCommand(config, 'tail', { interval: 'nope' }, [])).toBe(1);
+    expect(await runWebhooksCommand(config, 'tail', { interval: '0' }, [])).toBe(1);
   });
 });
 

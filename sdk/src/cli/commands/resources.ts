@@ -39,7 +39,7 @@ export function findResourceCommand(command: string | null): ResourceCommandConf
   return RESOURCE_COMMANDS.find((resource) => resource.command === command);
 }
 
-async function requireClient(config: CliConfig): Promise<ShipClient | null> {
+export async function requireClient(config: CliConfig): Promise<ShipClient | null> {
   const creds = await loadCredentials();
   if (!creds) {
     console.error('Not signed in. Run `ship login` first.');
@@ -48,10 +48,12 @@ async function requireClient(config: CliConfig): Promise<ShipClient | null> {
   return new ShipClient({ token: creds.token, baseUrl: creds.baseUrl || config.baseUrl });
 }
 
-function reportError(err: unknown): number {
+export function reportError(err: unknown): number {
   if (err instanceof ShipApiError) {
     if (err.status === 401) console.error('Your session has expired. Run `ship login` again.');
-    else console.error(`API error (${err.code}): ${err.message}`);
+    else if (err.status === 403 && err.details?.required_scope === 'webhooks:manage') {
+      console.error('Insufficient scope: webhooks requires `webhooks:manage`. Run `ship login` again to refresh your token.');
+    } else console.error(`API error (${err.code}): ${err.message}`);
   } else {
     console.error(`Error: ${(err as Error).message}`);
   }

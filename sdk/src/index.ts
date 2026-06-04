@@ -359,6 +359,85 @@ export interface CreateWeeklyReviewInput extends Omit<CreateTypedResourceInput, 
 }
 export type UpdateWeeklyReviewInput = Partial<CreateWeeklyReviewInput>;
 
+// ── Webhooks ────────────────────────────────────────────────────────────────
+
+export interface ShipWebhookSubscription {
+  id: string;
+  url: string;
+  events: string[];
+  active: boolean;
+  secret_fingerprint: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Returned by create + rotate-secret only: the raw signing secret, shown once. */
+export interface CreatedWebhookSubscription extends ShipWebhookSubscription {
+  secret: string;
+}
+
+export interface CreateWebhookSubscriptionInput {
+  url: string;
+  events: string[];
+  active?: boolean;
+}
+
+export type UpdateWebhookSubscriptionInput = Partial<CreateWebhookSubscriptionInput>;
+
+export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed' | 'dead_lettered' | 'replayed';
+
+export interface ShipWebhookDelivery {
+  id: string;
+  subscription_id: string;
+  event_id: string;
+  event_type: string;
+  status: WebhookDeliveryStatus;
+  attempt_count: number;
+  last_response_status: number | null;
+  last_response_body_excerpt: string | null;
+  last_error: string | null;
+  next_attempt_at: string | null;
+  delivered_at: string | null;
+  dead_lettered_at: string | null;
+  replay_of_delivery_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WebhookDeliveryAttempt {
+  id: string;
+  delivery_id: string;
+  subscription_id: string;
+  event_id: string;
+  attempt_number: number;
+  response_status: number | null;
+  response_body_excerpt: string | null;
+  duration_ms: number | null;
+  error: string | null;
+  sent_at: string;
+}
+
+export interface ShipWebhookDeliveryDetail extends ShipWebhookDelivery {
+  attempts: WebhookDeliveryAttempt[];
+}
+
+export interface WebhookDeliveryListParams {
+  subscription_id?: string;
+  event_type?: string;
+  status?: WebhookDeliveryStatus;
+  limit?: number;
+}
+
+export interface WebhookReplayResult {
+  delivery_id: string;
+  replay_of_delivery_id: string;
+}
+
+/** Wrapper for the webhook list endpoints, which return `{ data }` (no cursor). */
+export interface DataList<T> {
+  data: T[];
+}
+
 /** Internal transport shared by the client and its resource sub-clients. */
 interface Transport {
   request<T>(method: string, path: string, body?: unknown): Promise<T>;
@@ -416,6 +495,62 @@ export class TypedResourceClient<TResource = unknown, TCreate = CreateTypedResou
   }
 }
 
+/** Webhook delivery log + replay (`/api/v1/webhook-deliveries`). */
+export class WebhookDeliveriesClient {
+  constructor(private readonly transport: Transport) {}
+
+  list(params: WebhookDeliveryListParams = {}): Promise<DataList<ShipWebhookDelivery>> {
+    const qs = new URLSearchParams();
+    if (params.subscription_id) qs.set('subscription_id', params.subscription_id);
+    if (params.event_type) qs.set('event_type', params.event_type);
+    if (params.status) qs.set('status', params.status);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.transport.request<DataList<ShipWebhookDelivery>>('GET', `/api/v1/webhook-deliveries${suffix}`);
+  }
+
+  get(id: string): Promise<ShipWebhookDeliveryDetail> {
+    return this.transport.request<ShipWebhookDeliveryDetail>('GET', `/api/v1/webhook-deliveries/${encodeURIComponent(id)}`);
+  }
+
+  replay(id: string): Promise<WebhookReplayResult> {
+    return this.transport.request<WebhookReplayResult>('POST', `/api/v1/webhook-deliveries/${encodeURIComponent(id)}/replay`);
+  }
+}
+
+/** Webhook subscription management (`/api/v1/webhooks`) + the delivery log. */
+export class WebhooksClient {
+  readonly deliveries: WebhookDeliveriesClient;
+
+  constructor(private readonly transport: Transport) {
+    this.deliveries = new WebhookDeliveriesClient(transport);
+  }
+
+  list(): Promise<DataList<ShipWebhookSubscription>> {
+    return this.transport.request<DataList<ShipWebhookSubscription>>('GET', '/api/v1/webhooks');
+  }
+
+  get(id: string): Promise<ShipWebhookSubscription> {
+    return this.transport.request<ShipWebhookSubscription>('GET', `/api/v1/webhooks/${encodeURIComponent(id)}`);
+  }
+
+  create(input: CreateWebhookSubscriptionInput): Promise<CreatedWebhookSubscription> {
+    return this.transport.request<CreatedWebhookSubscription>('POST', '/api/v1/webhooks', input);
+  }
+
+  update(id: string, input: UpdateWebhookSubscriptionInput): Promise<ShipWebhookSubscription> {
+    return this.transport.request<ShipWebhookSubscription>('PATCH', `/api/v1/webhooks/${encodeURIComponent(id)}`, input);
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.transport.request<null>('DELETE', `/api/v1/webhooks/${encodeURIComponent(id)}`);
+  }
+
+  rotateSecret(id: string): Promise<CreatedWebhookSubscription> {
+    return this.transport.request<CreatedWebhookSubscription>('POST', `/api/v1/webhooks/${encodeURIComponent(id)}/rotate-secret`);
+  }
+}
+
 export class ShipClient implements Transport {
   readonly documents: DocumentsClient;
   readonly wikiPages: TypedResourceClient<ShipWikiPage, CreateWikiPageInput, UpdateWikiPageInput>;
@@ -428,6 +563,7 @@ export class ShipClient implements Transport {
   readonly weeklyRetros: TypedResourceClient<ShipWeeklyRetro, CreateWeeklyDocInput, UpdateWeeklyDocInput>;
   readonly standups: TypedResourceClient<ShipStandup, CreateStandupInput, UpdateStandupInput>;
   readonly weeklyReviews: TypedResourceClient<ShipWeeklyReview, CreateWeeklyReviewInput, UpdateWeeklyReviewInput>;
+  readonly webhooks: WebhooksClient;
 
   private readonly token: string;
   private readonly baseUrl: string;
@@ -454,6 +590,7 @@ export class ShipClient implements Transport {
     this.weeklyRetros = new TypedResourceClient(this, 'weekly-retros');
     this.standups = new TypedResourceClient(this, 'standups');
     this.weeklyReviews = new TypedResourceClient(this, 'weekly-reviews');
+    this.webhooks = new WebhooksClient(this);
   }
 
   /** GET /api/v1/me — the authenticated user + current workspace. */
