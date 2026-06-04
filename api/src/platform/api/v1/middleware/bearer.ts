@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { validateAccessToken } from '../../../oauth/tokens.js';
 import { sendApiError } from '../errors.js';
+import { applyRateLimit } from '../rate-limit/middleware.js';
 
 /**
  * Bearer-token authentication for the Platform API (PRD §5.4). Validates an
@@ -68,6 +69,11 @@ export async function bearerAuth(req: Request, res: Response, next: NextFunction
       grantedScopes: result.token.scopes,
       tokenId: result.token.tokenId,
     };
+
+    // Enforce per-app + per-token rate limits now that app_id/token_id are
+    // known (PRD §6). On a 429 the limiter has already sent the response.
+    if (!(await applyRateLimit(req, res))) return;
+
     next();
   } catch (error) {
     console.error('[api/v1] bearer auth error:', error);
