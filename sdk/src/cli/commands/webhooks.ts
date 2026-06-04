@@ -72,7 +72,13 @@ async function webhooksReplay(client: ShipClient, flags: Flags, rest: string[]):
 }
 
 async function webhooksTail(client: ShipClient, flags: Flags): Promise<number> {
-  const intervalMs = Math.max(1, Number(flagStr(flags, 'interval') ?? 3)) * 1000;
+  const intervalRaw = flagStr(flags, 'interval');
+  const intervalSec = intervalRaw == null ? 3 : Number(intervalRaw);
+  if (!Number.isFinite(intervalSec) || intervalSec <= 0) {
+    console.error(`Invalid --interval "${intervalRaw}" (expected a positive number of seconds)`);
+    return 1;
+  }
+  const intervalMs = Math.max(1, intervalSec) * 1000;
   const params = {
     subscription_id: flagStr(flags, 'subscription') ?? undefined,
     event_type: flagStr(flags, 'event-type') ?? undefined,

@@ -75,6 +75,13 @@ describe('ship CLI · webhooks command', () => {
     // Missing delivery id for replay → returns 1 without hitting the API.
     expect(await runWebhooksCommand(config, 'replay', {}, [])).toBe(1);
   });
+
+  it('rejects a non-numeric tail --interval before polling (signed in)', async () => {
+    await saveCredentials({ token: 'ship_at_x', baseUrl: DEFAULT_BASE_URL, obtainedAt: '2026-01-01T00:00:00Z' }, env);
+    // NaN interval must fail fast, not spin polling the API.
+    expect(await runWebhooksCommand(config, 'tail', { interval: 'nope' }, [])).toBe(1);
+    expect(await runWebhooksCommand(config, 'tail', { interval: '0' }, [])).toBe(1);
+  });
 });
 
 describe('ship CLI · config', () => {
