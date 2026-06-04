@@ -392,6 +392,26 @@ export interface WebhookDeliveryDetail extends WebhookDeliverySummary {
   attempts: WebhookDeliveryAttemptRow[];
 }
 
+/**
+ * An app connected to the workspace: one or more live access tokens a user
+ * authorized for an app (device/auth-code flow). No standing grant exists, so a
+ * connection lasts only as long as its tokens — hence `expires_at`.
+ */
+export interface WorkspaceConnection {
+  app_id: string;
+  client_id: string;
+  app_name: string;
+  is_system: boolean;
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  scopes: string[];
+  active_token_count: number;
+  first_authorized_at: string;
+  last_used_at: string | null;
+  expires_at: string;
+}
+
 export interface PublicApiAuditRow {
   id: string;
   created_at: string;
@@ -672,6 +692,13 @@ export const api = {
       request<OAuthAppSecret>(`/api/developer/apps/${appId}/rotate-secret`, { method: 'POST' }),
     deleteApp: (appId: string) =>
       request<{ message: string }>(`/api/developer/apps/${appId}`, { method: 'DELETE' }),
+
+    listConnections: () => request<WorkspaceConnection[]>('/api/developer/connections'),
+    revokeConnection: (appId: string, userId: string) =>
+      request<{ message: string; tokens_revoked: number }>(
+        `/api/developer/connections/${appId}/users/${userId}`,
+        { method: 'DELETE' }
+      ),
 
     listSubscriptions: (appId: string) =>
       request<WebhookSubscriptionSummary[]>(`/api/developer/apps/${appId}/webhooks`),

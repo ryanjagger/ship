@@ -5,6 +5,7 @@ import {
   type OAuthAppSummary,
   type OAuthAppSecret,
   type OAuthScope,
+  type WorkspaceConnection,
   type WebhookSubscriptionSummary,
   type WebhookSubscriptionSecret,
   type WebhookDeliverySummary,
@@ -20,7 +21,7 @@ const TD = 'px-4 py-3 text-sm';
 const INPUT =
   'w-full px-3 py-2 bg-background border border-border rounded-md text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent';
 
-type TabKey = 'apps' | 'webhooks' | 'deliveries' | 'audit';
+type TabKey = 'apps' | 'connections' | 'webhooks' | 'deliveries' | 'audit';
 
 /**
  * Workspace-scoped developer portal (PRD §8). Self-service management of OAuth
@@ -33,6 +34,7 @@ export function DeveloperPortalPage() {
 
   const tabs: Array<{ key: TabKey; label: string }> = [
     { key: 'apps', label: 'Apps' },
+    { key: 'connections', label: 'Connections' },
     { key: 'webhooks', label: 'Webhooks' },
     { key: 'deliveries', label: 'Delivery log' },
     { key: 'audit', label: 'API audit' },
@@ -65,6 +67,7 @@ export function DeveloperPortalPage() {
 
       <div className="p-6">
         {tab === 'apps' && <AppsTab />}
+        {tab === 'connections' && <ConnectionsTab />}
         {tab === 'webhooks' && <WebhooksTab />}
         {tab === 'deliveries' && <DeliveriesTab />}
         {tab === 'audit' && <AuditTab />}
@@ -335,6 +338,132 @@ function CreateAppForm({
         </button>
       </div>
     </form>
+  );
+}
+
+// ── Connections (apps with live access tokens) ───────────────────────────────
+
+/**
+ * Apps that currently hold live access tokens in the workspace — the result of
+ * a user authorizing a CLI/SDK client via the device or auth-code flow. There's
+ * no standing "grant" record (tokens are short-lived, no refresh), so this lists
+ * active tokens grouped by (app, user). Revoking kills every live token for that
+ * pair immediately.
+ */
+function ConnectionsTab() {
+  const { showToast } = useToast();
+  const [connections, setConnections] = useState<WorkspaceConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<WorkspaceConnection | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const res = await api.developer.listConnections();
+    if (res.success && res.data) setConnections(res.data);
+    else setError(res.error?.message ?? 'Failed to load connections');
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function confirmRevoke() {
+    if (!pending) return;
+    const conn = pending;
+    setPending(null);
+    const res = await api.developer.revokeConnection(conn.app_id, conn.user_id);
+    if (res.success) {
+      showToast('Connection revoked', 'success');
+      void load();
+    } else showToast(res.error?.message ?? 'Failed to revoke connection', 'error', 5000);
+  }
+
+  if (loading) return <Loading />;
+  if (error) return <ErrorState message={error} onRetry={() => void load()} />;
+
+  return (
+    <div className="space-y-4" data-testid="dev-connections">
+      <p className="text-sm text-muted">
+        Apps that currently hold a live access token in this workspace — granted when a member authorizes a
+        CLI or SDK client. Tokens are short-lived; a connection disappears once its tokens expire. Revoke to
+        cut off access immediately.
+      </p>
+
+      <div className="border border-border rounded-lg overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-border/30">
+            <tr>
+              <th className={TH}>App</th>
+              <th className={TH}>Authorized by</th>
+              <th className={TH}>Scopes</th>
+              <th className={TH}>Last used</th>
+              <th className={TH}>Expires</th>
+              <th className={cn(TH, 'text-right')}>Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {connections.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted">
+                  No connected apps. When a member authorizes a CLI or SDK client, it appears here while its
+                  token is live.
+                </td>
+              </tr>
+            ) : (
+              connections.map((conn) => (
+                <tr key={`${conn.app_id}:${conn.user_id}`} data-testid="dev-connection-row">
+                  <td className={cn(TD, 'font-medium text-foreground')}>
+                    <div className="flex items-center gap-2">
+                      {conn.app_name}
+                      {conn.is_system && (
+                        <span className="rounded bg-border/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                          System
+                        </span>
+                      )}
+                    </div>
+                    <code className="font-mono text-xs text-muted break-all">{conn.client_id}</code>
+                  </td>
+                  <td className={cn(TD, 'text-muted')}>{conn.user_email}</td>
+                  <td className={cn(TD, 'text-muted')}>
+                    {conn.scopes.length ? conn.scopes.join(', ') : '—'}
+                  </td>
+                  <td className={cn(TD, 'text-muted whitespace-nowrap')}>
+                    {conn.last_used_at ? new Date(conn.last_used_at).toLocaleString() : 'Never'}
+                  </td>
+                  <td className={cn(TD, 'text-muted whitespace-nowrap')}>
+                    {new Date(conn.expires_at).toLocaleString()}
+                  </td>
+                  <td className={cn(TD, 'text-right whitespace-nowrap')}>
+                    <button
+                      onClick={() => setPending(conn)}
+                      data-testid="dev-revoke-connection"
+                      className="text-sm text-red-500 hover:text-red-400 transition-colors"
+                    >
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {pending && (
+        <ConfirmDialog
+          open
+          title="Revoke connection?"
+          description={`Immediately revoke ${pending.user_email}'s "${pending.app_name}" access (${pending.active_token_count} live token${pending.active_token_count === 1 ? '' : 's'}). The app must be re-authorized to regain access.`}
+          confirmLabel="Revoke"
+          variant="destructive"
+          onConfirm={confirmRevoke}
+          onCancel={() => setPending(null)}
+        />
+      )}
+    </div>
   );
 }
 

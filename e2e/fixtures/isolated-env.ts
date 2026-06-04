@@ -439,6 +439,15 @@ async function seedMinimalTestData(pool: Pool): Promise<void> {
     [seedSubId, seedEvent.rows[0].id]
   );
 
+  // A live access token for the dev app, so the portal's Connections tab (apps
+  // holding an unexpired token) has a row to render and revoke. Hash is a
+  // placeholder — the token is never presented, only listed/revoked by app+user.
+  await pool.query(
+    `INSERT INTO access_tokens (token_hash, token_prefix, app_id, user_id, workspace_id, scopes, expires_at)
+     VALUES ('seed-access-token-hash', 'ship_at_seed', $1, $2, $3, ARRAY['issues:read']::text[], now() + interval '1 hour')`,
+    [devAppId, userId, workspaceId]
+  );
+
   // Create programs (matching full seed)
   // 'key' is used for test referencing only, not stored in database
   const programs = [
