@@ -53,6 +53,9 @@ evidence/
 playwright-report/
 test-results/
 
+# TTFE drill output
+drill/results/
+
 # Vitest / v8 coverage reports
 coverage/
 
