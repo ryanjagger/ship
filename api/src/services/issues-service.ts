@@ -39,6 +39,8 @@ import {
 } from '../utils/document-crud.js';
 import { broadcastToUser } from '../collaboration/index.js';
 import type { FleetContext } from './fleet-service.js';
+import { eventBus } from '../platform/webhooks/event-bus.js';
+import { buildEvents } from '../platform/webhooks/events.js';
 
 export type { FleetContext };
 
@@ -62,7 +64,10 @@ export interface ServiceResult<T> {
 
 export type SideEffect =
   | { kind: 'accountability_week_issues'; userId: string; targetId: string; ifFirstIssue: true }
-  | { kind: 'accountability_issue_completed'; assigneeId: string; issueId: string; state: string };
+  | { kind: 'accountability_issue_completed'; assigneeId: string; issueId: string; state: string }
+  | { kind: 'webhooks_dispatch'; eventIds: string[] };
+
+type ResourceDto = Record<string, unknown>;
 
 /** Run the deferred (post-commit) side effects produced by a service call. */
 export async function runIssueSideEffects(effects: SideEffect[] | undefined): Promise<void> {
@@ -79,6 +84,8 @@ export async function runIssueSideEffects(effects: SideEffect[] | undefined): Pr
       }
     } else if (effect.kind === 'accountability_issue_completed') {
       broadcastToUser(effect.assigneeId, 'accountability:updated', { issueId: effect.issueId, state: effect.state });
+    } else if (effect.kind === 'webhooks_dispatch') {
+      eventBus.dispatchSoon(effect.eventIds);
     }
   }
 }
@@ -148,6 +155,44 @@ function extractIssueFromRow(row: any) {
     assignee_name: row.assignee_name,
     assignee_archived: row.assignee_archived || false,
     created_by_name: row.created_by_name,
+  };
+}
+
+const ISSUE_WEBHOOK_RESOURCE = {
+  eventResource: 'issue',
+  semanticEvents: (before: ResourceDto, after: ResourceDto): string[] => {
+    const events: string[] = [];
+    if (before.assignee_id !== after.assignee_id) events.push('assigned');
+    if (before.state !== after.state) events.push('status_changed');
+    return events;
+  },
+};
+
+async function getBelongsToAssociationsForClient(client: PoolClient, documentId: string): Promise<BelongsToEntry[]> {
+  const result = await client.query(
+    `SELECT da.related_id as id, da.relationship_type as type, d.title, d.properties->>'color' as color
+       FROM document_associations da
+       LEFT JOIN documents d ON d.id = da.related_id
+      WHERE da.document_id = $1
+        AND da.relationship_type IN ('program', 'project', 'sprint', 'parent')
+      ORDER BY da.relationship_type, da.created_at`,
+    [documentId]
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    type: row.type,
+    ...(row.title ? { title: row.title } : {}),
+    ...(row.color ? { color: row.color } : {}),
+  }));
+}
+
+async function issueWebhookDto(client: PoolClient, row: any): Promise<ResourceDto> {
+  const issue = extractIssueFromRow(row);
+  const belongsTo = await getBelongsToAssociationsForClient(client, row.id);
+  return {
+    ...issue,
+    display_id: `#${row.ticket_number}`,
+    belongs_to: belongsTo,
   };
 }
 
@@ -224,12 +269,22 @@ export async function createIssueCore(
     );
   }
 
+  const afterDto = await issueWebhookDto(client, result.rows[0]);
+  const eventIds = await eventBus.publish(
+    client,
+    buildEvents(ISSUE_WEBHOOK_RESOURCE, { workspaceId: ctx.workspaceId, actorUserId: ctx.userId }, { kind: 'created', after: afterDto }),
+    { visibility: result.rows[0].visibility, ownerId: result.rows[0].created_by }
+  );
+
   await client.query('COMMIT');
 
   // Deferred (post-commit) side effects: first-issue-in-sprint celebration.
   const sideEffects: SideEffect[] = belongs_to
     .filter((bt) => bt.type === 'sprint')
     .map((bt) => ({ kind: 'accountability_week_issues' as const, userId: ctx.userId, targetId: bt.id, ifFirstIssue: true as const }));
+  if (eventIds.length > 0) {
+    sideEffects.push({ kind: 'webhooks_dispatch', eventIds });
+  }
 
   const belongsToResult = await getBelongsToAssociations(newIssueId);
   const issue = extractIssueFromRow(result.rows[0]);
@@ -272,7 +327,7 @@ export async function patchIssueCore(
 ): Promise<ServiceResult<any>> {
   // Visibility-checked load (uses the user's FleetContext — same as the route).
   const existing = await client.query(
-    `SELECT id, title, properties
+    `SELECT *
        FROM documents
        WHERE id = $1 AND workspace_id = $2 AND document_type = 'issue'
          AND ${VISIBILITY_FILTER_SQL('documents', '$3', '$4')}`,
@@ -285,6 +340,7 @@ export async function patchIssueCore(
 
   const existingIssue = existing.rows[0];
   const currentProps = existingIssue.properties || {};
+  const beforeDto = await issueWebhookDto(client, existingIssue);
   const updates: string[] = [];
   const values: any[] = [];
   let paramIndex = 1;
@@ -505,6 +561,13 @@ export async function patchIssueCore(
   }
 
   const result = await client.query(`SELECT * FROM documents WHERE id = $1 AND workspace_id = $2`, [id, ctx.workspaceId]);
+  const row = result.rows[0];
+  const afterDto = await issueWebhookDto(client, row);
+  const eventIds = await eventBus.publish(
+    client,
+    buildEvents(ISSUE_WEBHOOK_RESOURCE, { workspaceId: ctx.workspaceId, actorUserId: ctx.userId }, { kind: 'updated', before: beforeDto, after: afterDto }),
+    { visibility: row.visibility, ownerId: row.created_by }
+  );
 
   await client.query('COMMIT');
 
@@ -519,9 +582,11 @@ export async function patchIssueCore(
     }
   }
 
-  const row = result.rows[0];
   const issue = extractIssueFromRow(row);
   const belongsTo = await getBelongsToAssociations(id);
+  if (eventIds.length > 0) {
+    sideEffects.push({ kind: 'webhooks_dispatch', eventIds });
+  }
 
   if (isClosingIssue && wasNotClosed) {
     const props = row.properties || {};

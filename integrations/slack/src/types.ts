@@ -28,6 +28,7 @@ export interface SlackInstallation {
   botUserId: string | null;
   incomingChannelId: string | null;
   incomingChannelName: string | null;
+  incomingWebhookUrl: string | null;
 }
 
 export interface ShipSlackConnection {
