@@ -96,7 +96,9 @@ const createAppSchema = z
     name: z.string().min(1).max(120),
     redirect_uris: z.array(z.string().url()).default([]),
     requested_scopes: z.array(z.string()).default([]),
-    client_type: z.enum(['public', 'confidential']).default('public'),
+    // Preserve the legacy API contract for automation that omits client_type.
+    // The UI explicitly sends "public" when using the browser PKCE default.
+    client_type: z.enum(['public', 'confidential']).default('confidential'),
     allow_device_flow: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
