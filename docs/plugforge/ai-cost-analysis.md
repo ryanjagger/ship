@@ -39,14 +39,15 @@ database, and egress — not tokens.
 | Cost item | What to measure | Notes |
 | --- | --- | --- |
 | **LLM spend during the Epic 7 rewire** | Per-day Sonnet-class spend while migrating direct service calls to SDK calls | The rewire must **not** change token volume. Verify with a before/after measurement: token count per agent turn on the legacy path vs. the SDK path. Expected delta ≈ 0. *(Planned — Epic 7 not yet built.)* |
-| **CI minutes for the TTFE drill** | Wall-clock of the full `install → login → subscribe → trigger → receive → verify` loop per PR | Local drill measured **794 ms** total (`drill/results/ttfe.json`), dominated by the real SDK tarball install (~749 ms). CI budget ≈ +1–2 min/PR once wired. *(Drill not yet in CI.)* |
+| **CI minutes for the TTFE drill** | Wall-clock of the full `install → login → subscribe → trigger → receive → verify` loop per PR | Local drill measured **794 ms** total (`drill/results/ttfe.json`), dominated by the real SDK tarball install (~749 ms). CI budget ≈ +1–2 min/PR. *(Now wired into CI — the `ttfe-drill` job in `pr-tests.yml` runs `pnpm drill ttfe` on every PR.)* |
 | **OAuth Playwright launches** | Browser-launch compute for the auth-code flow | Ship is its own IdP (no external auth server to stub), so the flow drives Ship's own consent screen against a containerized Postgres — a few seconds/PR. *(Not yet in CI.)* |
 | **OpenAPI generation + validation** | Time to generate the 3.1 spec from Zod and validate it | Small, in-process; runs inside the existing `pnpm run test` (`openapi/__tests__/spec.test.ts`). Sub-second. |
 | **Dev-portal storage & egress** | Delivery-log + audit-log row growth at demo volume | Each delivery = 1 `webhook_deliveries` row + 1 `webhook_delivery_attempts` row/attempt; each API call = 1 `public_api_audit_logs` row. Negligible at demo scale; see retention assumption below. |
 
-**Current CI baseline:** `.github/workflows/pr-tests.yml` runs only `pnpm run test`
-(api + web + probe + sdk unit suites) on Postgres 16 — a few minutes per PR. Adding the
-drill and the Playwright flow is the main projected CI-cost increase.
+**Current CI baseline:** `.github/workflows/pr-tests.yml` runs `pnpm run test`
+(api + web + probe + sdk unit suites) on Postgres 16 plus the `ttfe-drill` job — a few
+minutes per PR. Adding the OAuth Playwright flow is the remaining projected CI-cost
+increase.
 
 ---
 

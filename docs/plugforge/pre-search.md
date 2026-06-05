@@ -69,7 +69,9 @@ is a few dollars/week of Sonnet-class spend at demo activity.
 Today CI (`.github/workflows/pr-tests.yml`) runs only `pnpm run test` (api + web +
 probe + sdk unit suites) on Postgres 16 — a few minutes per PR. The PRD wants the TTFE
 drill and the OAuth Playwright flow added; budget for that is roughly +2–4 minutes/PR.
-**Known gap:** the drill and the Playwright flow are **not yet wired into CI**.
+The TTFE drill is **now wired into CI** (the `ttfe-drill` job in `pr-tests.yml` runs
+`pnpm drill ttfe` on every PR). **Known gap:** the OAuth Playwright flow is **not yet
+wired into CI**.
 
 **SDK install footprint budget and enforcement.**
 Target is the PRD's < 250 KB gzipped, production deps only. The SDK
@@ -353,8 +355,9 @@ a clean working dir, then the full loop (login → subscribe → create → rece
 with per-stage timing (`drill/results/ttfe.json` shows the packed
 `ryanjagger-ship-sdk-0.1.0-rc.5.tgz` install + 6 instrumented stages). A real install
 proves more than a workspace symlink because it catches packaging/peer-dep problems.
-**Known gap:** the drill harness is **not yet committed** (the `drill/` dir is untracked
-and has no `package.json`/`pnpm drill` script) and is **not yet wired into CI**.
+The drill harness is **committed** (the `drill/` workspace package with `package.json`
+and the `pnpm drill` script) and **wired into CI** (the `ttfe-drill` job in
+`pr-tests.yml` runs it on every PR and uploads `drill/results/ttfe.json`).
 
 **OAuth Playwright stability.** No external IdP — Ship is its own authorization server,
 so the auth-code Playwright flow drives Ship's own consent screen against a containerized
@@ -428,7 +431,6 @@ fired).
 These are stated as gaps above rather than claimed as done:
 
 - **Epic 7 agent-as-citizen rewire** — not yet built (intended design documented in 2.6).
-- **TTFE drill** — harness not committed; not wired into CI (3.2).
 - **`pnpm lint` (boundary rule) in CI** — enforced locally, not yet a CI gate (3.3).
 - **Automated perf-regression CI job** — baseline recorded manually, not auto-gated (3.3).
 - **SDK bundle-size CI check** — budget is a manual commitment, no size gate (1.2).
