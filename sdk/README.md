@@ -174,8 +174,8 @@ ship docs create --title "hello"
 ship docs list
 ```
 
-The CLI defaults to the current Railway development deployment. Override the
-target for local development or future production:
+The CLI defaults to the production deployment. Override the target for local
+development or alternate environments:
 
 ```bash
 SHIP_API_URL=http://localhost:3000 ship login

@@ -57,7 +57,7 @@ api/src/platform/
     ├── signing.ts                 HMAC-SHA256 sign/verify (Ship-Signature: t=,v1=)
     └── crypto.ts                  AES-256-GCM secret encryption + fingerprint (WEBHOOK_SECRET_ENC_KEY)
 
-sdk/src/index.ts                   @ryanjagger/ship-sdk (v0.1.0-rc.4) — zero-dep, injectable fetch; incl. client.webhooks
+sdk/src/index.ts                   @ryanjagger/ship-sdk (v0.1.0) — zero-dep, injectable fetch; incl. client.webhooks
 sdk/src/webhooks.ts                verifyWebhook (HMAC verify; Express + Fetch handlers)
 sdk/src/cli/                       `ship` binary packaged by @ryanjagger/ship-sdk
 sdk/src/cli/commands/webhooks.ts   `ship webhooks` commands (list/create/delete/replay/tail)
@@ -341,7 +341,7 @@ re-run `ship login` to pick it up. The browser developer-portal UI remains defer
 
 ## SDK Surface
 
-`@ryanjagger/ship-sdk` (`sdk/src/index.ts`), v0.1.0-rc.4 — zero runtime deps, injectable `fetch`.
+`@ryanjagger/ship-sdk` (`sdk/src/index.ts`), v0.1.0 — zero runtime deps, injectable `fetch`.
 
 | Surface | Status | Notes |
 |---|---|---|
