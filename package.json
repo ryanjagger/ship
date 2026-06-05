@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "./scripts/dev.sh",
+    "drill": "pnpm --filter @ship/drill drill",
     "docker:up": "docker compose -f docker-compose.local.yml up --build",
     "docker:down": "docker compose -f docker-compose.local.yml down",
     "docker:clean": "docker compose -f docker-compose.local.yml down -v",
