@@ -2,13 +2,15 @@ import { Router } from 'express';
 import type { Router as RouterType, Request, Response } from 'express';
 import { z } from 'zod';
 import { ERROR_CODES, HTTP_STATUS } from '@ship/shared';
-import { authMiddleware, workspaceAdminMiddleware, assertAuthed } from '../middleware/auth.js';
+import { authMiddleware, workspaceAdminMiddleware, assertAuthed, assertUserAuthed } from '../middleware/auth.js';
 import { logAuditEvent } from '../services/audit.js';
 import {
   createOAuthApp,
   rotateClientSecret,
   deleteOAuthApp,
+  listOAuthApps,
   listOAuthAppsForWorkspace,
+  findOAuthAppById,
   findOAuthAppForWorkspace,
 } from '../platform/oauth/apps.js';
 import { listWorkspaceConnections, revokeWorkspaceConnection } from '../platform/oauth/connections.js';
@@ -33,13 +35,13 @@ import { webhookTargetError } from '../platform/webhooks/target-url.js';
 import { queryPublicApiAudit } from '../platform/api/v1/audit/service.js';
 
 /**
- * Workspace-scoped developer portal (PRD §8). Session-authenticated + CSRF
- * (mounted with conditionalCsrf in app.ts) + workspace-admin guarded — NOT the
- * public bearer/ApiError surface. Any workspace admin manages every OAuth app
- * owned by a member of their workspace (the v1 model). These routes wrap the
- * same OAuth/webhook/audit services the public API uses; the platform→internal
- * import boundary is one-way (internal may call platform services, not vice
- * versa), so importing them here is allowed.
+ * Developer portal (PRD §8). Session-authenticated + CSRF (mounted with
+ * conditionalCsrf in app.ts). Most routes are workspace-admin guarded and scoped
+ * to the current workspace; the Apps tab also supports a super-admin `scope=all`
+ * lens that replaces the old admin-dashboard OAuth Apps UI. These routes wrap
+ * the same OAuth/webhook/audit services the public API uses; the
+ * platform→internal import boundary is one-way (internal may call platform
+ * services, not vice versa), so importing them here is allowed.
  */
 const router: RouterType = Router();
 
@@ -56,6 +58,13 @@ const fail = (res: Response, status: number, code: string, message: string, deta
 };
 
 const uuid = z.string().uuid();
+type AppManagementScope = 'workspace' | 'all';
+
+function parseAppManagementScope(raw: unknown): AppManagementScope | null {
+  if (raw === undefined) return 'workspace';
+  if (raw === 'workspace' || raw === 'all') return raw;
+  return null;
+}
 
 /** Resolve + authorize an app for the caller's workspace, or send a 404/400 and return null. */
 async function loadAppForWorkspace(res: Response, rawId: unknown, workspaceId: string) {
@@ -72,6 +81,41 @@ async function loadAppForWorkspace(res: Response, rawId: unknown, workspaceId: s
   return app;
 }
 
+/**
+ * Resolve + authorize an app for the developer portal's Apps tab. The default
+ * scope is workspace-local; super admins can opt into `scope=all` to manage any
+ * non-system app from the same portal.
+ */
+async function loadAppForManagement(req: Request, res: Response, rawId: unknown) {
+  const id = uuid.safeParse(rawId);
+  if (!id.success) {
+    fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid app id');
+    return null;
+  }
+
+  const scope = parseAppManagementScope(req.query.scope);
+  if (!scope) {
+    fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid app scope');
+    return null;
+  }
+
+  if (scope === 'all') {
+    if (!req.isSuperAdmin) {
+      fail(res, HTTP_STATUS.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Super-admin access required for all apps');
+      return null;
+    }
+    const app = await findOAuthAppById(id.data);
+    if (!app) {
+      fail(res, HTTP_STATUS.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'OAuth app not found');
+      return null;
+    }
+    return app;
+  }
+
+  if (!assertAuthed(req, res)) return null;
+  return loadAppForWorkspace(res, id.data, req.workspaceId);
+}
+
 // Every route is session-authed + workspace-admin.
 router.use(authMiddleware, workspaceAdminMiddleware);
 
@@ -82,8 +126,23 @@ router.get('/scopes', (_req: Request, res: Response): void => {
 });
 
 router.get('/apps', async (req: Request, res: Response): Promise<void> => {
-  if (!assertAuthed(req, res)) return;
+  if (!assertUserAuthed(req, res)) return;
+  const scope = parseAppManagementScope(req.query.scope);
+  if (!scope) {
+    fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid app scope');
+    return;
+  }
   try {
+    if (scope === 'all') {
+      if (!req.isSuperAdmin) {
+        fail(res, HTTP_STATUS.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Super-admin access required for all apps');
+        return;
+      }
+      ok(res, await listOAuthApps());
+      return;
+    }
+
+    if (!assertAuthed(req, res)) return;
     ok(res, await listOAuthAppsForWorkspace(req.workspaceId));
   } catch (error) {
     console.error('[developer] list apps error:', error);
@@ -108,7 +167,21 @@ const createAppSchema = z
   });
 
 router.post('/apps', async (req: Request, res: Response): Promise<void> => {
-  if (!assertAuthed(req, res)) return;
+  if (!assertUserAuthed(req, res)) return;
+  const scope = parseAppManagementScope(req.query.scope);
+  if (!scope) {
+    fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid app scope');
+    return;
+  }
+  if (scope === 'all') {
+    if (!req.isSuperAdmin) {
+      fail(res, HTTP_STATUS.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Super-admin access required for all apps');
+      return;
+    }
+  } else if (!assertAuthed(req, res)) {
+    return;
+  }
+
   const parsed = createAppSchema.safeParse(req.body);
   if (!parsed.success) {
     fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid request', parsed.error.flatten());
@@ -161,8 +234,8 @@ router.post('/apps', async (req: Request, res: Response): Promise<void> => {
 });
 
 router.post('/apps/:appId/rotate-secret', async (req: Request, res: Response): Promise<void> => {
-  if (!assertAuthed(req, res)) return;
-  const app = await loadAppForWorkspace(res, req.params.appId, req.workspaceId);
+  if (!assertUserAuthed(req, res)) return;
+  const app = await loadAppForManagement(req, res, req.params.appId);
   if (!app) return;
   if (app.is_system) {
     fail(res, HTTP_STATUS.CONFLICT, ERROR_CODES.FORBIDDEN, SYSTEM_CLIENT_PROTECTED);
@@ -202,8 +275,8 @@ router.post('/apps/:appId/rotate-secret', async (req: Request, res: Response): P
 });
 
 router.delete('/apps/:appId', async (req: Request, res: Response): Promise<void> => {
-  if (!assertAuthed(req, res)) return;
-  const app = await loadAppForWorkspace(res, req.params.appId, req.workspaceId);
+  if (!assertUserAuthed(req, res)) return;
+  const app = await loadAppForManagement(req, res, req.params.appId);
   if (!app) return;
   if (app.is_system) {
     fail(res, HTTP_STATUS.CONFLICT, ERROR_CODES.FORBIDDEN, SYSTEM_CLIENT_PROTECTED);

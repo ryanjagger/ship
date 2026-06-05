@@ -302,8 +302,8 @@ export interface ApiTokenCreateResponse extends ApiToken {
   warning: string;
 }
 
-// A registered OAuth client, as shown in the admin OAuth Apps list. Never carries
-// the secret (only a bcrypt hash is stored server-side, and it's unrecoverable).
+// A registered OAuth client, as shown in the Developer Portal. Never carries the
+// secret (only a bcrypt hash is stored server-side, and it's unrecoverable).
 export interface OAuthAppSummary {
   id: string;
   client_id: string;
@@ -339,6 +339,8 @@ export interface OAuthScope {
   description: string;
   exercised: boolean;
 }
+
+export type OAuthAppListScope = 'workspace' | 'all';
 
 // ── Developer portal: webhooks + delivery log + audit ────────────────────────
 
@@ -679,23 +681,25 @@ export const api = {
       }),
   },
 
-  // Workspace-scoped developer portal (PRD §8): apps, webhooks, delivery log,
-  // replay, and the public API audit trail. Session-authed; workspace admins
-  // manage every app owned by a member of their workspace.
+  // Developer portal (PRD §8): apps, webhooks, delivery log, replay, and the
+  // public API audit trail. Workspace admins manage apps owned by workspace
+  // members; super admins can request the all-apps lens.
   developer: {
     listScopes: () => request<OAuthScope[]>('/api/developer/scopes'),
-    listApps: () => request<OAuthAppSummary[]>('/api/developer/apps'),
+    listApps: (scope: OAuthAppListScope = 'workspace') =>
+      request<OAuthAppSummary[]>(`/api/developer/apps?scope=${scope}`),
     createApp: (data: {
       name: string;
       redirect_uris: string[];
       requested_scopes: string[];
       client_type: 'public' | 'confidential';
       allow_device_flow: boolean;
-    }) => request<OAuthAppSecret>('/api/developer/apps', { method: 'POST', body: JSON.stringify(data) }),
-    rotateAppSecret: (appId: string) =>
-      request<OAuthAppSecret>(`/api/developer/apps/${appId}/rotate-secret`, { method: 'POST' }),
-    deleteApp: (appId: string) =>
-      request<{ message: string }>(`/api/developer/apps/${appId}`, { method: 'DELETE' }),
+    }, scope: OAuthAppListScope = 'workspace') =>
+      request<OAuthAppSecret>(`/api/developer/apps?scope=${scope}`, { method: 'POST', body: JSON.stringify(data) }),
+    rotateAppSecret: (appId: string, scope: OAuthAppListScope = 'workspace') =>
+      request<OAuthAppSecret>(`/api/developer/apps/${appId}/rotate-secret?scope=${scope}`, { method: 'POST' }),
+    deleteApp: (appId: string, scope: OAuthAppListScope = 'workspace') =>
+      request<{ message: string }>(`/api/developer/apps/${appId}?scope=${scope}`, { method: 'DELETE' }),
 
     listConnections: () => request<WorkspaceConnection[]>('/api/developer/connections'),
     revokeConnection: (appId: string, userId: string) =>
