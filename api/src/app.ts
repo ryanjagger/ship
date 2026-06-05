@@ -42,6 +42,7 @@ import { apiRateLimitHandler } from './platform/api/v1/rate-limit.js';
 import oauthAdminRoutes from './platform/oauth/admin-routes.js';
 import developerRoutes from './routes/developer.js';
 import { oauthPublicRouter, oauthConsentRouter } from './platform/oauth/routes.js';
+import { hasRegisteredPublicRedirectOrigin } from './platform/oauth/apps.js';
 import { setupSwagger } from './swagger.js';
 import { initializeCAIA } from './services/caia.js';
 
@@ -99,20 +100,44 @@ const apiLimiter = rateLimit({
   handler: apiRateLimitHandler,
 });
 
-function corsOriginOption(corsOrigin: string): CorsOptions['origin'] {
-  const origins = corsOrigin
+function configuredCorsOrigins(corsOrigin: string): string[] {
+  return corsOrigin
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
-  if (origins.length <= 1) return origins[0] ?? corsOrigin;
+}
 
+function corsOriginOption(corsOrigin: string): CorsOptions['origin'] {
+  const origins = configuredCorsOrigins(corsOrigin);
   const allowed = new Set(origins);
   return (origin, callback) => {
-    if (!origin || allowed.has(origin)) {
+    if (!origin || allowed.has('*') || allowed.has(origin)) {
       callback(null, true);
       return;
     }
     callback(null, false);
+  };
+}
+
+function isConfiguredCorsOriginAllowed(origin: string, corsOrigin: string): boolean {
+  const origins = configuredCorsOrigins(corsOrigin);
+  if (origins.includes('*')) return true;
+  return origins.includes(origin);
+}
+
+function publicCorsOriginOption(corsOrigin: string): CorsOptions['origin'] {
+  return (origin, callback) => {
+    if (!origin || isConfiguredCorsOriginAllowed(origin, corsOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    void hasRegisteredPublicRedirectOrigin(origin)
+      .then((allowed) => callback(null, allowed))
+      .catch((error) => {
+        console.warn('Public CORS origin lookup failed:', error);
+        callback(null, false);
+      });
   };
 }
 
@@ -174,6 +199,18 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
       preload: true,
     },
   }));
+
+  // Public OAuth/API browser clients are self-service: their origins are
+  // derived from registered public-client redirect URIs instead of Railway/env
+  // config. Keep this before the global /api limiter so successful preflights
+  // return immediately and are not rate-limited.
+  const publicCors = cors({
+    origin: publicCorsOriginOption(corsOrigin),
+    credentials: true,
+  });
+  app.use('/api/oauth/token', publicCors);
+  app.use('/api/oauth/device/authorization', publicCors);
+  app.use('/api/v1', publicCors);
 
   // Apply rate limiting to all API routes
   app.use('/api/', apiLimiter);

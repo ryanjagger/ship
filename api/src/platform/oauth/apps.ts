@@ -92,6 +92,42 @@ export async function findOAuthAppByClientId(clientId: string): Promise<OAuthApp
   return result.rows[0] ?? null;
 }
 
+/**
+ * Browser CORS preflights do not include the OAuth request body, so the server
+ * cannot check client_id before deciding whether to emit CORS headers. For
+ * public browser clients, allow an origin only when it is the origin of at
+ * least one registered public-client redirect URI.
+ */
+export async function hasRegisteredPublicRedirectOrigin(origin: string): Promise<boolean> {
+  let normalized: string;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    normalized = parsed.origin;
+  } catch {
+    return false;
+  }
+
+  if (normalized !== origin) return false;
+
+  const result = await pool.query<{ redirect_uris: string[] }>(
+    `SELECT redirect_uris
+     FROM oauth_apps
+     WHERE client_type = 'public'
+       AND array_length(redirect_uris, 1) > 0`
+  );
+
+  return result.rows.some((row) =>
+    row.redirect_uris.some((redirectUri) => {
+      try {
+        return new URL(redirectUri).origin === normalized;
+      } catch {
+        return false;
+      }
+    })
+  );
+}
+
 /** Look up an app by its internal id (e.g. to display the name on /device). */
 export async function findOAuthAppById(id: string): Promise<OAuthApp | null> {
   const result = await pool.query<OAuthApp>(
