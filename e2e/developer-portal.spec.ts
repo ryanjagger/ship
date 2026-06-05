@@ -26,6 +26,7 @@ test.describe('Developer Portal', () => {
     const appName = `Portal App ${Date.now()}`;
     await page.getByTestId('dev-new-app').click();
     await page.getByTestId('dev-app-name-input').fill(appName);
+    await page.getByTestId('dev-client-type-confidential').check();
     await page.getByTestId('dev-app-redirects-input').fill(`${baseURL}/callback`);
     await page.getByTestId('dev-scope-webhooks:manage').check();
     // issue.created delivery requires the app to hold a matching read scope

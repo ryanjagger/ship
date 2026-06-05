@@ -340,8 +340,8 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
   // same fall-through pattern as /api/admin/credentials above.
   app.use('/api/admin/oauth-apps', conditionalCsrf, oauthAdminRoutes);
 
-  // Workspace-scoped developer portal (PRD §8): session-authed + CSRF +
-  // workspace-admin guarded; wraps the OAuth/webhook/audit services.
+  // Developer portal (PRD §8): session-authed + CSRF. Workspace routes are
+  // workspace-admin guarded; the Apps tab also has a super-admin all-apps lens.
   app.use('/api/developer', conditionalCsrf, developerRoutes);
 
   // File upload routes (CSRF protected for POST endpoints)
