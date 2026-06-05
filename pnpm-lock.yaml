@@ -265,6 +265,28 @@ importers:
         specifier: workspace:*
         version: link:../sdk
 
+  drill:
+    dependencies:
+      '@ryanjagger/ship-sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      '@testcontainers/postgresql':
+        specifier: ^11.11.0
+        version: 11.11.0
+      get-port:
+        specifier: ^7.1.0
+        version: 7.1.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.3
+        version: 22.19.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   probe:
     dependencies:
       '@inquirer/prompts':

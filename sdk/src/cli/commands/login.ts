@@ -3,8 +3,16 @@ import { ShipClient, DeviceFlowError, type DeviceAuthorization, type ITokenStore
 import type { CliConfig } from '../config.js';
 import { saveCredentials, credentialsPath } from '../credentials.js';
 
-/** Best-effort: open the verification URL in the user's browser. */
+/**
+ * Best-effort: open the verification URL in the user's browser. Skipped in
+ * headless/automated contexts — honors `SHIP_NO_BROWSER`, `BROWSER=none`, and
+ * `CI` — so the TTFE drill and CI runners don't pop a browser (the verification
+ * page is served by the Ship web app, not the API the drill spawns).
+ */
 function openBrowser(url: string): void {
+  if (process.env.SHIP_NO_BROWSER || process.env.BROWSER === 'none' || process.env.CI) {
+    return;
+  }
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
   try {
