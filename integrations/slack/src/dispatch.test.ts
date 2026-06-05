@@ -4,6 +4,8 @@ import { dispatchShipWebhook } from './dispatch.js';
 import { InMemorySlackIntegrationStore } from './memory-store.js';
 import type { ShipSlackConnection, ShipWebhookEnvelope, SlackClientLike } from './types.js';
 
+type IncomingPost = { url: string; text: string; blocks: unknown[] };
+
 class FakeSlack implements SlackClientLike {
   posts: Array<{ channel: string; text: string; blocks?: unknown[] }> = [];
   lookupResult: { ok?: boolean; user?: { id?: string } } = { ok: true, user: { id: 'U123' } };
@@ -47,7 +49,7 @@ async function fixture(overrides: Partial<ShipSlackConnection> = {}) {
   await store.saveSlackInstallation({
     team: { id: 'T123' },
     bot: { token: 'xoxb-test', userId: 'B123' },
-    incomingWebhook: { channelId: 'C123', channelName: 'ship' },
+    incomingWebhook: { channelId: 'C123', channelName: 'ship', url: 'https://hooks.slack.test/services/ship' },
   });
   const connection = await store.upsertConnection({
     slackTeamId: 'T123',
@@ -64,7 +66,11 @@ async function fixture(overrides: Partial<ShipSlackConnection> = {}) {
     ...overrides,
   });
   const slack = new FakeSlack();
-  return { store, connection, slack };
+  const incomingPosts: IncomingPost[] = [];
+  const postIncomingWebhook = vi.fn(async (url: string, message: { text: string; blocks: unknown[] }) => {
+    incomingPosts.push({ url, text: message.text, blocks: message.blocks });
+  });
+  return { store, connection, slack, incomingPosts, postIncomingWebhook };
 }
 
 afterEach(() => {
@@ -73,23 +79,25 @@ afterEach(() => {
 
 describe('dispatchShipWebhook', () => {
   it('posts issue.created to the configured channel and dedupes replays', async () => {
-    const { store, connection, slack } = await fixture();
+    const { store, connection, slack, incomingPosts, postIncomingWebhook } = await fixture();
     const deps = {
       config: { shipBaseUrl: 'https://ship.test', shipClientId: 'client_slack', shipClientSecret: 'secret_slack' },
       store,
       createSlackClient: () => slack,
+      postIncomingWebhook,
     };
 
     await expect(dispatchShipWebhook(connection, event('issue.created'), deps)).resolves.toBe('processed');
     await expect(dispatchShipWebhook(connection, event('issue.created'), deps)).resolves.toBe('duplicate');
 
-    expect(slack.posts).toHaveLength(1);
-    expect(slack.posts[0]!.channel).toBe('C123');
-    expect(slack.posts[0]!.text).toContain('New Ship issue');
+    expect(slack.posts).toHaveLength(0);
+    expect(incomingPosts).toHaveLength(1);
+    expect(incomingPosts[0]!.url).toBe('https://hooks.slack.test/services/ship');
+    expect(incomingPosts[0]!.text).toContain('New Ship issue');
   });
 
   it('posts issue.assigned as a DM to the assignee resolved by email', async () => {
-    const { store, connection, slack } = await fixture();
+    const { store, connection, slack, postIncomingWebhook } = await fixture();
     const ship = { people: { get: vi.fn(async () => ({ id: 'person_1', email: 'assignee@example.com' })) } };
 
     await dispatchShipWebhook(connection, event('issue.assigned'), {
@@ -97,6 +105,7 @@ describe('dispatchShipWebhook', () => {
       store,
       createSlackClient: () => slack,
       createShipClient: () => ship as unknown as ShipClient,
+      postIncomingWebhook,
     });
 
     expect(ship.people.get).toHaveBeenCalledWith('person_1');
@@ -104,10 +113,11 @@ describe('dispatchShipWebhook', () => {
     expect(slack.conversations.open).toHaveBeenCalledWith({ users: 'U123' });
     expect(slack.posts).toHaveLength(1);
     expect(slack.posts[0]!.channel).toBe('D123');
+    expect(postIncomingWebhook).not.toHaveBeenCalled();
   });
 
-  it('falls back to the configured channel when assignee DM lookup fails', async () => {
-    const { store, connection, slack } = await fixture();
+  it('falls back to the configured incoming webhook when assignee DM lookup fails', async () => {
+    const { store, connection, slack, incomingPosts, postIncomingWebhook } = await fixture();
     slack.lookupResult = { ok: false };
     const ship = { people: { get: vi.fn(async () => ({ id: 'person_1', email: 'missing@example.com' })) } };
 
@@ -116,14 +126,16 @@ describe('dispatchShipWebhook', () => {
       store,
       createSlackClient: () => slack,
       createShipClient: () => ship as unknown as ShipClient,
+      postIncomingWebhook,
     });
 
-    expect(slack.posts).toHaveLength(1);
-    expect(slack.posts[0]!.channel).toBe('C123');
+    expect(slack.posts).toHaveLength(0);
+    expect(incomingPosts).toHaveLength(1);
+    expect(incomingPosts[0]!.text).toContain('Ship issue assigned');
   });
 
   it('refreshes the Ship token before resolving an assignee with an expired access token', async () => {
-    const { store, connection, slack } = await fixture({ shipAccessExpiresAt: new Date(Date.now() - 1000) });
+    const { store, connection, slack, postIncomingWebhook } = await fixture({ shipAccessExpiresAt: new Date(Date.now() - 1000) });
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -148,6 +160,7 @@ describe('dispatchShipWebhook', () => {
         seenTokens.push(current.shipAccessToken);
         return ship as unknown as ShipClient;
       },
+      postIncomingWebhook,
     });
 
     expect(fetchMock).toHaveBeenCalledOnce();

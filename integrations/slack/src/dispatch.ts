@@ -11,11 +11,17 @@ import type {
 
 const REFRESH_SKEW_MS = 60 * 1000;
 
+interface SlackMessage {
+  text: string;
+  blocks: unknown[];
+}
+
 export interface DispatchDependencies {
   config: Pick<SlackIntegrationConfig, 'shipBaseUrl' | 'shipClientId' | 'shipClientSecret'>;
   store: SlackIntegrationStore;
   createSlackClient?: (botToken: string) => SlackClientLike;
   createShipClient?: (connection: ShipSlackConnection) => ShipClient;
+  postIncomingWebhook?: (url: string, message: SlackMessage) => Promise<void>;
   now?: () => Date;
 }
 
@@ -58,6 +64,18 @@ function issueBlocks(kind: 'created' | 'assigned', issue: ShipIssue, assigneeEma
 function defaultSlackClient(botToken: string): SlackClientLike {
   const client = new WebClient(botToken);
   return client as unknown as SlackClientLike;
+}
+
+async function defaultIncomingWebhookPoster(url: string, message: SlackMessage): Promise<void> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(message),
+  });
+  const body = await response.text();
+  if (!response.ok || (body.trim().length > 0 && body.trim() !== 'ok')) {
+    throw new Error(`Slack incoming webhook failed with ${response.status}: ${body.slice(0, 120)}`);
+  }
 }
 
 async function shipClientForConnection(connection: ShipSlackConnection, deps: DispatchDependencies): Promise<ShipClient> {
@@ -109,12 +127,43 @@ async function resolveSlackUserForAssignee(
   return { slackUserId, email };
 }
 
-async function postToChannel(slack: SlackClientLike, channel: string, kind: 'created' | 'assigned', issue: ShipIssue, assigneeEmail?: string): Promise<void> {
-  await slack.chat.postMessage({
-    channel,
+function issueMessage(kind: 'created' | 'assigned', issue: ShipIssue, assigneeEmail?: string): SlackMessage {
+  return {
     text: `${kind === 'created' ? 'New Ship issue' : 'Ship issue assigned'}: ${issueLabel(issue)}`,
     blocks: issueBlocks(kind, issue, assigneeEmail),
+  };
+}
+
+async function postChatMessage(
+  slack: SlackClientLike,
+  channel: string,
+  kind: 'created' | 'assigned',
+  issue: ShipIssue,
+  assigneeEmail?: string
+): Promise<void> {
+  const message = issueMessage(kind, issue, assigneeEmail);
+  await slack.chat.postMessage({
+    channel,
+    text: message.text,
+    blocks: message.blocks,
   });
+}
+
+async function postChannelMessage(
+  slack: SlackClientLike,
+  incomingWebhookUrl: string | null,
+  channel: string | null,
+  kind: 'created' | 'assigned',
+  issue: ShipIssue,
+  deps: DispatchDependencies,
+  assigneeEmail?: string
+): Promise<void> {
+  if (incomingWebhookUrl) {
+    await (deps.postIncomingWebhook ?? defaultIncomingWebhookPoster)(incomingWebhookUrl, issueMessage(kind, issue, assigneeEmail));
+    return;
+  }
+  if (!channel) throw new Error('Slack installation did not provide a channel');
+  await postChatMessage(slack, channel, kind, issue, assigneeEmail);
 }
 
 export async function dispatchShipWebhook(
@@ -128,13 +177,14 @@ export async function dispatchShipWebhook(
   const installation = await deps.store.getSlackInstallation(connection.slackTeamId);
   if (!installation) throw new Error(`No Slack installation for team ${connection.slackTeamId}`);
   const channel = connection.slackChannelId ?? installation.incomingChannelId;
-  if (!channel) throw new Error('Slack installation did not provide a channel');
+  const incomingWebhookUrl = installation.incomingWebhookUrl;
+  if (!channel && !incomingWebhookUrl) throw new Error('Slack installation did not provide a channel');
 
   const slack = deps.createSlackClient?.(installation.botToken) ?? defaultSlackClient(installation.botToken);
   const issue = issueFromEvent(event);
 
   if (event.type === 'issue.created') {
-    await postToChannel(slack, channel, 'created', issue);
+    await postChannelMessage(slack, incomingWebhookUrl, channel, 'created', issue, deps);
   } else {
     try {
       const assignee = await resolveSlackUserForAssignee(connection, slack, issue, deps);
@@ -142,10 +192,10 @@ export async function dispatchShipWebhook(
       const dm = await slack.conversations.open({ users: assignee.slackUserId });
       const dmChannel = dm.channel?.id;
       if (!dmChannel) throw new Error('Slack DM channel could not be opened');
-      await postToChannel(slack, dmChannel, 'assigned', issue, assignee.email);
+      await postChatMessage(slack, dmChannel, 'assigned', issue, assignee.email);
     } catch (error) {
       console.warn('[slack-integration] falling back to channel for issue.assigned:', error);
-      await postToChannel(slack, channel, 'assigned', issue);
+      await postChannelMessage(slack, incomingWebhookUrl, channel, 'assigned', issue, deps);
     }
   }
 

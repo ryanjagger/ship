@@ -29,6 +29,10 @@ function botTokenFromInstallation(installation: Record<string, unknown>): string
   return token;
 }
 
+function str(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
 export class InMemorySlackIntegrationStore implements SlackIntegrationStore {
   readonly installations = new Map<string, SlackInstallation>();
   readonly setupStates = new Map<string, SetupState>();
@@ -63,9 +67,10 @@ export class InMemorySlackIntegrationStore implements SlackIntegrationStore {
       enterpriseId: typeof enterprise?.id === 'string' ? enterprise.id : null,
       installation,
       botToken: botTokenFromInstallation(installation),
-      botUserId: typeof bot?.userId === 'string' ? bot.userId : null,
-      incomingChannelId: typeof incoming?.channelId === 'string' ? incoming.channelId : null,
-      incomingChannelName: typeof incoming?.channelName === 'string' ? incoming.channelName : null,
+      botUserId: str(bot?.userId) ?? str(bot?.user_id),
+      incomingChannelId: str(incoming?.channelId) ?? str(incoming?.channel_id),
+      incomingChannelName: str(incoming?.channelName) ?? str(incoming?.channel_name),
+      incomingWebhookUrl: str(incoming?.url),
     };
     this.installations.set(teamId, record);
     return record;

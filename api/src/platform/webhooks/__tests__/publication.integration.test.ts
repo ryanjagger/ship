@@ -11,6 +11,7 @@ import { pool } from '../../../db/client.js';
 import { createOAuthApp } from '../../oauth/apps.js';
 import { issueAccessToken } from '../../oauth/tokens.js';
 import { createSubscription } from '../subscriptions.js';
+import { createIssueCore, patchIssueCore } from '../../../services/issues-service.js';
 
 describe('Webhook publication at the write boundary', () => {
   const app = createApp();
@@ -111,6 +112,53 @@ describe('Webhook publication at the write boundary', () => {
     events = await eventsFor(workspaceId);
     const tombstone = events.find((e) => e.type === 'issue.deleted')!;
     expect(tombstone.payload.data).toEqual({ object: { id: issueId, object: 'issue', deleted: true } });
+  });
+
+  it('publishes issue webhooks from the Ship UI issue service path', async () => {
+    const client = await pool.connect();
+    try {
+      const ctx = { workspaceId, userId, isAdmin: true };
+      const created = await createIssueCore(client, ctx, { title: 'UI Hooked Issue' });
+      expect(created.status).toBe(201);
+      const issueId = created.body.id as string;
+
+      let events = await eventsFor(workspaceId);
+      const createdEvent = events.find(
+        (event) =>
+          event.type === 'issue.created' &&
+          (event.payload.data as { object: { id: string } }).object.id === issueId
+      );
+      expect(createdEvent).toBeTruthy();
+
+      const createdDelivery = await pool.query(
+        `SELECT d.status FROM webhook_deliveries d
+         JOIN webhook_events e ON e.id = d.event_id
+         WHERE e.type = 'issue.created' AND e.workspace_id = $1 AND e.payload->'data'->'object'->>'id' = $2`,
+        [workspaceId, issueId]
+      );
+      expect(createdDelivery.rowCount).toBe(1);
+
+      const patched = await patchIssueCore(client, ctx, issueId, { assignee_id: userId });
+      expect(patched.status).toBe(200);
+
+      events = await eventsFor(workspaceId);
+      const assignedEvent = events.find(
+        (event) =>
+          event.type === 'issue.assigned' &&
+          (event.payload.data as { object: { id: string } }).object.id === issueId
+      );
+      expect(assignedEvent).toBeTruthy();
+
+      const assignedDelivery = await pool.query(
+        `SELECT d.status FROM webhook_deliveries d
+         JOIN webhook_events e ON e.id = d.event_id
+         WHERE e.type = 'issue.assigned' AND e.workspace_id = $1 AND e.payload->'data'->'object'->>'id' = $2`,
+        [workspaceId, issueId]
+      );
+      expect(assignedDelivery.rowCount).toBe(1);
+    } finally {
+      client.release();
+    }
   });
 
   it('never produces a document.* event type', async () => {

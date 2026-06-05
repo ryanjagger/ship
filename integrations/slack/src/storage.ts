@@ -39,11 +39,12 @@ function installationBotUserId(installation: Record<string, unknown>): string | 
   return str(bot?.userId) ?? str(bot?.user_id);
 }
 
-function incomingChannel(installation: Record<string, unknown>): { id: string | null; name: string | null } {
+function incomingWebhook(installation: Record<string, unknown>): { id: string | null; name: string | null; url: string | null } {
   const incoming = installation.incomingWebhook as Record<string, unknown> | undefined;
   return {
     id: str(incoming?.channelId) ?? str(incoming?.channel_id),
     name: str(incoming?.channelName) ?? str(incoming?.channel_name),
+    url: str(incoming?.url),
   };
 }
 
@@ -152,7 +153,7 @@ export class PgSlackIntegrationStore implements SlackIntegrationStore {
     const enterpriseId = installationEnterpriseId(installation);
     const botToken = installationBotToken(installation);
     const botUserId = installationBotUserId(installation);
-    const channel = incomingChannel(installation);
+    const incoming = incomingWebhook(installation);
     await this.pool.query(
       `INSERT INTO slack_installations
          (team_id, enterprise_id, installation_enc, bot_token_enc, bot_user_id, incoming_channel_id, incoming_channel_name)
@@ -171,8 +172,8 @@ export class PgSlackIntegrationStore implements SlackIntegrationStore {
         encryptSecret(JSON.stringify(installation)),
         encryptSecret(botToken),
         botUserId,
-        channel.id,
-        channel.name,
+        incoming.id,
+        incoming.name,
       ]
     );
     return {
@@ -181,8 +182,9 @@ export class PgSlackIntegrationStore implements SlackIntegrationStore {
       installation,
       botToken,
       botUserId,
-      incomingChannelId: channel.id,
-      incomingChannelName: channel.name,
+      incomingChannelId: incoming.id,
+      incomingChannelName: incoming.name,
+      incomingWebhookUrl: incoming.url,
     };
   }
 
@@ -203,14 +205,17 @@ export class PgSlackIntegrationStore implements SlackIntegrationStore {
     );
     const row = result.rows[0];
     if (!row) return null;
+    const installation = JSON.parse(decryptSecret(row.installation_enc)) as Record<string, unknown>;
+    const incoming = incomingWebhook(installation);
     return {
       teamId: row.team_id,
       enterpriseId: row.enterprise_id,
-      installation: JSON.parse(decryptSecret(row.installation_enc)) as Record<string, unknown>,
+      installation,
       botToken: decryptSecret(row.bot_token_enc),
       botUserId: row.bot_user_id,
-      incomingChannelId: row.incoming_channel_id,
-      incomingChannelName: row.incoming_channel_name,
+      incomingChannelId: row.incoming_channel_id ?? incoming.id,
+      incomingChannelName: row.incoming_channel_name ?? incoming.name,
+      incomingWebhookUrl: incoming.url,
     };
   }
 
