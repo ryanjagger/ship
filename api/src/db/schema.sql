@@ -335,6 +335,28 @@ CREATE TABLE IF NOT EXISTS access_tokens (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Rotating OAuth refresh tokens (SHA-256-hashed; opt-in via offline_access).
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_hash            TEXT NOT NULL UNIQUE,
+  token_prefix          TEXT NOT NULL,
+  family_id             UUID NOT NULL,
+  app_id                UUID NOT NULL REFERENCES oauth_apps(id) ON DELETE CASCADE,
+  user_id               UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id          UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  scopes                TEXT[] NOT NULL DEFAULT '{}',
+  expires_at            TIMESTAMPTZ NOT NULL,
+  used_at               TIMESTAMPTZ,
+  revoked_at            TIMESTAMPTZ,
+  replaced_by_token_id  UUID REFERENCES oauth_refresh_tokens(id) ON DELETE SET NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family
+  ON oauth_refresh_tokens (family_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_active
+  ON oauth_refresh_tokens (app_id, user_id, workspace_id)
+  WHERE revoked_at IS NULL;
+
 -- OAuth 2.0 Device Authorization Grant (RFC 8628) — backs `ship login`.
 -- device_code is SHA-256-hashed at rest; user_code is the short human code.
 CREATE TABLE IF NOT EXISTS oauth_device_codes (

@@ -927,7 +927,14 @@ export interface AuthorizationCodeFlowOptions {
 /** Persist an OAuth token response into a token store (no-op without a store). */
 async function persistTokenSet(
   store: ITokenStore | undefined,
-  token: { access_token: string; token_type: string; expires_in: number; scope: string }
+  token: {
+    access_token: string;
+    token_type: string;
+    expires_in: number;
+    scope: string;
+    refresh_token?: string;
+    refresh_token_expires_in?: number;
+  }
 ): Promise<void> {
   if (!store) return;
   const tokenSet: ShipTokenSet = {
@@ -935,6 +942,8 @@ async function persistTokenSet(
     tokenType: token.token_type,
     scope: token.scope,
     expiresAt: Date.now() + token.expires_in * 1000,
+    refreshToken: token.refresh_token,
+    refreshExpiresAt: token.refresh_token_expires_in ? Date.now() + token.refresh_token_expires_in * 1000 : undefined,
   };
   await store.set(tokenSet);
 }
@@ -960,6 +969,8 @@ export interface DeviceTokenResponse {
   token_type: string;
   expires_in: number;
   scope: string;
+  refresh_token?: string;
+  refresh_token_expires_in?: number;
 }
 
 /** Thrown for a terminal device-flow failure (OAuth `{ error }` shape). */
@@ -1073,6 +1084,38 @@ export async function pollDeviceToken(opts: PollDeviceTokenOptions): Promise<Dev
     }
     throw new DeviceFlowError(status, error, json?.error_description as string);
   }
+}
+
+export interface RefreshAccessTokenOptions {
+  clientId: string;
+  refreshToken: string;
+  /** Confidential clients must include their client secret. Public PKCE clients omit it. */
+  clientSecret?: string;
+  baseUrl?: string;
+  fetch?: typeof fetch;
+  /** Persist the rotated token set. */
+  store?: ITokenStore;
+}
+
+/** Exchange a rotating OAuth refresh token for a fresh access token. */
+export async function refreshAccessToken(opts: RefreshAccessTokenOptions): Promise<DeviceTokenResponse> {
+  if (!opts?.clientId || !opts.refreshToken) throw new Error('refreshAccessToken requires clientId and refreshToken');
+  const fetchImpl = resolveFetch(opts.fetch);
+  const baseUrl = (opts.baseUrl ?? '').replace(/\/$/, '');
+  const body: Record<string, unknown> = {
+    grant_type: 'refresh_token',
+    refresh_token: opts.refreshToken,
+    client_id: opts.clientId,
+  };
+  if (opts.clientSecret) body.client_secret = opts.clientSecret;
+
+  const { ok, status, json } = await postOAuthJson(fetchImpl, baseUrl, '/api/oauth/token', body);
+  if (!ok) {
+    throw new DeviceFlowError(status, (json?.error as string) ?? 'refresh_failed', json?.error_description as string);
+  }
+  const token = json as unknown as DeviceTokenResponse;
+  await persistTokenSet(opts.store, token);
+  return token;
 }
 
 // Webhook signature verification (server-side; uses node:crypto).
