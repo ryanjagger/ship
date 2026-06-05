@@ -279,16 +279,19 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 -- All CREATE TABLE IF NOT EXISTS, so the migration re-runs are no-ops.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Registered OAuth client applications. client_secret is bcrypt-hashed
--- (verified once, at token exchange).
+-- Registered OAuth client applications. Confidential client secrets are
+-- bcrypt-hashed (verified once, at token exchange). Public PKCE clients do not
+-- have a secret.
 CREATE TABLE IF NOT EXISTS oauth_apps (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id          TEXT NOT NULL UNIQUE,
-  client_secret_hash TEXT NOT NULL,
+  client_secret_hash TEXT,
   name               TEXT NOT NULL,
   redirect_uris      TEXT[] NOT NULL DEFAULT '{}',
   owner_user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
   requested_scopes   TEXT[] NOT NULL DEFAULT '{}',
+  client_type        TEXT NOT NULL DEFAULT 'confidential'
+    CHECK (client_type IN ('public', 'confidential')),
   -- Opt-in to the Device Authorization Grant (RFC 8628). OFF by default: a
   -- public device flow must never borrow a confidential client's identity.
   allow_device_flow  BOOLEAN NOT NULL DEFAULT false,
@@ -296,7 +299,9 @@ CREATE TABLE IF NOT EXISTS oauth_apps (
   -- provisioned by migration and cannot be deleted or rotated from the admin UI.
   is_system          BOOLEAN NOT NULL DEFAULT false,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT oauth_apps_confidential_secret_check
+    CHECK (client_type = 'public' OR client_secret_hash IS NOT NULL)
 );
 
 -- Short-lived PKCE authorization codes (SHA-256-hashed, single-use).

@@ -39,6 +39,7 @@ describe('OAuth app model (PRD §5.2)', () => {
 
     expect(app.client_id).toMatch(/^client_[0-9a-f]{32}$/);
     expect(clientSecret).toMatch(/^secret_/);
+    expect(app.client_type).toBe('confidential');
     expect(app.requested_scopes).toEqual(['documents:read']);
 
     // The stored row holds a bcrypt hash, never the raw secret.
@@ -58,8 +59,26 @@ describe('OAuth app model (PRD §5.2)', () => {
     createdClientIds.push(app.client_id);
 
     const row = await findOAuthAppByClientId(app.client_id);
-    expect(await verifyClientSecret(row!, clientSecret)).toBe(true);
+    expect(await verifyClientSecret(row!, clientSecret!)).toBe(true);
     expect(await verifyClientSecret(row!, 'secret_wrong')).toBe(false);
+  });
+
+  it('creates a public PKCE app without a client secret', async () => {
+    const { app, clientSecret } = await createOAuthApp({
+      name: 'Public Browser App',
+      redirectUris: ['https://browser.example.com/callback'],
+      ownerUserId: null,
+      requestedScopes: ['issues:read'],
+      clientType: 'public',
+    });
+    createdClientIds.push(app.client_id);
+
+    expect(app.client_type).toBe('public');
+    expect(clientSecret).toBeUndefined();
+    const row = await findOAuthAppByClientId(app.client_id);
+    expect(row!.client_secret_hash).toBeNull();
+    expect(await verifyClientSecret(row!, 'anything')).toBe(false);
+    expect(await rotateClientSecret(app.id)).toBeNull();
   });
 
   it('matches redirect URIs exactly (no prefix/substring matching)', () => {
@@ -103,8 +122,8 @@ describe('OAuth app model (PRD §5.2)', () => {
     expect(rotated!.app.client_id).toBe(app.client_id); // client_id is stable
 
     const row = await findOAuthAppByClientId(app.client_id);
-    expect(await verifyClientSecret(row!, original)).toBe(false);
-    expect(await verifyClientSecret(row!, rotated!.clientSecret)).toBe(true);
+    expect(await verifyClientSecret(row!, original!)).toBe(false);
+    expect(await verifyClientSecret(row!, rotated!.clientSecret!)).toBe(true);
   });
 
   it('rotateClientSecret returns null for an unknown app id', async () => {
@@ -165,6 +184,7 @@ describe('OAuth app model (PRD §5.2)', () => {
     });
     createdClientIds.push(app.client_id);
     expect(app.is_system).toBe(false);
+    expect(app.client_type).toBe('confidential');
   });
 
   describe('system (platform-managed) clients are protected', () => {

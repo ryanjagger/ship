@@ -21,6 +21,8 @@ describe('OAuth token exchange + PKCE', () => {
   let clientId: string;
   let clientSecret: string;
   let appId: string;
+  let publicClientId: string;
+  let publicAppId: string;
 
   beforeAll(async () => {
     const ws = await pool.query<{ id: string }>(
@@ -46,19 +48,29 @@ describe('OAuth token exchange + PKCE', () => {
       requestedScopes: ['documents:read'],
     });
     clientId = created.app.client_id;
-    clientSecret = created.clientSecret;
+    clientSecret = created.clientSecret!;
     appId = created.app.id;
+
+    const publicCreated = await createOAuthApp({
+      name: 'Public Token Test App',
+      redirectUris: [redirectUri],
+      ownerUserId: userId,
+      requestedScopes: ['documents:read'],
+      clientType: 'public',
+    });
+    publicClientId = publicCreated.app.client_id;
+    publicAppId = publicCreated.app.id;
   });
 
   afterAll(async () => {
-    await pool.query('DELETE FROM oauth_apps WHERE id = $1', [appId]);
+    await pool.query('DELETE FROM oauth_apps WHERE id = ANY($1)', [[appId, publicAppId]]);
     await pool.query('DELETE FROM workspaces WHERE id = $1', [workspaceId]); // cascades codes/tokens/memberships
     await pool.query('DELETE FROM users WHERE id = $1', [userId]);
   });
 
-  async function freshCode(verifier: string): Promise<string> {
+  async function freshCode(verifier: string, issuedAppId: string = appId): Promise<string> {
     return issueAuthorizationCode({
-      appId,
+      appId: issuedAppId,
       userId,
       workspaceId,
       redirectUri,
@@ -84,6 +96,37 @@ describe('OAuth token exchange + PKCE', () => {
     expect(res.body.access_token).toMatch(/^ship_at_/);
     expect(res.body.expires_in).toBe(3600);
     expect(res.body.scope).toBe('documents:read');
+  });
+
+  it('exchanges a public-client code with PKCE and no client_secret', async () => {
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    const code = await freshCode(verifier, publicAppId);
+    const res = await request(app).post('/api/oauth/token').send({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: publicClientId,
+      code_verifier: verifier,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.token_type).toBe('Bearer');
+    expect(res.body.access_token).toMatch(/^ship_at_/);
+    expect(res.body.scope).toBe('documents:read');
+  });
+
+  it('rejects client_secret on public-client token exchange', async () => {
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    const code = await freshCode(verifier, publicAppId);
+    const res = await request(app).post('/api/oauth/token').send({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: publicClientId,
+      client_secret: 'secret_should_not_be_here',
+      code_verifier: verifier,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_request');
   });
 
   it('rejects a wrong code_verifier with 400 invalid_grant', async () => {
@@ -113,6 +156,20 @@ describe('OAuth token exchange + PKCE', () => {
     });
     expect(res.status).toBe(401);
     expect(res.body.error).toBe('invalid_client');
+  });
+
+  it('rejects a missing client_secret for confidential clients', async () => {
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    const code = await freshCode(verifier);
+    const res = await request(app).post('/api/oauth/token').send({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      code_verifier: verifier,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_request');
   });
 
   it('rejects an unsupported grant_type with 400 unsupported_grant_type', async () => {
