@@ -23,6 +23,7 @@ test.describe('Admin OAuth Apps management UI', () => {
     const appName = `E2E UI App ${Date.now()}`;
     await page.getByRole('button', { name: 'New OAuth App' }).click();
     await page.getByTestId('oauth-app-name-input').fill(appName);
+    await page.getByTestId('oauth-client-type-confidential').check();
     await page.getByTestId('oauth-app-redirects-input').fill(`${baseURL}/callback`);
     await page.getByTestId('oauth-scope-documents:read').check();
     await page.getByTestId('oauth-app-create-submit').click();

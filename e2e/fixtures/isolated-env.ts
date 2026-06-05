@@ -174,6 +174,12 @@ export const test = base.extend<
           NODE_ENV: 'test',
           // Prevent dotenv from overriding our DATABASE_URL
           DOTENV_CONFIG_PATH: '/dev/null',
+          // Because dotenv is bypassed above, .env.local's webhook key never
+          // loads — supply a fixed test key so webhook signing-secret
+          // encryption (AES-256-GCM, crypto.ts) works in the portal e2e flow.
+          WEBHOOK_SECRET_ENC_KEY:
+            process.env.WEBHOOK_SECRET_ENC_KEY ??
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -437,6 +443,15 @@ async function seedMinimalTestData(pool: Pool): Promise<void> {
     `INSERT INTO webhook_deliveries (subscription_id, event_id, status, attempt_count, next_attempt_at, last_response_status, last_error, dead_lettered_at)
      VALUES ($1, $2, 'dead_lettered', 7, NULL, 500, 'Seed: target returned 500', now())`,
     [seedSubId, seedEvent.rows[0].id]
+  );
+
+  // A live access token for the dev app, so the portal's Connections tab (apps
+  // holding an unexpired token) has a row to render and revoke. Hash is a
+  // placeholder — the token is never presented, only listed/revoked by app+user.
+  await pool.query(
+    `INSERT INTO access_tokens (token_hash, token_prefix, app_id, user_id, workspace_id, scopes, expires_at)
+     VALUES ('seed-access-token-hash', 'ship_at_seed', $1, $2, $3, ARRAY['issues:read']::text[], now() + interval '1 hour')`,
+    [devAppId, userId, workspaceId]
   );
 
   // Create programs (matching full seed)

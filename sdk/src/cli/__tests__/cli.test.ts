@@ -87,7 +87,8 @@ describe('ship CLI · webhooks command', () => {
 describe('ship CLI · config', () => {
   it('defaults baseUrl + clientId', () => {
     const c = loadConfig({} as NodeJS.ProcessEnv);
-    expect(c.baseUrl).toBe(DEFAULT_BASE_URL);
+    expect(DEFAULT_BASE_URL).toBe('https://ship-app-production-6f9e.up.railway.app');
+    expect(c.baseUrl).toBe('https://ship-app-production-6f9e.up.railway.app');
     expect(c.clientId).toBe('client_ship_cli');
   });
 

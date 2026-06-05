@@ -17,6 +17,19 @@ internal route handlers.
 
 ---
 
+## Runtime Map
+
+| Concern | Shipping behavior |
+|---|---|
+| Public API | `/api/v1/*`, bearer-token only, `ApiError` on every failure, `X-Request-Id` on responses |
+| Internal app API | `/api/*` outside `/api/v1`, session cookies + CSRF, legacy response envelopes |
+| OAuth | `/api/oauth/*` supports Authorization Code + PKCE for web apps and Device Authorization Grant for the CLI |
+| SDK/CLI | `@ryanjagger/ship-sdk` publishes the typed client and `ship` binary; CLI defaults to the production origin and `SHIP_API_URL` overrides it |
+| OpenAPI | Generated from Zod schemas, served lazily, and checked against the SDK operation manifest |
+| Webhooks | Transactional outbox rows, HMAC signatures, retry/DLQ, replay, and SDK verification helpers |
+
+---
+
 ## Module Layout
 
 ```
@@ -57,9 +70,10 @@ api/src/platform/
     ├── signing.ts                 HMAC-SHA256 sign/verify (Ship-Signature: t=,v1=)
     └── crypto.ts                  AES-256-GCM secret encryption + fingerprint (WEBHOOK_SECRET_ENC_KEY)
 
-sdk/src/index.ts                   @ryanjagger/ship-sdk (v0.1.0-rc.4) — zero-dep, injectable fetch; incl. client.webhooks
+sdk/src/index.ts                   @ryanjagger/ship-sdk (v0.1.0) — zero-dep, injectable fetch; incl. client.webhooks
 sdk/src/webhooks.ts                verifyWebhook (HMAC verify; Express + Fetch handlers)
 sdk/src/cli/                       `ship` binary packaged by @ryanjagger/ship-sdk
+sdk/src/cli/config.ts              CLI default origin + SHIP_API_URL / SHIP_CLIENT_ID overrides
 sdk/src/cli/commands/webhooks.ts   `ship webhooks` commands (list/create/delete/replay/tail)
 ```
 
@@ -109,19 +123,26 @@ singletons (`pool`, `scopeRegistry`, the cached OpenAPI document). The wiring li
 
 ```ts
 // api/src/app.ts — order matters
-const apiLimiter = rateLimit({ /* … */ handler: apiRateLimitHandler }); //  :88  global limiter,
-app.use('/api/', apiLimiter);                                           //  :160 v1's 429 → ApiError
+const publicCors = cors({ origin: publicCorsOriginOption(corsOrigin), credentials: true });
+app.use('/api/oauth/token', publicCors);
+app.use('/api/oauth/device/authorization', publicCors);
+app.use('/api/v1', publicCors);
 
-app.use('/api/oauth', oauthPublicRouter);                  //  :228 public: /authorize, /token, /device/*
-app.use('/api/oauth', conditionalCsrf, oauthConsentRouter);//  :229 session+CSRF: consent + /device decision
-//      conditionalCsrf (:60) skips CSRF when Authorization: Bearer is present (APIs aren't browsers)
+const apiLimiter = rateLimit({ /* ... */ handler: apiRateLimitHandler });
+app.use('/api/', apiLimiter);
 
-app.use('/api/v1', v1Router);                              //  :236 public Platform API
+app.use('/api/oauth', oauthPublicRouter);                  // public: /authorize, /token, /device/*
+app.use('/api/oauth', conditionalCsrf, oauthConsentRouter);// session+CSRF: consent + /device decision
+// conditionalCsrf skips CSRF when Authorization: Bearer is present.
+
+app.use('/api/v1', v1Router);                              // public Platform API
 ```
 
 `v1Router` (`api/v1/router.ts`) composes per request: `request-id` → resource routes (each
 `bearerAuth` → `requireScope(...)`/`authOnly()` → handler) → `notFoundHandler` →
-`errorHandler`. The OpenAPI document is built lazily on first request and cached.
+`errorHandler`. `publicCors` is mounted before the global `/api/` limiter so public OAuth/API
+preflights return before rate-limit accounting. The OpenAPI document is built lazily on first
+request and cached.
 
 The **webhook delivery scheduler** is wired in `api/src/index.ts` *after* `server.listen` (never
 in `createApp`, so unit tests that import the app don't spin a real cron timer): `startScheduler()`
@@ -218,6 +239,31 @@ Relational fields are derived from `document_associations`, not stubbed:
 This keeps the public API native to each resource while preserving the internal document-backed
 storage model and the platform boundary rule: v1 still does not import internal Express route
 handlers.
+
+---
+
+## Extension Checklist
+
+When adding public platform behavior, keep the contract changes flowing in one direction: schema
+and registry data first, route behavior second, SDK/CLI third.
+
+- **New typed document resource:** add the schema, DTO mapper, `toCreate`, and `toUpdate` entry in
+  `schemas/typed-document.ts`; register scopes in `scopes/registry.ts`; rely on
+  `routes/typed-documents.ts` and `openapi/spec.ts` to mount and document the resource from that
+  registry entry.
+- **New custom v1 route:** define Zod request/response schemas, route middleware order
+  (`bearerAuth` then `requireScope`/`authOnly`), and the OpenAPI path in `openapi/spec.ts`; return
+  `ApiError` for all non-2xx cases.
+- **SDK parity:** add the SDK method in `sdk/src/index.ts` and record the operation in
+  `sdk/src/manifest.ts`. The SDK contract test compares that manifest to `docs/openapi.json`, so a
+  public operation without an SDK decision fails loudly.
+- **CLI parity:** expose only workflows that make sense as repeatable terminal commands; use
+  `loadConfig()` so `SHIP_API_URL` and `SHIP_CLIENT_ID` behave consistently across commands.
+- **Webhook parity:** for typed writes, build events from the public DTO returned by `toResponse`;
+  add semantic events only when the transition is observable at write time, and gate subscription
+  eligibility with the resource's read scope.
+- **Tests:** cover API route behavior, generated OpenAPI shape, SDK contract drift, and CLI
+  argument/config behavior when the public surface changes.
 
 ---
 
@@ -341,7 +387,7 @@ re-run `ship login` to pick it up. The browser developer-portal UI remains defer
 
 ## SDK Surface
 
-`@ryanjagger/ship-sdk` (`sdk/src/index.ts`), v0.1.0-rc.4 — zero runtime deps, injectable `fetch`.
+`@ryanjagger/ship-sdk` (`sdk/src/index.ts`), v0.1.0 — zero runtime deps, injectable `fetch`.
 
 | Surface | Status | Notes |
 |---|---|---|
@@ -355,10 +401,27 @@ re-run `ship login` to pick it up. The browser developer-portal UI remains defer
 | `verifyWebhook(headers, rawBody, secret, opts?)` | Pre-1.0 | HMAC-SHA256 verify; Express + Fetch headers; constant-time; 5-min tolerance |
 | `client.webhooks.{list,get,create,update,delete,rotateSecret}` + `client.webhooks.deliveries.{list,get,replay}` | Pre-1.0 | webhook subscription + delivery-log client |
 | `ship webhooks list/create/delete/replay/tail` | Pre-1.0 | CLI webhook commands; `tail` live-streams the delivery log (polls `/webhook-deliveries`). Needs `webhooks:manage` (re-`ship login`). |
-| async-iterator pagination, typed discriminated error union | **Planned** | land with refresh epic |
+| `client.documents.iterate()`, `client.<resource>.iterate()` | Pre-1.0 | async-generator pagination; hides cursor walking, preserves filters across pages |
+| `ShipSDKError` discriminated union (`.kind`) + `toShipSDKError()` | Pre-1.0 | exhaustively-switchable typed errors (`auth` / `rate_limit` / `not_found` / `validation` / `server`) |
 
 The broad `.documents` client remains available for migration and generic integrations. Typed
 clients are the preferred public surface when the caller knows the resource type.
+
+---
+
+## Contract and Release Gates
+
+The public platform has three drift checks that should move together:
+
+- `docs/openapi.json` is the committed public API snapshot. Regenerate it with
+  `pnpm --filter @ship/api openapi:export` when route schemas or response DTOs change.
+- `sdk/src/manifest.ts` maps every OpenAPI operation to an SDK method or an explicit unsupported
+  decision. This is the authoritative SDK coverage ledger.
+- `sdk/src/cli/config.ts` owns the published CLI defaults. The stable CLI default is the
+  production origin; local and staging usage must go through `SHIP_API_URL`.
+
+Before publishing the SDK, run the SDK tests and build, verify production `/health`, and smoke the
+built `ship` binary with no `SHIP_API_URL` to ensure it starts the production device flow.
 
 ---
 
@@ -381,6 +444,9 @@ After:   agent → OAuth app → @ship/sdk → /api/v1 → (same) domain service
 - **CLI credential store corrupted / token invalid.** `~/.ship/credentials.json` is a single
   `0600` JSON blob; a bad or expired token surfaces as a `401` and the CLI tells the user to run
   `ship login`, which overwrites the file. No partial-state recovery needed.
+- **CLI points at the wrong origin.** The stable default is production, but every command resolves
+  `baseUrl` through `loadConfig()`. Set `SHIP_API_URL` to retarget local, staging, or emergency
+  environments without republishing the SDK.
 - **Access token expired.** 1h TTL, no refresh: `validateAccessToken` returns a distinct
   `401 token_expired` (not generic invalid), and the client re-authenticates. *(Refresh rotation
   is the Planned fix.)*

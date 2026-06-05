@@ -11,6 +11,7 @@ import {
   listOAuthAppsForWorkspace,
   findOAuthAppForWorkspace,
 } from '../platform/oauth/apps.js';
+import { listWorkspaceConnections, revokeWorkspaceConnection } from '../platform/oauth/connections.js';
 import { scopeRegistry } from '../platform/api/v1/scopes/registry.js';
 import {
   createSubscription,
@@ -43,7 +44,9 @@ import { queryPublicApiAudit } from '../platform/api/v1/audit/service.js';
 const router: RouterType = Router();
 
 const SECRET_WARNING = 'Save this secret now. It will not be shown again.';
+const PUBLIC_CLIENT_WARNING = 'Public PKCE clients do not use a client_secret.';
 const SYSTEM_CLIENT_PROTECTED = 'This is a platform-managed system client and cannot be modified or deleted.';
+const PUBLIC_CLIENT_NO_SECRET = 'Public PKCE clients do not have a client secret to rotate.';
 
 const ok = (res: Response, data: unknown, status: number = HTTP_STATUS.OK): void => {
   res.status(status).json({ success: true, data });
@@ -93,6 +96,9 @@ const createAppSchema = z
     name: z.string().min(1).max(120),
     redirect_uris: z.array(z.string().url()).default([]),
     requested_scopes: z.array(z.string()).default([]),
+    // Preserve the legacy API contract for automation that omits client_type.
+    // The UI explicitly sends "public" when using the browser PKCE default.
+    client_type: z.enum(['public', 'confidential']).default('confidential'),
     allow_device_flow: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
@@ -121,6 +127,7 @@ router.post('/apps', async (req: Request, res: Response): Promise<void> => {
       redirectUris: parsed.data.redirect_uris,
       ownerUserId: req.userId,
       requestedScopes: parsed.data.requested_scopes,
+      clientType: parsed.data.client_type,
       allowDeviceFlow: parsed.data.allow_device_flow,
     });
     await logAuditEvent({
@@ -137,12 +144,13 @@ router.post('/apps', async (req: Request, res: Response): Promise<void> => {
       {
         id: app.id,
         client_id: app.client_id,
-        client_secret: clientSecret,
+        ...(clientSecret ? { client_secret: clientSecret } : {}),
         name: app.name,
         redirect_uris: app.redirect_uris,
         requested_scopes: app.requested_scopes,
+        client_type: app.client_type,
         allow_device_flow: app.allow_device_flow,
-        warning: SECRET_WARNING,
+        warning: clientSecret ? SECRET_WARNING : PUBLIC_CLIENT_WARNING,
       },
       HTTP_STATUS.CREATED
     );
@@ -160,6 +168,10 @@ router.post('/apps/:appId/rotate-secret', async (req: Request, res: Response): P
     fail(res, HTTP_STATUS.CONFLICT, ERROR_CODES.FORBIDDEN, SYSTEM_CLIENT_PROTECTED);
     return;
   }
+  if (app.client_type === 'public') {
+    fail(res, HTTP_STATUS.CONFLICT, ERROR_CODES.FORBIDDEN, PUBLIC_CLIENT_NO_SECRET);
+    return;
+  }
   try {
     const rotated = await rotateClientSecret(app.id);
     if (!rotated) {
@@ -175,7 +187,14 @@ router.post('/apps/:appId/rotate-secret', async (req: Request, res: Response): P
       details: { name: rotated.app.name, client_id: rotated.app.client_id, via: 'developer_portal' },
       req,
     });
-    ok(res, { id: rotated.app.id, client_id: rotated.app.client_id, client_secret: rotated.clientSecret, name: rotated.app.name, warning: SECRET_WARNING });
+    ok(res, {
+      id: rotated.app.id,
+      client_id: rotated.app.client_id,
+      ...(rotated.clientSecret ? { client_secret: rotated.clientSecret } : {}),
+      name: rotated.app.name,
+      client_type: rotated.app.client_type,
+      warning: SECRET_WARNING,
+    });
   } catch (error) {
     console.error('[developer] rotate secret error:', error);
     fail(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, ERROR_CODES.INTERNAL_ERROR, 'Failed to rotate client secret');
@@ -209,6 +228,60 @@ router.delete('/apps/:appId', async (req: Request, res: Response): Promise<void>
   } catch (error) {
     console.error('[developer] delete app error:', error);
     fail(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, ERROR_CODES.INTERNAL_ERROR, 'Failed to delete app');
+  }
+});
+
+// ── Connected apps (live access tokens) ──────────────────────────────────────
+
+/**
+ * Apps with live tokens in this workspace — the device/auth-code flows leave no
+ * standing grant, so a "connection" is just one or more unexpired, unrevoked
+ * access tokens (see platform/oauth/connections.ts). This is the answer to
+ * "which apps did I authorize, and what can they read?"
+ */
+router.get('/connections', async (req: Request, res: Response): Promise<void> => {
+  if (!assertAuthed(req, res)) return;
+  try {
+    ok(res, await listWorkspaceConnections(req.workspaceId));
+  } catch (error) {
+    console.error('[developer] list connections error:', error);
+    fail(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, ERROR_CODES.INTERNAL_ERROR, 'Failed to list connections');
+  }
+});
+
+router.delete('/connections/:appId/users/:userId', async (req: Request, res: Response): Promise<void> => {
+  if (!assertAuthed(req, res)) return;
+  const appId = uuid.safeParse(req.params.appId);
+  const userId = uuid.safeParse(req.params.userId);
+  if (!appId.success || !userId.success) {
+    fail(res, HTTP_STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Invalid app or user id');
+    return;
+  }
+  try {
+    const revoked = await revokeWorkspaceConnection(req.workspaceId, appId.data, userId.data);
+    if (revoked.revoked_count === 0) {
+      fail(res, HTTP_STATUS.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'No active connection found to revoke');
+      return;
+    }
+    await logAuditEvent({
+      workspaceId: req.workspaceId,
+      actorUserId: req.userId,
+      action: 'oauth_connection.revoked',
+      resourceType: 'oauth_app',
+      resourceId: appId.data,
+      details: {
+        client_id: revoked.client_id,
+        app_name: revoked.app_name,
+        revoked_user_id: userId.data,
+        tokens_revoked: revoked.revoked_count,
+        via: 'developer_portal',
+      },
+      req,
+    });
+    ok(res, { message: 'Connection revoked', tokens_revoked: revoked.revoked_count });
+  } catch (error) {
+    console.error('[developer] revoke connection error:', error);
+    fail(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, ERROR_CODES.INTERNAL_ERROR, 'Failed to revoke connection');
   }
 });
 

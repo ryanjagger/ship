@@ -28,6 +28,9 @@ test.describe('Developer Portal', () => {
     await page.getByTestId('dev-app-name-input').fill(appName);
     await page.getByTestId('dev-app-redirects-input').fill(`${baseURL}/callback`);
     await page.getByTestId('dev-scope-webhooks:manage').check();
+    // issue.created delivery requires the app to hold a matching read scope
+    // (the webhook read-scope gate); without this the subscription is rejected.
+    await page.getByTestId('dev-scope-issues:read').check();
     await page.getByTestId('dev-app-create-submit').click();
 
     await expect(page.getByTestId('dev-secret-modal')).toBeVisible();
@@ -82,6 +85,24 @@ test.describe('Developer Portal', () => {
     // Replay it; a success toast confirms a new delivery id.
     await deliveryRow.getByRole('button', { name: 'Replay' }).click();
     await expect(page.getByText(/Replayed — new delivery/i)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('Connections tab lists a live token and revokes it', async ({ page }) => {
+    await login(page);
+    await page.goto('/developer');
+    await page.getByTestId('dev-tab-connections').click();
+    await expect(page.getByTestId('dev-connections')).toBeVisible();
+
+    // The seeded dev app holds a live access token, so it appears here.
+    const row = page.getByTestId('dev-connection-row').filter({ hasText: 'Seed Webhook App' });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('issues:read');
+
+    // Revoke it; the row disappears once its only live token is killed.
+    await row.getByTestId('dev-revoke-connection').click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
+    await expect(page.getByText('Connection revoked')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('dev-connection-row').filter({ hasText: 'Seed Webhook App' })).toHaveCount(0);
   });
 
   test('API audit tab renders', async ({ page }) => {

@@ -25,7 +25,7 @@ Usage:
     (webhooks needs the webhooks:manage scope — run \`ship login\` to refresh your token)
 
 Environment:
-  SHIP_API_URL     Ship API base URL   (default Railway development deployment)
+  SHIP_API_URL     Ship API base URL   (default production deployment)
   SHIP_CLIENT_ID   OAuth client_id     (default client_ship_cli)
 `;
 

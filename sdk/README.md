@@ -64,13 +64,14 @@ const client = await ShipClient.authorizationCodeFlow({
 // Browser SPA — window.location redirect + LocalStorageTokenStore (two-phase:
 // call once to redirect, and again on the callback page to finish):
 const client = await ShipClient.authorizationCodeFlow({
-  clientId, clientSecret, redirectUri: `${location.origin}/callback`,
+  clientId, redirectUri: `${location.origin}/callback`,
   scope: 'issues:read', redirect: 'browser', store: new LocalStorageTokenStore(),
 });
 ```
 
 Pass a custom `AuthCodeRedirectAdapter` as `redirect` to own the consent leg
-yourself.
+yourself. Pass `clientSecret` only for confidential server-side clients; browser
+PKCE clients should use only `clientId`.
 
 ## Paginated lists
 
@@ -173,8 +174,8 @@ ship docs create --title "hello"
 ship docs list
 ```
 
-The CLI defaults to the current Railway development deployment. Override the
-target for local development or future production:
+The CLI defaults to the production deployment. Override the target for local
+development or alternate environments:
 
 ```bash
 SHIP_API_URL=http://localhost:3000 ship login

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import type { CorsOptions } from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -41,6 +42,7 @@ import { apiRateLimitHandler } from './platform/api/v1/rate-limit.js';
 import oauthAdminRoutes from './platform/oauth/admin-routes.js';
 import developerRoutes from './routes/developer.js';
 import { oauthPublicRouter, oauthConsentRouter } from './platform/oauth/routes.js';
+import { hasRegisteredPublicRedirectOrigin } from './platform/oauth/apps.js';
 import { setupSwagger } from './swagger.js';
 import { initializeCAIA } from './services/caia.js';
 
@@ -97,6 +99,47 @@ const apiLimiter = rateLimit({
   // limiter is added — this is the existing global limiter's handler.
   handler: apiRateLimitHandler,
 });
+
+function configuredCorsOrigins(corsOrigin: string): string[] {
+  return corsOrigin
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+function corsOriginOption(corsOrigin: string): CorsOptions['origin'] {
+  const origins = configuredCorsOrigins(corsOrigin);
+  const allowed = new Set(origins);
+  return (origin, callback) => {
+    if (!origin || allowed.has('*') || allowed.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  };
+}
+
+function isConfiguredCorsOriginAllowed(origin: string, corsOrigin: string): boolean {
+  const origins = configuredCorsOrigins(corsOrigin);
+  if (origins.includes('*')) return true;
+  return origins.includes(origin);
+}
+
+function publicCorsOriginOption(corsOrigin: string): CorsOptions['origin'] {
+  return (origin, callback) => {
+    if (!origin || isConfiguredCorsOriginAllowed(origin, corsOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    void hasRegisteredPublicRedirectOrigin(origin)
+      .then((allowed) => callback(null, allowed))
+      .catch((error) => {
+        console.warn('Public CORS origin lookup failed:', error);
+        callback(null, false);
+      });
+  };
+}
 
 
 export function createApp(corsOrigin: string = 'http://localhost:5173'): express.Express {
@@ -157,10 +200,22 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
     },
   }));
 
+  // Public OAuth/API browser clients are self-service: their origins are
+  // derived from registered public-client redirect URIs instead of Railway/env
+  // config. Keep this before the global /api limiter so successful preflights
+  // return immediately and are not rate-limited.
+  const publicCors = cors({
+    origin: publicCorsOriginOption(corsOrigin),
+    credentials: true,
+  });
+  app.use('/api/oauth/token', publicCors);
+  app.use('/api/oauth/device/authorization', publicCors);
+  app.use('/api/v1', publicCors);
+
   // Apply rate limiting to all API routes
   app.use('/api/', apiLimiter);
   app.use(cors({
-    origin: corsOrigin,
+    origin: corsOriginOption(corsOrigin),
     credentials: true,
   }));
   app.use(express.json({ limit: '10mb' }));  // Large wiki documents can be several MB
@@ -223,7 +278,8 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
   // OAuth 2.0 Authorization Server (Ship as provider). Mounted under /api/oauth
   // so it rides the existing /api proxy. Two mounts with different needs:
   //   • public: GET /authorize (redirect) + POST /token (back-channel, NO CSRF —
-  //     authenticated by client_id+client_secret, not a browser session).
+  //     authenticated by client_id+client_secret for confidential clients, or
+  //     by client_id+PKCE for public clients, not a browser session).
   //   • consent: GET /authorize/validate + POST /authorize/decision back the
   //     React consent screen; session-authed and CSRF-protected (the POST).
   app.use('/api/oauth', oauthPublicRouter);

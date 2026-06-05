@@ -2,14 +2,20 @@
 -- Everything is a Document - Unified Model
 -- Multi-Workspace Architecture
 
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram GIN for leading-wildcard title search (migration 038)
+
 -- Workspaces
+-- `settings` is a single JSONB blob for per-workspace config (migration 047);
+-- added last to match the column order produced by the ALTER-based migration.
 CREATE TABLE IF NOT EXISTS workspaces (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   sprint_start_date DATE NOT NULL DEFAULT CURRENT_DATE,
   archived_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  settings JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 -- Users and auth (global identity - users can belong to multiple workspaces)
@@ -273,16 +279,19 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 -- All CREATE TABLE IF NOT EXISTS, so the migration re-runs are no-ops.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Registered OAuth client applications. client_secret is bcrypt-hashed
--- (verified once, at token exchange).
+-- Registered OAuth client applications. Confidential client secrets are
+-- bcrypt-hashed (verified once, at token exchange). Public PKCE clients do not
+-- have a secret.
 CREATE TABLE IF NOT EXISTS oauth_apps (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id          TEXT NOT NULL UNIQUE,
-  client_secret_hash TEXT NOT NULL,
+  client_secret_hash TEXT,
   name               TEXT NOT NULL,
   redirect_uris      TEXT[] NOT NULL DEFAULT '{}',
   owner_user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
   requested_scopes   TEXT[] NOT NULL DEFAULT '{}',
+  client_type        TEXT NOT NULL DEFAULT 'confidential'
+    CHECK (client_type IN ('public', 'confidential')),
   -- Opt-in to the Device Authorization Grant (RFC 8628). OFF by default: a
   -- public device flow must never borrow a confidential client's identity.
   allow_device_flow  BOOLEAN NOT NULL DEFAULT false,
@@ -290,7 +299,9 @@ CREATE TABLE IF NOT EXISTS oauth_apps (
   -- provisioned by migration and cannot be deleted or rotated from the admin UI.
   is_system          BOOLEAN NOT NULL DEFAULT false,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT oauth_apps_confidential_secret_check
+    CHECK (client_type = 'public' OR client_secret_hash IS NOT NULL)
 );
 
 -- Short-lived PKCE authorization codes (SHA-256-hashed, single-use).
@@ -517,3 +528,210 @@ CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments(parent_id);
 -- Drop the legacy separate tables if they exist (greenfield cleanup)
 DROP TABLE IF EXISTS sprints CASCADE;
 DROP TABLE IF EXISTS projects CASCADE;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Schema sync: hot-path indexes + FleetGraph insight invariants + Plugforge
+-- webhooks & public-API tables. Mirrors migrations 038–058. Defined here (not
+-- only in the migration SQL) so fresh setups and the E2E testcontainer — which
+-- seed from schema.sql, not the migration files — get the full current schema.
+-- All IF NOT EXISTS, so migration re-runs stay no-ops.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Hot query-path indexes (migrations 038–044). Partial + expression indexes on
+-- the dominant documents.properties->> filters and the api-token auth lookup.
+CREATE INDEX IF NOT EXISTS idx_documents_title_trgm
+  ON documents USING GIN (title gin_trgm_ops)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_issue_assignee
+  ON documents ((properties->>'assignee_id'))
+  WHERE document_type = 'issue' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_owner_id
+  ON documents (workspace_id, document_type, (properties->>'owner_id'))
+  WHERE deleted_at IS NULL AND archived_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_standup_author_date
+  ON documents ((properties->>'author_id'), (properties->>'date'))
+  WHERE document_type = 'standup' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_sprint_number
+  ON documents (workspace_id, ((properties->>'sprint_number')::int))
+  WHERE document_type = 'sprint' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_issue_ticket
+  ON documents (workspace_id, ticket_number DESC)
+  WHERE document_type = 'issue';
+
+CREATE INDEX IF NOT EXISTS idx_documents_weekly_plan_lookup
+  ON documents (
+    workspace_id,
+    (properties->>'person_id'),
+    (((properties->>'week_number')::int))
+  )
+  WHERE document_type = 'weekly_plan'
+    AND archived_at IS NULL
+    AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_weekly_retro_lookup
+  ON documents (
+    workspace_id,
+    (properties->>'person_id'),
+    (((properties->>'week_number')::int))
+  )
+  WHERE document_type = 'weekly_retro'
+    AND archived_at IS NULL
+    AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_documents_active_type_position
+  ON documents (workspace_id, document_type, position ASC, created_at DESC)
+  WHERE archived_at IS NULL AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash
+  ON api_tokens (token_hash)
+  WHERE revoked_at IS NULL;
+
+-- FleetGraph insight invariants (migration 046): one OPEN insight per
+-- (workspace, subject, kind), plus a shape CHECK on insight rows. The CHECK is
+-- NOT VALID (matches the migration) — it enforces shape on new writes only.
+CREATE UNIQUE INDEX IF NOT EXISTS insights_open_per_subject_kind
+  ON documents (
+    workspace_id,
+    (properties->'fleetgraph_insight'->>'subject_id'),
+    (properties->'fleetgraph_insight'->>'kind')
+  )
+  WHERE document_type = 'insight'
+    AND properties->'fleetgraph_insight'->>'state' = 'open'
+    AND archived_at IS NULL
+    AND deleted_at IS NULL;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'documents_insight_properties_shape'
+  ) THEN
+    ALTER TABLE documents ADD CONSTRAINT documents_insight_properties_shape CHECK (
+      document_type <> 'insight'
+      OR (
+        properties->'fleetgraph_insight'->>'subject_id' IS NOT NULL
+        AND properties->'fleetgraph_insight'->>'kind' IS NOT NULL
+        AND properties->'fleetgraph_insight'->>'state' IN
+          ('open', 'resolved', 'snoozed', 'dismissed')
+      )
+    ) NOT VALID;
+  END IF;
+END $$;
+
+-- ── Plugforge: Webhooks (migrations 054–055) ─────────────────────────────────
+-- `created_by` (migration 055) is added last to match the ALTER-produced
+-- column order.
+CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  app_id             UUID NOT NULL REFERENCES oauth_apps(id) ON DELETE CASCADE,
+  workspace_id       UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  url                TEXT NOT NULL,
+  events             TEXT[] NOT NULL,
+  encrypted_secret   TEXT NOT NULL,          -- AES-256-GCM: base64(iv|tag|ciphertext)
+  secret_fingerprint TEXT NOT NULL,          -- 'sha256:...' — safe to display
+  active             BOOLEAN NOT NULL DEFAULT true,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_ws_active
+  ON webhook_subscriptions (workspace_id, active);
+CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_app
+  ON webhook_subscriptions (app_id);
+
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id              TEXT PRIMARY KEY,           -- 'evt_...'
+  workspace_id    UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  actor_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+  type            TEXT NOT NULL,
+  api_version     TEXT NOT NULL,
+  payload         JSONB NOT NULL,             -- full envelope as signed/sent
+  idempotency_key TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_ws_created
+  ON webhook_events (workspace_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  subscription_id           UUID NOT NULL REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+  event_id                  TEXT NOT NULL REFERENCES webhook_events(id) ON DELETE CASCADE,
+  status                    TEXT NOT NULL DEFAULT 'pending',  -- pending|delivered|failed|dead_lettered|replayed
+  attempt_count             INT NOT NULL DEFAULT 0,
+  next_attempt_at           TIMESTAMPTZ,       -- NULL once terminal
+  last_attempt_at           TIMESTAMPTZ,
+  last_response_status      INT,
+  last_response_body_excerpt TEXT,
+  last_error                TEXT,
+  delivered_at              TIMESTAMPTZ,
+  dead_lettered_at          TIMESTAMPTZ,
+  replay_of_delivery_id     UUID REFERENCES webhook_deliveries(id) ON DELETE SET NULL,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- THE tick-driving index: only pending rows that are due. Partial keeps it tiny.
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_due
+  ON webhook_deliveries (next_attempt_at)
+  WHERE status = 'pending';
+-- One ORIGINAL delivery per (subscription, event); replays carry a non-null
+-- replay_of_delivery_id and are exempt so a replay can reuse the same event.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_webhook_deliveries_sub_event_original
+  ON webhook_deliveries (subscription_id, event_id)
+  WHERE replay_of_delivery_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_subscription
+  ON webhook_deliveries (subscription_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS webhook_delivery_attempts (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  delivery_id           UUID NOT NULL REFERENCES webhook_deliveries(id) ON DELETE CASCADE,
+  subscription_id       UUID NOT NULL,
+  event_id              TEXT NOT NULL,
+  attempt_number        INT NOT NULL,
+  response_status       INT,
+  response_body_excerpt TEXT,
+  duration_ms           INT,
+  error                 TEXT,
+  sent_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_delivery_attempts_delivery
+  ON webhook_delivery_attempts (delivery_id, attempt_number);
+
+-- ── Plugforge: Public API rate limiting (migration 057) ──────────────────────
+CREATE TABLE IF NOT EXISTS public_api_rate_limit_buckets (
+  bucket_key   TEXT PRIMARY KEY,
+  bucket_limit INTEGER     NOT NULL,
+  remaining    NUMERIC     NOT NULL,
+  reset_at     TIMESTAMPTZ NOT NULL,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE public_api_rate_limit_buckets IS
+  'Continuous-refill token buckets for /api/v1 rate limiting, keyed app:<id> / token:<id> (migration 057).';
+
+-- ── Plugforge: Public API audit trail (migration 058) ────────────────────────
+CREATE TABLE IF NOT EXISTS public_api_audit_logs (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  client_id     TEXT,                 -- denormalized: survives app deletion
+  app_id        UUID,                 -- no FK: keep the row if the app is deleted
+  token_id      UUID,
+  user_id       UUID,
+  workspace_id  UUID,
+  method        TEXT        NOT NULL,
+  route         TEXT        NOT NULL,  -- route TEMPLATE (e.g. /api/v1/issues/:id), not raw URL
+  scope         TEXT,                 -- the scope actually matched for this call
+  status        INTEGER     NOT NULL,
+  latency_ms    INTEGER     NOT NULL,
+  request_id    TEXT,
+  ip_address    TEXT,
+  user_agent    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_public_api_audit_ws_created   ON public_api_audit_logs (workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_public_api_audit_app_created  ON public_api_audit_logs (app_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_public_api_audit_user_created ON public_api_audit_logs (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_public_api_audit_status_created ON public_api_audit_logs (status, created_at DESC);
+COMMENT ON TABLE public_api_audit_logs IS
+  'Customer-visible audit trail of authenticated /api/v1 requests (migration 058).';

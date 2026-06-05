@@ -22,7 +22,7 @@ re-run `ship login` after they expire.
 
 | Env | Default | Purpose |
 |-----|---------|---------|
-| `SHIP_API_URL` | `https://ship-app-development-development.up.railway.app` | Ship API base URL |
+| `SHIP_API_URL` | `https://ship-app-production-6f9e.up.railway.app` | Ship API base URL |
 | `SHIP_CLIENT_ID` | `client_ship_cli` | OAuth client (seed with `pnpm --filter @ship/api db:seed:cli`) |
 
 ### Local dev note

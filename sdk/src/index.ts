@@ -737,7 +737,7 @@ export class ShipClient implements Transport {
     if (typeof fetchImpl !== 'function') {
       throw new Error('No fetch implementation available; pass one via options.fetch');
     }
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = options.fetch ? fetchImpl : fetchImpl.bind(globalThis);
 
     this.documents = new DocumentsClient(this);
     this.wikiPages = new TypedResourceClient(this, 'wiki-pages');
@@ -908,8 +908,8 @@ export interface DeviceLoginOptions {
 
 export interface AuthorizationCodeFlowOptions {
   clientId: string;
-  /** Confidential clients exchange the code with their secret (Ship requires it). */
-  clientSecret: string;
+  /** Confidential clients exchange the code with their secret. Public PKCE clients omit it. */
+  clientSecret?: string;
   redirectUri: string;
   baseUrl?: string;
   scope?: string;
@@ -985,7 +985,7 @@ function resolveFetch(injected?: typeof fetch): typeof fetch {
   if (typeof impl !== 'function') {
     throw new Error('No fetch implementation available; pass one via options.fetch');
   }
-  return impl;
+  return injected ? impl : impl.bind(globalThis);
 }
 
 async function postOAuthJson(

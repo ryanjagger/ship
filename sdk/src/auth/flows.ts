@@ -24,8 +24,8 @@ export interface AuthCodeRedirectAdapter {
 
 export interface AuthorizationCodeFlowOptions {
   clientId: string;
-  /** Confidential clients exchange the code with their secret (Ship requires it). */
-  clientSecret: string;
+  /** Confidential clients exchange the code with their secret. Public PKCE clients omit it. */
+  clientSecret?: string;
   redirectUri: string;
   baseUrl?: string;
   scope?: string;
@@ -73,23 +73,25 @@ export function buildAuthorizeUrl(opts: {
 export async function exchangeAuthorizationCode(opts: {
   baseUrl?: string;
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   redirectUri: string;
   code: string;
   codeVerifier: string;
   fetch: typeof fetch;
 }): Promise<RawTokenResponse> {
+  const body: Record<string, string> = {
+    grant_type: 'authorization_code',
+    code: opts.code,
+    redirect_uri: opts.redirectUri,
+    client_id: opts.clientId,
+    code_verifier: opts.codeVerifier,
+  };
+  if (opts.clientSecret) body.client_secret = opts.clientSecret;
+
   const res = await opts.fetch(`${normalizeBaseUrl(opts.baseUrl)}/api/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'authorization_code',
-      code: opts.code,
-      redirect_uri: opts.redirectUri,
-      client_id: opts.clientId,
-      client_secret: opts.clientSecret,
-      code_verifier: opts.codeVerifier,
-    }),
+    body: JSON.stringify(body),
   });
   const text = await res.text();
   const json = text ? (JSON.parse(text) as Record<string, unknown>) : null;
