@@ -21,7 +21,7 @@ export function createSlackIntegrationApp(config: SlackIntegrationConfig, store:
     clientId: config.slackClientId,
     clientSecret: config.slackClientSecret,
     stateSecret: config.slackStateSecret,
-    scopes: ['chat:write', 'incoming-webhook', 'users:read.email', 'im:write'],
+    scopes: ['chat:write', 'incoming-webhook', 'users:read', 'users:read.email', 'im:write'],
     installationStore: store.boltInstallationStore() as unknown as ExpressReceiverOptions['installationStore'],
     installerOptions: {
       installPath: '/slack/install',
