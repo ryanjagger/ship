@@ -23,6 +23,7 @@ test.describe('Admin OAuth Apps management UI', () => {
     const appName = `E2E UI App ${Date.now()}`;
     await page.getByRole('button', { name: 'New OAuth App' }).click();
     await page.getByTestId('oauth-app-name-input').fill(appName);
+    await page.getByTestId('oauth-client-type-confidential').check();
     await page.getByTestId('oauth-app-redirects-input').fill(`${baseURL}/callback`);
     await page.getByTestId('oauth-scope-documents:read').check();
     await page.getByTestId('oauth-app-create-submit').click();
@@ -64,6 +65,25 @@ test.describe('Admin OAuth Apps management UI', () => {
     await deleteDialog.getByRole('button', { name: 'Delete' }).click();
 
     await expect(page.getByRole('row', { name: new RegExp(appName) })).toHaveCount(0);
+  });
+
+  test('system client (Ship CLI) is read-only — no rotate or delete', async ({ page }) => {
+    await page.goto('/login');
+    await page.locator('#email').fill('dev@ship.local');
+    await page.locator('#password').fill('admin123');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(page).not.toHaveURL(/\/login/, { timeout: 5000 });
+
+    await page.goto('/admin?tab=oauth-apps');
+    await expect(page.getByTestId('oauth-apps-tab')).toBeVisible();
+
+    // The platform-managed Ship CLI client is listed but locked down.
+    const cliRow = page.getByRole('row', { name: /Ship CLI/ });
+    await expect(cliRow).toBeVisible();
+    await expect(cliRow).toContainText('client_ship_cli');
+    await expect(cliRow.getByTestId('oauth-app-system-managed')).toBeVisible();
+    await expect(cliRow.getByRole('button', { name: 'Rotate secret' })).toHaveCount(0);
+    await expect(cliRow.getByRole('button', { name: 'Delete' })).toHaveCount(0);
   });
 
   test('rejects a confidential client with no redirect URI', async ({ page }) => {

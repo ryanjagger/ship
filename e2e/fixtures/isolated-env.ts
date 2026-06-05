@@ -174,6 +174,12 @@ export const test = base.extend<
           NODE_ENV: 'test',
           // Prevent dotenv from overriding our DATABASE_URL
           DOTENV_CONFIG_PATH: '/dev/null',
+          // Because dotenv is bypassed above, .env.local's webhook key never
+          // loads — supply a fixed test key so webhook signing-secret
+          // encryption (AES-256-GCM, crypto.ts) works in the portal e2e flow.
+          WEBHOOK_SECRET_ENC_KEY:
+            process.env.WEBHOOK_SECRET_ENC_KEY ??
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -332,6 +338,18 @@ async function runMigrations(dbUrl: string): Promise<void> {
  * - Issues with various states
  */
 async function seedMinimalTestData(pool: Pool): Promise<void> {
+  // System OAuth client for the `ship` CLI. Provisioned by migrations 053 + 056 in
+  // real environments; recreated here because this fixture applies schema.sql and
+  // marks migrations applied WITHOUT running them. The scope list MUST mirror
+  // migration 056 — `ship login` requests webhooks:manage/people:read and the device
+  // flow rejects scopes the app isn't registered for (invalid_scope). Also needed so
+  // the admin OAuth Apps spec can assert system clients render read-only.
+  await pool.query(
+    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system)
+     VALUES ('client_ship_cli', 'unused-public-client-no-secret', 'Ship CLI', ARRAY[]::text[], NULL, ARRAY['documents:read', 'documents:write', 'webhooks:manage', 'people:read'], true, true)
+     ON CONFLICT (client_id) DO NOTHING`
+  );
+
   // Hash the test password
   const passwordHash = await bcrypt.hash('admin123', 10);
 
@@ -394,6 +412,46 @@ async function seedMinimalTestData(pool: Pool): Promise<void> {
     `INSERT INTO documents (workspace_id, document_type, title, properties, created_by)
      VALUES ($1, 'person', 'Bob Martinez', $2, $3)`,
     [workspaceId, JSON.stringify({ user_id: memberId, email: 'bob.martinez@ship.local' }), userId]
+  );
+
+  // Developer-portal seed (PRD §8): a dev-owned OAuth app + a webhook subscription
+  // with one dead-lettered delivery, so the portal's delivery log + replay flow is
+  // exercisable end-to-end. Owner is the dev user (a workspace member), so the app
+  // is visible to the workspace-scoped portal. The secret columns hold placeholders
+  // — this delivery is never actually dispatched in the E2E.
+  const devApp = await pool.query(
+    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system)
+     VALUES ('client_seed_webhooks', 'seed-hash', 'Seed Webhook App', ARRAY['https://example.com/cb']::text[], $1, ARRAY['issues:read', 'webhooks:manage'], false, false)
+     RETURNING id`,
+    [userId]
+  );
+  const devAppId = devApp.rows[0].id;
+  const seedSub = await pool.query(
+    `INSERT INTO webhook_subscriptions (app_id, workspace_id, created_by, url, events, encrypted_secret, secret_fingerprint, active)
+     VALUES ($1, $2, $3, 'https://example.com/webhooks/ship', ARRAY['issue.created']::text[], 'seed-encrypted-secret', 'sha256:seed', true)
+     RETURNING id`,
+    [devAppId, workspaceId, userId]
+  );
+  const seedSubId = seedSub.rows[0].id;
+  const seedEvent = await pool.query(
+    `INSERT INTO webhook_events (id, workspace_id, actor_user_id, type, api_version, payload, idempotency_key)
+     VALUES ('evt_seed_deadletter', $1, $2, 'issue.created', 'v1', $3, 'evt_seed_deadletter')
+     RETURNING id`,
+    [workspaceId, userId, JSON.stringify({ id: 'evt_seed_deadletter', type: 'issue.created', data: { object: { id: 'seed' } } })]
+  );
+  await pool.query(
+    `INSERT INTO webhook_deliveries (subscription_id, event_id, status, attempt_count, next_attempt_at, last_response_status, last_error, dead_lettered_at)
+     VALUES ($1, $2, 'dead_lettered', 7, NULL, 500, 'Seed: target returned 500', now())`,
+    [seedSubId, seedEvent.rows[0].id]
+  );
+
+  // A live access token for the dev app, so the portal's Connections tab (apps
+  // holding an unexpired token) has a row to render and revoke. Hash is a
+  // placeholder — the token is never presented, only listed/revoked by app+user.
+  await pool.query(
+    `INSERT INTO access_tokens (token_hash, token_prefix, app_id, user_id, workspace_id, scopes, expires_at)
+     VALUES ('seed-access-token-hash', 'ship_at_seed', $1, $2, $3, ARRAY['issues:read']::text[], now() + interval '1 hour')`,
+    [devAppId, userId, workspaceId]
   );
 
   // Create programs (matching full seed)

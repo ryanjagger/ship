@@ -3,13 +3,17 @@ import type { Router as RouterType, Request, Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware, superAdminMiddleware, assertUserAuthed } from '../../middleware/auth.js';
 import { ERROR_CODES, HTTP_STATUS } from '@ship/shared';
-import { createOAuthApp, listOAuthApps, rotateClientSecret, deleteOAuthApp } from './apps.js';
+import { createOAuthApp, listOAuthApps, rotateClientSecret, deleteOAuthApp, findOAuthAppById } from './apps.js';
 import { scopeRegistry } from '../api/v1/scopes/registry.js';
 // Audit lives in services/ (not routes/), so importing it from the platform layer
 // does not trip the no-cross-import ESLint boundary.
 import { logAuditEvent } from '../../services/audit.js';
 
 const SECRET_WARNING = 'Save this client_secret now. It will not be shown again.';
+const PUBLIC_CLIENT_WARNING = 'Public PKCE clients do not use a client_secret.';
+const SYSTEM_CLIENT_PROTECTED =
+  'This is a platform-managed system client and cannot be modified or deleted.';
+const PUBLIC_CLIENT_NO_SECRET = 'Public PKCE clients do not have a client secret to rotate.';
 
 /**
  * Admin-only OAuth app registration (PRD §5.2). This is internal tooling — it
@@ -27,6 +31,9 @@ const createAppSchema = z
     // client (RFC 8628) has none, so an empty list is legitimate for it.
     redirect_uris: z.array(z.string().url()).default([]),
     requested_scopes: z.array(z.string()).default([]),
+    // Preserve the legacy API contract for automation that omits client_type.
+    // The UI explicitly sends "public" when using the browser PKCE default.
+    client_type: z.enum(['public', 'confidential']).default('confidential'),
     // Opt this client into the Device Authorization Grant. Defaults OFF — device
     // flow has no client_secret check, so it must be explicitly enabled.
     allow_device_flow: z.boolean().default(false),
@@ -75,6 +82,7 @@ router.post('/', authMiddleware, superAdminMiddleware, async (req: Request, res:
       redirectUris: parsed.data.redirect_uris,
       ownerUserId: req.userId,
       requestedScopes: parsed.data.requested_scopes,
+      clientType: parsed.data.client_type,
       allowDeviceFlow: parsed.data.allow_device_flow,
     });
 
@@ -93,12 +101,13 @@ router.post('/', authMiddleware, superAdminMiddleware, async (req: Request, res:
       data: {
         id: app.id,
         client_id: app.client_id,
-        client_secret: clientSecret, // shown once, never recoverable
+        ...(clientSecret ? { client_secret: clientSecret } : {}),
         name: app.name,
         redirect_uris: app.redirect_uris,
         requested_scopes: app.requested_scopes,
+        client_type: app.client_type,
         allow_device_flow: app.allow_device_flow,
-        warning: SECRET_WARNING,
+        warning: clientSecret ? SECRET_WARNING : PUBLIC_CLIENT_WARNING,
       },
     });
   } catch (error) {
@@ -144,6 +153,29 @@ router.post('/:id/rotate-secret', authMiddleware, superAdminMiddleware, async (r
   }
 
   try {
+    const existing = await findOAuthAppById(idParse.data);
+    if (!existing) {
+      res.status(HTTP_STATUS.NOT_FOUND).json({
+        success: false,
+        error: { code: ERROR_CODES.NOT_FOUND, message: 'OAuth app not found' },
+      });
+      return;
+    }
+    if (existing.is_system) {
+      res.status(HTTP_STATUS.CONFLICT).json({
+        success: false,
+        error: { code: ERROR_CODES.FORBIDDEN, message: SYSTEM_CLIENT_PROTECTED },
+      });
+      return;
+    }
+    if (existing.client_type === 'public') {
+      res.status(HTTP_STATUS.CONFLICT).json({
+        success: false,
+        error: { code: ERROR_CODES.FORBIDDEN, message: PUBLIC_CLIENT_NO_SECRET },
+      });
+      return;
+    }
+
     const rotated = await rotateClientSecret(idParse.data);
     if (!rotated) {
       res.status(HTTP_STATUS.NOT_FOUND).json({
@@ -168,8 +200,9 @@ router.post('/:id/rotate-secret', authMiddleware, superAdminMiddleware, async (r
       data: {
         id: rotated.app.id,
         client_id: rotated.app.client_id,
-        client_secret: rotated.clientSecret, // shown once, never recoverable
+        ...(rotated.clientSecret ? { client_secret: rotated.clientSecret } : {}),
         name: rotated.app.name,
+        client_type: rotated.app.client_type,
         warning: SECRET_WARNING,
       },
     });
@@ -197,6 +230,22 @@ router.delete('/:id', authMiddleware, superAdminMiddleware, async (req: Request,
   }
 
   try {
+    const existing = await findOAuthAppById(idParse.data);
+    if (!existing) {
+      res.status(HTTP_STATUS.NOT_FOUND).json({
+        success: false,
+        error: { code: ERROR_CODES.NOT_FOUND, message: 'OAuth app not found' },
+      });
+      return;
+    }
+    if (existing.is_system) {
+      res.status(HTTP_STATUS.CONFLICT).json({
+        success: false,
+        error: { code: ERROR_CODES.FORBIDDEN, message: SYSTEM_CLIENT_PROTECTED },
+      });
+      return;
+    }
+
     const deleted = await deleteOAuthApp(idParse.data);
     if (!deleted) {
       res.status(HTTP_STATUS.NOT_FOUND).json({

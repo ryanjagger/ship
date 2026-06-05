@@ -1,20 +1,31 @@
 {
   "name": "@ryanjagger/ship-sdk",
-  "version": "0.1.0-rc.0",
+  "version": "0.1.0-rc.5",
   "description": "Ship Platform API client SDK",
   "license": "MIT",
   "author": "Ryan Jagger",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "ship": "dist/cli/index.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
-  "keywords": ["ship", "platform-api", "oauth2", "sdk", "client"],
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "ship",
+    "platform-api",
+    "oauth2",
+    "sdk",
+    "client"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ryanjagger/ship.git",
@@ -30,10 +41,14 @@
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit",
+    "gen:types": "openapi-typescript ../docs/openapi.json -o src/generated/openapi-types.ts",
+    "test": "vitest run",
     "prepublishOnly": "pnpm run clean && pnpm run build"
   },
   "devDependencies": {
     "@types/node": "^22.19.3",
-    "typescript": "^5.7.2"
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.16"
   }
 }

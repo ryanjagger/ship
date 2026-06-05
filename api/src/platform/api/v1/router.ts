@@ -4,6 +4,9 @@ import { requestIdMiddleware } from './request-id.js';
 import { notFoundHandler, errorHandler } from './error-middleware.js';
 import { meRouter } from './routes/me.js';
 import { documentsRouter } from './routes/documents.js';
+import { typedDocumentRouters } from './routes/typed-documents.js';
+import { webhooksRouter } from './routes/webhooks.js';
+import { webhookDeliveriesRouter } from './routes/webhook-deliveries.js';
 import { generateV1OpenApiDocument } from './openapi/spec.js';
 
 /**
@@ -37,6 +40,13 @@ v1Router.get('/openapi.json', (_req, res) => {
 });
 
 v1Router.use('/me', meRouter);
+// Webhook routes before the typed-document loop so `/webhooks` and
+// `/webhook-deliveries` are not shadowed by any future path collision.
+v1Router.use('/webhooks', webhooksRouter);
+v1Router.use('/webhook-deliveries', webhookDeliveriesRouter);
+for (const resource of typedDocumentRouters) {
+  v1Router.use(`/${resource.path}`, resource.router);
+}
 v1Router.use('/documents', documentsRouter);
 
 // ── Terminators — keep LAST ─────────────────────────────────────────────────

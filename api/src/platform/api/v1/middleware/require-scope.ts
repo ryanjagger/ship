@@ -21,6 +21,32 @@ export function requireScope(scope: string) {
       });
       return;
     }
+    // Record the matched scope for the audit trail (PRD §7).
+    platform.matchedScope = scope;
+    next();
+  };
+}
+
+/**
+ * Scope middleware for routes that accept a typed scope OR a documented broad
+ * superscope during migration (for example `issues:read` or `documents:read`).
+ */
+export function requireAnyScope(scopes: string[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const platform = req.platform;
+    if (!platform) {
+      sendApiError(res, req, 'unauthorized', 'Missing bearer token', { details: { reason: 'missing_token' } });
+      return;
+    }
+    const matched = scopes.find((scope) => platform.grantedScopes.includes(scope));
+    if (!matched) {
+      sendApiError(res, req, 'forbidden', `Insufficient scope: this action requires one of ${scopes.map((s) => `"${s}"`).join(', ')}.`, {
+        details: { required_scopes: scopes, granted_scopes: platform.grantedScopes },
+      });
+      return;
+    }
+    // Record the matched scope for the audit trail (PRD §7).
+    platform.matchedScope = matched;
     next();
   };
 }

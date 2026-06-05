@@ -310,7 +310,10 @@ export interface OAuthAppSummary {
   name: string;
   redirect_uris: string[];
   requested_scopes: string[];
+  client_type: 'public' | 'confidential';
   allow_device_flow: boolean;
+  /** Platform-managed first-party client (e.g. the Ship CLI): read-only, cannot be deleted/rotated. */
+  is_system: boolean;
   owner_user_id: string | null;
   owner_email: string | null;
   owner_name: string | null;
@@ -322,10 +325,11 @@ export interface OAuthAppSummary {
 export interface OAuthAppSecret {
   id: string;
   client_id: string;
-  client_secret: string;
+  client_secret?: string;
   name: string;
   redirect_uris?: string[];
   requested_scopes?: string[];
+  client_type?: 'public' | 'confidential';
   allow_device_flow?: boolean;
   warning: string;
 }
@@ -334,6 +338,94 @@ export interface OAuthScope {
   scope: string;
   description: string;
   exercised: boolean;
+}
+
+// ── Developer portal: webhooks + delivery log + audit ────────────────────────
+
+export interface WebhookSubscriptionSummary {
+  id: string;
+  app_id: string;
+  workspace_id: string;
+  url: string;
+  events: string[];
+  secret_fingerprint: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Returned once on create/rotate — carries the raw signing secret. */
+export interface WebhookSubscriptionSecret extends WebhookSubscriptionSummary {
+  secret: string;
+  warning: string;
+}
+
+export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed' | 'dead_lettered' | 'replayed';
+
+export interface WebhookDeliverySummary {
+  id: string;
+  subscription_id: string;
+  event_id: string;
+  event_type: string;
+  status: WebhookDeliveryStatus;
+  attempt_count: number;
+  last_response_status: number | null;
+  last_error: string | null;
+  next_attempt_at: string | null;
+  delivered_at: string | null;
+  dead_lettered_at: string | null;
+  replay_of_delivery_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WebhookDeliveryAttemptRow {
+  id: string;
+  delivery_id: string;
+  attempt_number: number;
+  response_status: number | null;
+  response_body_excerpt: string | null;
+  duration_ms: number | null;
+  error: string | null;
+  sent_at: string;
+}
+
+export interface WebhookDeliveryDetail extends WebhookDeliverySummary {
+  attempts: WebhookDeliveryAttemptRow[];
+}
+
+/**
+ * An app connected to the workspace: one or more live access tokens a user
+ * authorized for an app (device/auth-code flow). No standing grant exists, so a
+ * connection lasts only as long as its tokens — hence `expires_at`.
+ */
+export interface WorkspaceConnection {
+  app_id: string;
+  client_id: string;
+  app_name: string;
+  is_system: boolean;
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  scopes: string[];
+  active_token_count: number;
+  first_authorized_at: string;
+  last_used_at: string | null;
+  expires_at: string;
+}
+
+export interface PublicApiAuditRow {
+  id: string;
+  created_at: string;
+  client_id: string | null;
+  app_id: string | null;
+  user_id: string | null;
+  method: string;
+  route: string;
+  scope: string | null;
+  status: number;
+  latency_ms: number;
+  request_id: string | null;
 }
 
 export interface WorkspaceMember {
@@ -568,6 +660,7 @@ export const api = {
       name: string;
       redirect_uris: string[];
       requested_scopes: string[];
+      client_type: 'public' | 'confidential';
       allow_device_flow: boolean;
     }) =>
       request<OAuthAppSecret>('/api/admin/oauth-apps', {
@@ -584,6 +677,68 @@ export const api = {
       request<{ message: string }>(`/api/admin/oauth-apps/${appId}`, {
         method: 'DELETE',
       }),
+  },
+
+  // Workspace-scoped developer portal (PRD §8): apps, webhooks, delivery log,
+  // replay, and the public API audit trail. Session-authed; workspace admins
+  // manage every app owned by a member of their workspace.
+  developer: {
+    listScopes: () => request<OAuthScope[]>('/api/developer/scopes'),
+    listApps: () => request<OAuthAppSummary[]>('/api/developer/apps'),
+    createApp: (data: {
+      name: string;
+      redirect_uris: string[];
+      requested_scopes: string[];
+      client_type: 'public' | 'confidential';
+      allow_device_flow: boolean;
+    }) => request<OAuthAppSecret>('/api/developer/apps', { method: 'POST', body: JSON.stringify(data) }),
+    rotateAppSecret: (appId: string) =>
+      request<OAuthAppSecret>(`/api/developer/apps/${appId}/rotate-secret`, { method: 'POST' }),
+    deleteApp: (appId: string) =>
+      request<{ message: string }>(`/api/developer/apps/${appId}`, { method: 'DELETE' }),
+
+    listConnections: () => request<WorkspaceConnection[]>('/api/developer/connections'),
+    revokeConnection: (appId: string, userId: string) =>
+      request<{ message: string; tokens_revoked: number }>(
+        `/api/developer/connections/${appId}/users/${userId}`,
+        { method: 'DELETE' }
+      ),
+
+    listSubscriptions: (appId: string) =>
+      request<WebhookSubscriptionSummary[]>(`/api/developer/apps/${appId}/webhooks`),
+    createSubscription: (appId: string, data: { url: string; events: string[]; active?: boolean }) =>
+      request<WebhookSubscriptionSecret>(`/api/developer/apps/${appId}/webhooks`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    updateSubscription: (appId: string, id: string, data: { url?: string; events?: string[]; active?: boolean }) =>
+      request<WebhookSubscriptionSummary>(`/api/developer/apps/${appId}/webhooks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    deleteSubscription: (appId: string, id: string) =>
+      request<{ message: string }>(`/api/developer/apps/${appId}/webhooks/${id}`, { method: 'DELETE' }),
+    rotateSubscriptionSecret: (appId: string, id: string) =>
+      request<WebhookSubscriptionSecret>(`/api/developer/apps/${appId}/webhooks/${id}/rotate-secret`, {
+        method: 'POST',
+      }),
+
+    listDeliveries: (appId: string, params?: Record<string, string>) => {
+      const qs = params ? `?${new URLSearchParams(params)}` : '';
+      return request<WebhookDeliverySummary[]>(`/api/developer/apps/${appId}/deliveries${qs}`);
+    },
+    getDelivery: (appId: string, id: string) =>
+      request<WebhookDeliveryDetail>(`/api/developer/apps/${appId}/deliveries/${id}`),
+    replayDelivery: (appId: string, id: string) =>
+      request<{ delivery_id: string; replay_of_delivery_id: string }>(
+        `/api/developer/apps/${appId}/deliveries/${id}/replay`,
+        { method: 'POST' }
+      ),
+
+    listAudit: (params?: Record<string, string>) => {
+      const qs = params ? `?${new URLSearchParams(params)}` : '';
+      return request<{ data: PublicApiAuditRow[]; total: number }>(`/api/developer/audit${qs}`);
+    },
   },
 
   invites: {

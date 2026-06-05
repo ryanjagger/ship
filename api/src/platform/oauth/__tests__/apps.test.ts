@@ -3,6 +3,7 @@ import { pool } from '../../../db/client.js';
 import {
   createOAuthApp,
   findOAuthAppByClientId,
+  findOAuthAppById,
   verifyClientSecret,
   isRegisteredRedirectUri,
   listOAuthApps,
@@ -38,6 +39,7 @@ describe('OAuth app model (PRD §5.2)', () => {
 
     expect(app.client_id).toMatch(/^client_[0-9a-f]{32}$/);
     expect(clientSecret).toMatch(/^secret_/);
+    expect(app.client_type).toBe('confidential');
     expect(app.requested_scopes).toEqual(['documents:read']);
 
     // The stored row holds a bcrypt hash, never the raw secret.
@@ -57,8 +59,26 @@ describe('OAuth app model (PRD §5.2)', () => {
     createdClientIds.push(app.client_id);
 
     const row = await findOAuthAppByClientId(app.client_id);
-    expect(await verifyClientSecret(row!, clientSecret)).toBe(true);
+    expect(await verifyClientSecret(row!, clientSecret!)).toBe(true);
     expect(await verifyClientSecret(row!, 'secret_wrong')).toBe(false);
+  });
+
+  it('creates a public PKCE app without a client secret', async () => {
+    const { app, clientSecret } = await createOAuthApp({
+      name: 'Public Browser App',
+      redirectUris: ['https://browser.example.com/callback'],
+      ownerUserId: null,
+      requestedScopes: ['issues:read'],
+      clientType: 'public',
+    });
+    createdClientIds.push(app.client_id);
+
+    expect(app.client_type).toBe('public');
+    expect(clientSecret).toBeUndefined();
+    const row = await findOAuthAppByClientId(app.client_id);
+    expect(row!.client_secret_hash).toBeNull();
+    expect(await verifyClientSecret(row!, 'anything')).toBe(false);
+    expect(await rotateClientSecret(app.id)).toBeNull();
   });
 
   it('matches redirect URIs exactly (no prefix/substring matching)', () => {
@@ -102,8 +122,8 @@ describe('OAuth app model (PRD §5.2)', () => {
     expect(rotated!.app.client_id).toBe(app.client_id); // client_id is stable
 
     const row = await findOAuthAppByClientId(app.client_id);
-    expect(await verifyClientSecret(row!, original)).toBe(false);
-    expect(await verifyClientSecret(row!, rotated!.clientSecret)).toBe(true);
+    expect(await verifyClientSecret(row!, original!)).toBe(false);
+    expect(await verifyClientSecret(row!, rotated!.clientSecret!)).toBe(true);
   });
 
   it('rotateClientSecret returns null for an unknown app id', async () => {
@@ -153,5 +173,55 @@ describe('OAuth app model (PRD §5.2)', () => {
   it('deleteOAuthApp returns null for an unknown app id', async () => {
     const missing = await deleteOAuthApp('00000000-0000-0000-0000-000000000000');
     expect(missing).toBeNull();
+  });
+
+  it('createOAuthApp produces a non-system client by default', async () => {
+    const { app } = await createOAuthApp({
+      name: 'Default Flag App',
+      redirectUris: ['https://flag.example.com/cb'],
+      ownerUserId: null,
+      requestedScopes: [],
+    });
+    createdClientIds.push(app.client_id);
+    expect(app.is_system).toBe(false);
+    expect(app.client_type).toBe('confidential');
+  });
+
+  describe('system (platform-managed) clients are protected', () => {
+    // createOAuthApp never makes a system client, so insert one directly.
+    async function insertSystemApp(): Promise<{ id: string; clientId: string }> {
+      const clientId = `client_system_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const res = await pool.query<{ id: string }>(
+        `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, requested_scopes, allow_device_flow, is_system)
+         VALUES ($1, 'unused-public-client-no-secret', 'Test System Client', ARRAY[]::text[], ARRAY['documents:read'], true, true)
+         RETURNING id`,
+        [clientId]
+      );
+      createdClientIds.push(clientId);
+      return { id: res.rows[0]!.id, clientId };
+    }
+
+    it('findOAuthApp* and listOAuthApps surface is_system = true', async () => {
+      const { id, clientId } = await insertSystemApp();
+      expect((await findOAuthAppByClientId(clientId))!.is_system).toBe(true);
+      expect((await findOAuthAppById(id))!.is_system).toBe(true);
+      const listed = (await listOAuthApps()).find((a) => a.id === id);
+      expect(listed!.is_system).toBe(true);
+    });
+
+    it('deleteOAuthApp refuses to delete a system client (row survives)', async () => {
+      const { id, clientId } = await insertSystemApp();
+      expect(await deleteOAuthApp(id)).toBeNull();
+      expect(await findOAuthAppByClientId(clientId)).not.toBeNull();
+    });
+
+    it('rotateClientSecret refuses to rotate a system client', async () => {
+      const { id, clientId } = await insertSystemApp();
+      const before = await findOAuthAppByClientId(clientId);
+      expect(await rotateClientSecret(id)).toBeNull();
+      // The stored hash is untouched.
+      const after = await findOAuthAppByClientId(clientId);
+      expect(after!.client_secret_hash).toBe(before!.client_secret_hash);
+    });
   });
 });

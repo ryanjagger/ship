@@ -4,6 +4,7 @@ import { join } from 'path';
 import request from 'supertest';
 import { Validator } from '@seriousme/openapi-schema-validator';
 import { createApp } from '../../../../../app.js';
+import { TYPED_DOCUMENT_RESOURCES } from '../../schemas/typed-document.js';
 import { generateV1OpenApiDocument } from '../spec.js';
 
 /**
@@ -29,10 +30,32 @@ describe('Platform API · OpenAPI 3.1 spec', () => {
       paths: Record<string, Record<string, unknown>>;
       components: { schemas: Record<string, unknown>; securitySchemes: Record<string, unknown> };
     };
-    expect(Object.keys(doc.paths).sort()).toEqual(['/documents', '/documents/{id}', '/me']);
+    const typedPaths = TYPED_DOCUMENT_RESOURCES.flatMap((resource) => [
+      `/${resource.path}`,
+      `/${resource.path}/{id}`,
+    ]);
+    const webhookPaths = [
+      '/webhooks',
+      '/webhooks/{id}',
+      '/webhooks/{id}/rotate-secret',
+      '/webhook-deliveries',
+      '/webhook-deliveries/{id}',
+      '/webhook-deliveries/{id}/replay',
+    ];
+    expect(Object.keys(doc.paths).sort()).toEqual(
+      ['/documents', '/documents/{id}', '/me', ...typedPaths, ...webhookPaths].sort()
+    );
     expect(doc.paths['/documents']).toHaveProperty('get');
     expect(doc.paths['/documents']).toHaveProperty('post');
+    expect(doc.paths['/issues']).toHaveProperty('get');
+    expect(doc.paths['/issues']).toHaveProperty('post');
+    expect(doc.paths['/issues/{id}']).toHaveProperty('patch');
+    expect(doc.paths['/issues/{id}']).toHaveProperty('delete');
     expect(doc.components.schemas).toHaveProperty('ApiError');
+    expect(doc.components.schemas).toHaveProperty('Issue');
+    expect(doc.components.schemas).toHaveProperty('Sprint');
+    expect(doc.components.schemas).toHaveProperty('WikiPage');
+    expect(doc.components.schemas).toHaveProperty('CreateIssue');
     expect(doc.components.securitySchemes).toHaveProperty('bearerAuth');
   });
 

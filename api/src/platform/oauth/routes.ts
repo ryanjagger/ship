@@ -3,7 +3,7 @@ import type { Router as RouterType, Request, Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware, assertAuthed } from '../../middleware/auth.js';
 import { ERROR_CODES, HTTP_STATUS } from '@ship/shared';
-import { findOAuthAppByClientId, findOAuthAppById, verifyClientSecret } from './apps.js';
+import { findOAuthAppByClientId, findOAuthAppById, isRegisteredRedirectUri, verifyClientSecret } from './apps.js';
 import { validateAuthorizeAgainstApp, validateScopes, type AuthorizeParams } from './authorize-request.js';
 import { issueAuthorizationCode, findAuthorizationCode, consumeAuthorizationCode } from './codes.js';
 import {
@@ -25,8 +25,8 @@ import { sendOAuthError } from './oauth-errors.js';
  *
  * Two routers with different middleware needs:
  *  - oauthPublicRouter: front-channel `GET /authorize` (a redirect) and the
- *    back-channel `POST /token` exchange. NO session/CSRF — `/token` is a
- *    server-to-server call authenticated by client_id + client_secret.
+ *    back-channel `POST /token` exchange. NO session/CSRF — confidential
+ *    clients authenticate with client_secret; public clients use PKCE only.
  *  - oauthConsentRouter: `GET /authorize/validate` + `POST /authorize/decision`
  *    that back the React consent screen. Session-authed; the POST is CSRF-
  *    protected by the `conditionalCsrf` applied at mount in app.ts.
@@ -67,21 +67,41 @@ function tokenResponse(issued: { accessToken: string; expiresInSeconds: number; 
   };
 }
 
-// Authorization Code + PKCE exchange (RFC 6749 §4.1.3) — confidential client.
+// Authorization Code + PKCE exchange (RFC 6749 §4.1.3). Public clients use
+// PKCE only; confidential clients also authenticate with client_secret.
 async function handleAuthorizationCodeGrant(data: TokenRequest, res: Response): Promise<void> {
   const { code, redirect_uri, client_id, client_secret, code_verifier } = data;
-  if (!code || !redirect_uri || !client_id || !client_secret || !code_verifier) {
+  if (!code || !redirect_uri || !client_id || !code_verifier) {
     sendOAuthError(
       res,
       HTTP_STATUS.BAD_REQUEST,
       'invalid_request',
-      'code, redirect_uri, client_id, client_secret, and code_verifier are required'
+      'code, redirect_uri, client_id, and code_verifier are required'
     );
     return;
   }
 
   const app = await findOAuthAppByClientId(client_id);
-  if (!app || !(await verifyClientSecret(app, client_secret))) {
+  if (!app) {
+    sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Unknown client_id');
+    return;
+  }
+
+  if (app.client_type === 'confidential') {
+    if (!client_secret) {
+      sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'client_secret is required for confidential clients');
+      return;
+    }
+    if (!(await verifyClientSecret(app, client_secret))) {
+      sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Client authentication failed');
+      return;
+    }
+  } else if (client_secret) {
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'client_secret is not accepted for public clients');
+    return;
+  }
+
+  if (!isRegisteredRedirectUri(app, redirect_uri)) {
     sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Client authentication failed');
     return;
   }

@@ -70,6 +70,7 @@ cd /app/api
 node dist/db/migrate.js
 
 if [ "${ENVIRONMENT:-}" = "dev-railway" ] && [ "${ALLOW_DEVELOP_DB_SEED:-}" = "true" ]; then
+  node dist/db/seedCliApp.js || echo "cli seed failed; continuing boot"
   node dist/db/seedDevelop.js || echo "develop seed failed; continuing boot"
 fi
 

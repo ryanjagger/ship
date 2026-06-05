@@ -21,13 +21,22 @@ export interface OAuthApp {
   redirect_uris: string[];
   owner_user_id: string | null;
   requested_scopes: string[];
+  client_type: OAuthClientType;
   /** Whether this client may use the Device Authorization Grant (RFC 8628). */
   allow_device_flow: boolean;
+  /**
+   * Platform-managed first-party client (e.g. the `ship` CLI). System clients are
+   * provisioned by migration, shown read-only in the admin UI, and cannot be
+   * deleted or rotated. Admin-created apps are always false.
+   */
+  is_system: boolean;
   created_at: string;
   updated_at: string;
 }
 
-type OAuthAppRow = OAuthApp & { client_secret_hash: string };
+export type OAuthClientType = 'public' | 'confidential';
+
+type OAuthAppRow = OAuthApp & { client_secret_hash: string | null };
 
 export function generateClientId(): string {
   return `client_${crypto.randomBytes(16).toString('hex')}`;
@@ -44,26 +53,29 @@ export interface CreateOAuthAppInput {
   redirectUris: string[];
   ownerUserId: string | null;
   requestedScopes: string[];
+  /** Browser/SPAs should be public PKCE clients; backend apps can be confidential. */
+  clientType?: OAuthClientType;
   /** Allow this client to use the Device Authorization Grant. Defaults to false. */
   allowDeviceFlow?: boolean;
 }
 
 export interface CreatedOAuthApp {
   app: OAuthApp;
-  /** Raw secret — surface to the caller exactly once, then forget. */
-  clientSecret: string;
+  /** Raw secret for confidential clients — surface exactly once, then forget. */
+  clientSecret?: string;
 }
 
 export async function createOAuthApp(input: CreateOAuthAppInput): Promise<CreatedOAuthApp> {
   const clientId = generateClientId();
-  const clientSecret = generateClientSecret();
-  const secretHash = await bcrypt.hash(clientSecret, BCRYPT_ROUNDS);
+  const clientType = input.clientType ?? 'confidential';
+  const clientSecret = clientType === 'confidential' ? generateClientSecret() : undefined;
+  const secretHash = clientSecret ? await bcrypt.hash(clientSecret, BCRYPT_ROUNDS) : null;
 
   const result = await pool.query<OAuthApp>(
-    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at`,
-    [clientId, secretHash, input.name, input.redirectUris, input.ownerUserId, input.requestedScopes, input.allowDeviceFlow ?? false]
+    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, client_type, allow_device_flow)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, client_type, allow_device_flow, is_system, created_at, updated_at`,
+    [clientId, secretHash, input.name, input.redirectUris, input.ownerUserId, input.requestedScopes, clientType, input.allowDeviceFlow ?? false]
   );
 
   const app = result.rows[0];
@@ -73,17 +85,53 @@ export async function createOAuthApp(input: CreateOAuthAppInput): Promise<Create
 
 export async function findOAuthAppByClientId(clientId: string): Promise<OAuthAppRow | null> {
   const result = await pool.query<OAuthAppRow>(
-    `SELECT id, client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at
+    `SELECT id, client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, client_type, allow_device_flow, is_system, created_at, updated_at
      FROM oauth_apps WHERE client_id = $1`,
     [clientId]
   );
   return result.rows[0] ?? null;
 }
 
+/**
+ * Browser CORS preflights do not include the OAuth request body, so the server
+ * cannot check client_id before deciding whether to emit CORS headers. For
+ * public browser clients, allow an origin only when it is the origin of at
+ * least one registered public-client redirect URI.
+ */
+export async function hasRegisteredPublicRedirectOrigin(origin: string): Promise<boolean> {
+  let normalized: string;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    normalized = parsed.origin;
+  } catch {
+    return false;
+  }
+
+  if (normalized !== origin) return false;
+
+  const result = await pool.query<{ redirect_uris: string[] }>(
+    `SELECT redirect_uris
+     FROM oauth_apps
+     WHERE client_type = 'public'
+       AND array_length(redirect_uris, 1) > 0`
+  );
+
+  return result.rows.some((row) =>
+    row.redirect_uris.some((redirectUri) => {
+      try {
+        return new URL(redirectUri).origin === normalized;
+      } catch {
+        return false;
+      }
+    })
+  );
+}
+
 /** Look up an app by its internal id (e.g. to display the name on /device). */
 export async function findOAuthAppById(id: string): Promise<OAuthApp | null> {
   const result = await pool.query<OAuthApp>(
-    `SELECT id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at
+    `SELECT id, client_id, name, redirect_uris, owner_user_id, requested_scopes, client_type, allow_device_flow, is_system, created_at, updated_at
      FROM oauth_apps WHERE id = $1`,
     [id]
   );
@@ -91,6 +139,7 @@ export async function findOAuthAppById(id: string): Promise<OAuthApp | null> {
 }
 
 export async function verifyClientSecret(app: OAuthAppRow, secret: string): Promise<boolean> {
+  if (app.client_type !== 'confidential' || !app.client_secret_hash) return false;
   return bcrypt.compare(secret, app.client_secret_hash);
 }
 
@@ -107,7 +156,7 @@ export interface OAuthAppListItem extends OAuthApp {
 export async function listOAuthApps(): Promise<OAuthAppListItem[]> {
   const result = await pool.query<OAuthAppListItem>(
     `SELECT a.id, a.client_id, a.name, a.redirect_uris, a.owner_user_id,
-            a.requested_scopes, a.allow_device_flow, a.created_at, a.updated_at,
+            a.requested_scopes, a.client_type, a.allow_device_flow, a.is_system, a.created_at, a.updated_at,
             u.email AS owner_email, u.name AS owner_name
      FROM oauth_apps a
      LEFT JOIN users u ON u.id = a.owner_user_id
@@ -117,18 +166,59 @@ export async function listOAuthApps(): Promise<OAuthAppListItem[]> {
 }
 
 /**
+ * List OAuth apps for the developer portal, scoped to a workspace (PRD §8). Apps
+ * are owned by a user (no workspace_id column), so "apps in the workspace" means
+ * apps owned by any member of that workspace — the model agreed for v1
+ * (workspace admins manage every such app). Never selects the secret hash.
+ */
+export async function listOAuthAppsForWorkspace(workspaceId: string): Promise<OAuthAppListItem[]> {
+  const result = await pool.query<OAuthAppListItem>(
+    `SELECT a.id, a.client_id, a.name, a.redirect_uris, a.owner_user_id,
+            a.requested_scopes, a.client_type, a.allow_device_flow, a.is_system, a.created_at, a.updated_at,
+            u.email AS owner_email, u.name AS owner_name
+     FROM oauth_apps a
+     JOIN workspace_memberships m ON m.user_id = a.owner_user_id AND m.workspace_id = $1
+     LEFT JOIN users u ON u.id = a.owner_user_id
+     ORDER BY a.created_at DESC`,
+    [workspaceId]
+  );
+  return result.rows;
+}
+
+/**
+ * Fetch an app only if its owner is a member of the given workspace — the
+ * authorization gate for every workspace-scoped developer-portal app action.
+ * Returns null when the app doesn't exist or isn't visible to the workspace.
+ */
+export async function findOAuthAppForWorkspace(id: string, workspaceId: string): Promise<OAuthApp | null> {
+  const result = await pool.query<OAuthApp>(
+    `SELECT a.id, a.client_id, a.name, a.redirect_uris, a.owner_user_id,
+            a.requested_scopes, a.client_type, a.allow_device_flow, a.is_system, a.created_at, a.updated_at
+     FROM oauth_apps a
+     JOIN workspace_memberships m ON m.user_id = a.owner_user_id AND m.workspace_id = $2
+     WHERE a.id = $1`,
+    [id, workspaceId]
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
  * Mint a fresh client_secret for an existing app (same one-time-secret semantics
  * as creation). The old secret stops working immediately; `client_id` is
  * unchanged. Returns null when no app has that id. Already-issued access tokens
  * are unaffected — they're validated by token hash, not the client secret.
+ *
+ * System (platform-managed) clients are never rotated — the `AND is_system = false`
+ * guard makes this a no-op (returns null) for them, independent of the route check.
  */
 export async function rotateClientSecret(id: string): Promise<CreatedOAuthApp | null> {
   const clientSecret = generateClientSecret();
   const secretHash = await bcrypt.hash(clientSecret, BCRYPT_ROUNDS);
 
   const result = await pool.query<OAuthApp>(
-    `UPDATE oauth_apps SET client_secret_hash = $1, updated_at = now() WHERE id = $2
-     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, created_at, updated_at`,
+    `UPDATE oauth_apps SET client_secret_hash = $1, updated_at = now()
+     WHERE id = $2 AND is_system = false AND client_type = 'confidential'
+     RETURNING id, client_id, name, redirect_uris, owner_user_id, requested_scopes, client_type, allow_device_flow, is_system, created_at, updated_at`,
     [secretHash, id]
   );
 
@@ -141,10 +231,13 @@ export async function rotateClientSecret(id: string): Promise<CreatedOAuthApp | 
  * Hard-delete an app. `access_tokens.app_id … ON DELETE CASCADE` (migration 050)
  * removes every token issued to it — this IS the revocation. Returns the deleted
  * row's id/name (for the audit detail), or null when no app had that id.
+ *
+ * System (platform-managed) clients cannot be deleted — the `AND is_system = false`
+ * guard makes this a no-op (returns null) for them, independent of the route check.
  */
 export async function deleteOAuthApp(id: string): Promise<{ id: string; name: string } | null> {
   const result = await pool.query<{ id: string; name: string }>(
-    `DELETE FROM oauth_apps WHERE id = $1 RETURNING id, name`,
+    `DELETE FROM oauth_apps WHERE id = $1 AND is_system = false RETURNING id, name`,
     [id]
   );
   return result.rows[0] ?? null;

@@ -1,17 +1,17 @@
 /**
  * CLI configuration, resolved from the environment with first-party defaults.
  *
- * `baseUrl` points at the Ship API. In local dev the API listens on :3000; set
- * SHIP_API_URL to your deployment for anything else. The /device approval page
- * the user visits is built server-side from PUBLIC_BASE_URL (set that to the web
- * origin — e.g. http://localhost:5173 — when API and web are on split ports).
+ * `baseUrl` points at the Ship deployment origin. The published CLI defaults to
+ * the current Railway development deployment so the TTFE drill works without an
+ * environment variable; SHIP_API_URL remains the override for local dev,
+ * staging, or the future production origin.
  */
 export interface CliConfig {
   baseUrl: string;
   clientId: string;
 }
 
-const DEFAULT_BASE_URL = 'http://localhost:3000';
+export const DEFAULT_BASE_URL = 'https://ship-app-development-development.up.railway.app';
 const DEFAULT_CLIENT_ID = 'client_ship_cli';
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
