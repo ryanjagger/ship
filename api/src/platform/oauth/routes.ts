@@ -15,6 +15,7 @@ import {
   formatUserCode,
 } from './device-codes.js';
 import { issueAccessToken } from './tokens.js';
+import { refreshAccessToken } from './tokens.js';
 import { verifyPkce } from './pkce.js';
 import { sendOAuthError } from './oauth-errors.js';
 
@@ -55,16 +56,25 @@ const tokenSchema = z.object({
   client_secret: z.string().optional(),
   code_verifier: z.string().optional(),
   device_code: z.string().optional(),
+  refresh_token: z.string().optional(),
 });
 type TokenRequest = z.infer<typeof tokenSchema>;
 
 function tokenResponse(issued: { accessToken: string; expiresInSeconds: number; scopes: string[] }): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     access_token: issued.accessToken,
     token_type: 'Bearer',
     expires_in: issued.expiresInSeconds,
     scope: issued.scopes.join(' '),
   };
+  const refresh = issued as { refreshToken?: string; refreshTokenExpiresInSeconds?: number };
+  if (refresh.refreshToken) {
+    body.refresh_token = refresh.refreshToken;
+    if (refresh.refreshTokenExpiresInSeconds) {
+      body.refresh_token_expires_in = refresh.refreshTokenExpiresInSeconds;
+    }
+  }
+  return body;
 }
 
 // Authorization Code + PKCE exchange (RFC 6749 §4.1.3). Public clients use
@@ -166,6 +176,50 @@ async function handleDeviceCodeGrant(data: TokenRequest, res: Response): Promise
   }
 }
 
+async function authenticateTokenClient(data: TokenRequest, res: Response) {
+  const { client_id, client_secret } = data;
+  if (!client_id) {
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'client_id is required');
+    return null;
+  }
+  const app = await findOAuthAppByClientId(client_id);
+  if (!app) {
+    sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Unknown client_id');
+    return null;
+  }
+  if (app.client_type === 'confidential') {
+    if (!client_secret) {
+      sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'client_secret is required for confidential clients');
+      return null;
+    }
+    if (!(await verifyClientSecret(app, client_secret))) {
+      sendOAuthError(res, HTTP_STATUS.UNAUTHORIZED, 'invalid_client', 'Client authentication failed');
+      return null;
+    }
+  } else if (client_secret) {
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'client_secret is not accepted for public clients');
+    return null;
+  }
+  return app;
+}
+
+async function handleRefreshTokenGrant(data: TokenRequest, res: Response): Promise<void> {
+  if (!data.refresh_token) {
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_request', 'refresh_token is required');
+    return;
+  }
+  const app = await authenticateTokenClient(data, res);
+  if (!app) return;
+
+  const refreshed = await refreshAccessToken(data.refresh_token, app.id);
+  if (!refreshed.ok) {
+    sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'invalid_grant', 'Refresh token is invalid, expired, revoked, or already used');
+    return;
+  }
+
+  res.status(HTTP_STATUS.OK).json(tokenResponse(refreshed.issued));
+}
+
 // POST /api/oauth/token — dispatches by grant_type. Both grants speak the
 // RFC 6749 token-endpoint error format on failure.
 oauthPublicRouter.post('/token', async (req: Request, res: Response): Promise<void> => {
@@ -181,6 +235,10 @@ oauthPublicRouter.post('/token', async (req: Request, res: Response): Promise<vo
     }
     if (parsed.data.grant_type === DEVICE_GRANT_TYPE) {
       await handleDeviceCodeGrant(parsed.data, res);
+      return;
+    }
+    if (parsed.data.grant_type === 'refresh_token') {
+      await handleRefreshTokenGrant(parsed.data, res);
       return;
     }
     sendOAuthError(res, HTTP_STATUS.BAD_REQUEST, 'unsupported_grant_type', 'Unsupported grant_type');

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ShipClient, MemoryTokenStore, type AuthCodeRedirectAdapter } from '../index.js';
+import { ShipClient, MemoryTokenStore, refreshAccessToken, type AuthCodeRedirectAdapter } from '../index.js';
 
 /** Routes OAuth calls by path; records every request for assertions. */
 function oauthFetch(handlers: Record<string, (body: Record<string, unknown>) => { status: number; json: unknown }>) {
@@ -58,6 +58,63 @@ describe('ShipClient.deviceLogin', () => {
     expect(stored?.scope).toBe('documents:read');
     // device authorization + 2 token polls
     expect(calls.filter((c) => c.path === '/api/oauth/token')).toHaveLength(2);
+  });
+});
+
+describe('refreshAccessToken', () => {
+  it('exchanges a refresh token, sends confidential client credentials, and stores the rotated token set', async () => {
+    const { calls, fetchImpl } = oauthFetch({
+      '/api/oauth/token': (body) => {
+        expect(body.grant_type).toBe('refresh_token');
+        expect(body.refresh_token).toBe('ship_rt_old');
+        expect(body.client_id).toBe('client_slack');
+        expect(body.client_secret).toBe('secret_slack');
+        return {
+          status: 200,
+          json: {
+            access_token: 'ship_at_new',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            scope: 'issues:read people:read webhooks:manage offline_access',
+            refresh_token: 'ship_rt_new',
+            refresh_token_expires_in: 2592000,
+          },
+        };
+      },
+    });
+
+    const store = new MemoryTokenStore();
+    const token = await refreshAccessToken({
+      clientId: 'client_slack',
+      clientSecret: 'secret_slack',
+      refreshToken: 'ship_rt_old',
+      baseUrl: 'https://api.test',
+      fetch: fetchImpl,
+      store,
+    });
+
+    expect(token.access_token).toBe('ship_at_new');
+    expect(token.refresh_token).toBe('ship_rt_new');
+    expect(calls).toHaveLength(1);
+    const stored = await store.get();
+    expect(stored?.accessToken).toBe('ship_at_new');
+    expect(stored?.refreshToken).toBe('ship_rt_new');
+    expect(stored?.refreshExpiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it('throws DeviceFlowError on refresh failure', async () => {
+    const { fetchImpl } = oauthFetch({
+      '/api/oauth/token': () => ({ status: 400, json: { error: 'invalid_grant', error_description: 'bad refresh' } }),
+    });
+
+    await expect(
+      refreshAccessToken({
+        clientId: 'client_slack',
+        refreshToken: 'ship_rt_bad',
+        baseUrl: 'https://api.test',
+        fetch: fetchImpl,
+      })
+    ).rejects.toMatchObject({ error: 'invalid_grant', status: 400 });
   });
 });
 

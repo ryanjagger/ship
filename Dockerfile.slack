@@ -1,0 +1,22 @@
+# Railway image for the standalone Ship Slack integration service.
+FROM node:20-slim
+
+WORKDIR /app
+
+RUN npm install -g pnpm@10.27.0
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY sdk/package.json ./sdk/
+COPY integrations/slack/package.json ./integrations/slack/
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+COPY sdk ./sdk
+COPY integrations/slack ./integrations/slack
+COPY tsconfig.json ./tsconfig.json
+
+RUN pnpm --filter @ryanjagger/ship-sdk build \
+ && pnpm --filter @ship/integration-slack build
+
+EXPOSE 8080
+
+CMD ["pnpm", "--filter", "@ship/integration-slack", "start"]
