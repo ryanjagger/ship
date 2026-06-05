@@ -12,6 +12,7 @@ interface CreateInput {
   name: string;
   redirect_uris: string[];
   requested_scopes: string[];
+  client_type: 'public' | 'confidential';
   allow_device_flow: boolean;
 }
 
@@ -96,7 +97,7 @@ export function OAuthAppsTab() {
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted">
           OAuth clients that can access the public API at <code className="font-mono">/api/v1</code>. The
-          client secret is shown only once, at creation or rotation.
+          browser PKCE flow uses public clients with no secret.
         </p>
         {!showCreate && (
           <button
@@ -119,6 +120,7 @@ export function OAuthAppsTab() {
             <tr>
               <th className={TH}>Name</th>
               <th className={TH}>Client ID</th>
+              <th className={TH}>Type</th>
               <th className={TH}>Scopes</th>
               <th className={TH}>Device flow</th>
               <th className={TH}>Owner</th>
@@ -129,7 +131,7 @@ export function OAuthAppsTab() {
           <tbody className="divide-y divide-border">
             {apps.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted">
                   No OAuth apps registered yet.
                 </td>
               </tr>
@@ -151,6 +153,9 @@ export function OAuthAppsTab() {
                       <code className="font-mono text-xs text-muted break-all">{app.client_id}</code>
                       <CopyButton value={app.client_id} small />
                     </div>
+                  </td>
+                  <td className={cn(TD, 'text-muted')}>
+                    {app.client_type === 'public' ? 'Public PKCE' : 'Confidential'}
                   </td>
                   <td className={cn(TD, 'text-muted')}>
                     {app.requested_scopes.length ? app.requested_scopes.join(', ') : '—'}
@@ -178,15 +183,20 @@ export function OAuthAppsTab() {
                       </span>
                     ) : (
                       <>
-                        <button
-                          onClick={() => setPending({ kind: 'rotate', app })}
-                          className="text-sm text-accent-text hover:underline"
-                        >
-                          Rotate secret
-                        </button>
+                        {app.client_type === 'confidential' && (
+                          <button
+                            onClick={() => setPending({ kind: 'rotate', app })}
+                            className="text-sm text-accent-text hover:underline"
+                          >
+                            Rotate secret
+                          </button>
+                        )}
                         <button
                           onClick={() => setPending({ kind: 'delete', app })}
-                          className="ml-4 text-sm text-red-500 hover:text-red-400 transition-colors"
+                          className={cn(
+                            'text-sm text-red-500 hover:text-red-400 transition-colors',
+                            app.client_type === 'confidential' && 'ml-4'
+                          )}
                         >
                           Delete
                         </button>
@@ -232,6 +242,7 @@ function CreateOAuthAppForm({
 }) {
   const [name, setName] = useState('');
   const [redirectText, setRedirectText] = useState('');
+  const [clientType, setClientType] = useState<'public' | 'confidential'>('public');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [allowDeviceFlow, setAllowDeviceFlow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -263,6 +274,7 @@ function CreateOAuthAppForm({
       name: name.trim(),
       redirect_uris: redirectUris,
       requested_scopes: selectedScopes,
+      client_type: clientType,
       allow_device_flow: allowDeviceFlow,
     });
     setSubmitting(false);
@@ -296,6 +308,42 @@ function CreateOAuthAppForm({
           data-testid="oauth-app-redirects-input"
           className={cn(inputClass, 'font-mono')}
         />
+      </div>
+
+      <div>
+        <div className="text-xs font-medium text-muted mb-2">Client type</div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-background p-3 text-sm text-foreground">
+            <input
+              type="radio"
+              name="oauth-client-type"
+              value="public"
+              checked={clientType === 'public'}
+              onChange={() => setClientType('public')}
+              data-testid="oauth-client-type-public"
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block font-medium">Public PKCE</span>
+              <span className="block text-xs text-muted">Browser apps. No client secret.</span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-background p-3 text-sm text-foreground">
+            <input
+              type="radio"
+              name="oauth-client-type"
+              value="confidential"
+              checked={clientType === 'confidential'}
+              onChange={() => setClientType('confidential')}
+              data-testid="oauth-client-type-confidential"
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block font-medium">Confidential</span>
+              <span className="block text-xs text-muted">Backend apps. Secret shown once.</span>
+            </span>
+          </label>
+        </div>
       </div>
 
       <label className="flex items-center gap-2 text-sm text-foreground">
@@ -369,7 +417,9 @@ function SecretRevealModal({ secret, onClose }: { secret: OAuthAppSecret; onClos
 
           <div className="mt-4 space-y-3">
             <CredentialRow label="Client ID" value={secret.client_id} valueTestId="oauth-client-id-value" />
-            <CredentialRow label="Client secret" value={secret.client_secret} valueTestId="oauth-secret-value" />
+            {secret.client_secret && (
+              <CredentialRow label="Client secret" value={secret.client_secret} valueTestId="oauth-secret-value" />
+            )}
           </div>
 
           <div className="mt-6 flex justify-end">

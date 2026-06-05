@@ -65,7 +65,7 @@ describe('ShipClient.authorizationCodeFlow (custom adapter)', () => {
   it('builds a PKCE authorize URL, exchanges the code, and stores the token', async () => {
     const { calls, fetchImpl } = oauthFetch({
       '/api/oauth/token': (body) => {
-        // Confidential exchange must carry client_secret + verifier.
+        // Confidential exchange carries client_secret + verifier.
         expect(body.grant_type).toBe('authorization_code');
         expect(body.client_secret).toBe('secret_123');
         expect(typeof body.code_verifier).toBe('string');
@@ -107,6 +107,36 @@ describe('ShipClient.authorizationCodeFlow (custom adapter)', () => {
     expect(calls.some((c) => c.path === '/api/oauth/token')).toBe(true);
   });
 
+  it('omits client_secret for public PKCE clients', async () => {
+    const { calls, fetchImpl } = oauthFetch({
+      '/api/oauth/token': (body) => {
+        expect(body.grant_type).toBe('authorization_code');
+        expect(body.client_id).toBe('client_public');
+        expect(body.client_secret).toBeUndefined();
+        expect(typeof body.code_verifier).toBe('string');
+        return { status: 200, json: { access_token: 'ship_at_public', token_type: 'Bearer', expires_in: 3600, scope: 'issues:read' } };
+      },
+    });
+
+    const adapter: AuthCodeRedirectAdapter = {
+      async authorize(authUrl) {
+        const url = new URL(authUrl);
+        return { code: 'auth_code_public', state: url.searchParams.get('state') ?? undefined };
+      },
+    };
+
+    await ShipClient.authorizationCodeFlow({
+      clientId: 'client_public',
+      redirectUri: 'http://127.0.0.1:8765/callback',
+      baseUrl: 'https://api.test',
+      scope: 'issues:read',
+      fetch: fetchImpl,
+      redirect: adapter,
+    });
+
+    expect(calls.find((c) => c.path === '/api/oauth/token')?.body).not.toHaveProperty('client_secret');
+  });
+
   it('rejects a mismatched state (CSRF guard)', async () => {
     const { fetchImpl } = oauthFetch({});
     const adapter: AuthCodeRedirectAdapter = {
@@ -144,5 +174,42 @@ describe('ShipClient.authorizationCodeFlow (custom adapter)', () => {
         redirect: adapter,
       })
     ).rejects.toThrow(/state mismatch/i);
+  });
+});
+
+describe('ShipClient browser fetch binding', () => {
+  it('binds global fetch so browser implementations do not throw Illegal invocation', async () => {
+    const originalFetch = globalThis.fetch;
+    const responses = [
+      { access_token: 'ship_at_bound', token_type: 'Bearer', expires_in: 3600, scope: 'issues:read' },
+      { data: [], next_cursor: null },
+    ];
+
+    let calls = 0;
+    globalThis.fetch = function (this: unknown) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation');
+      const json = responses[calls++] ?? {};
+      return Promise.resolve(new Response(JSON.stringify(json), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    } as unknown as typeof fetch;
+
+    try {
+      const adapter: AuthCodeRedirectAdapter = {
+        async authorize(authUrl) {
+          const url = new URL(authUrl);
+          return { code: 'code_bound', state: url.searchParams.get('state') ?? undefined };
+        },
+      };
+      const client = await ShipClient.authorizationCodeFlow({
+        clientId: 'client_public',
+        redirectUri: 'http://127.0.0.1:8765/callback',
+        baseUrl: 'https://api.test',
+        scope: 'issues:read',
+        redirect: adapter,
+      });
+
+      await expect(client.issues.list()).resolves.toEqual({ data: [], next_cursor: null });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

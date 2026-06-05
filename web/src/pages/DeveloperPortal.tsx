@@ -82,6 +82,7 @@ interface CreateAppInput {
   name: string;
   redirect_uris: string[];
   requested_scopes: string[];
+  client_type: 'public' | 'confidential';
   allow_device_flow: boolean;
 }
 
@@ -148,8 +149,8 @@ function AppsTab() {
     <div className="space-y-4" data-testid="dev-apps">
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted">
-          OAuth clients that access the public API at <code className="font-mono">/api/v1</code>. The client
-          secret is shown only once, at creation or rotation.
+          OAuth clients that access the public API at <code className="font-mono">/api/v1</code>. Browser
+          apps use public PKCE clients with no secret.
         </p>
         {!showCreate && (
           <button
@@ -170,6 +171,7 @@ function AppsTab() {
             <tr>
               <th className={TH}>Name</th>
               <th className={TH}>Client ID</th>
+              <th className={TH}>Type</th>
               <th className={TH}>Scopes</th>
               <th className={TH}>Owner</th>
               <th className={cn(TH, 'text-right')}>Actions</th>
@@ -178,7 +180,7 @@ function AppsTab() {
           <tbody className="divide-y divide-border">
             {apps.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted">
                   No apps yet. Create one to start building on the API.
                 </td>
               </tr>
@@ -198,6 +200,7 @@ function AppsTab() {
                   <td className={TD}>
                     <code className="font-mono text-xs text-muted break-all">{app.client_id}</code>
                   </td>
+                  <td className={cn(TD, 'text-muted')}>{app.client_type === 'public' ? 'Public PKCE' : 'Confidential'}</td>
                   <td className={cn(TD, 'text-muted')}>
                     {app.requested_scopes.length ? app.requested_scopes.join(', ') : '—'}
                   </td>
@@ -207,12 +210,17 @@ function AppsTab() {
                       <span className="text-sm text-muted">Managed by platform</span>
                     ) : (
                       <>
-                        <button onClick={() => setPending({ kind: 'rotate', app })} className="text-sm text-accent-text hover:underline">
-                          Rotate secret
-                        </button>
+                        {app.client_type === 'confidential' && (
+                          <button onClick={() => setPending({ kind: 'rotate', app })} className="text-sm text-accent-text hover:underline">
+                            Rotate secret
+                          </button>
+                        )}
                         <button
                           onClick={() => setPending({ kind: 'delete', app })}
-                          className="ml-4 text-sm text-red-500 hover:text-red-400 transition-colors"
+                          className={cn(
+                            'text-sm text-red-500 hover:text-red-400 transition-colors',
+                            app.client_type === 'confidential' && 'ml-4'
+                          )}
                         >
                           Delete
                         </button>
@@ -232,7 +240,9 @@ function AppsTab() {
           warning={revealed.warning}
           rows={[
             { label: 'Client ID', value: revealed.client_id, testId: 'dev-client-id-value' },
-            { label: 'Client secret', value: revealed.client_secret, testId: 'dev-secret-value' },
+            ...(revealed.client_secret
+              ? [{ label: 'Client secret', value: revealed.client_secret, testId: 'dev-secret-value' }]
+              : []),
           ]}
           onClose={() => setRevealed(null)}
         />
@@ -268,6 +278,7 @@ function CreateAppForm({
 }) {
   const [name, setName] = useState('');
   const [redirectText, setRedirectText] = useState('');
+  const [clientType, setClientType] = useState<'public' | 'confidential'>('public');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [allowDeviceFlow, setAllowDeviceFlow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -283,7 +294,13 @@ function CreateAppForm({
       return setError('At least one redirect URI is required unless device flow is enabled.');
     }
     setSubmitting(true);
-    await onCreate({ name: name.trim(), redirect_uris: redirectUris, requested_scopes: selectedScopes, allow_device_flow: allowDeviceFlow });
+    await onCreate({
+      name: name.trim(),
+      redirect_uris: redirectUris,
+      requested_scopes: selectedScopes,
+      client_type: clientType,
+      allow_device_flow: allowDeviceFlow,
+    });
     setSubmitting(false);
   }
 
@@ -303,6 +320,41 @@ function CreateAppForm({
           data-testid="dev-app-redirects-input"
           className={cn(INPUT, 'font-mono')}
         />
+      </div>
+      <div>
+        <div className="text-xs font-medium text-muted mb-2">Client type</div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-background p-3 text-sm text-foreground">
+            <input
+              type="radio"
+              name="dev-client-type"
+              value="public"
+              checked={clientType === 'public'}
+              onChange={() => setClientType('public')}
+              data-testid="dev-client-type-public"
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block font-medium">Public PKCE</span>
+              <span className="block text-xs text-muted">Browser apps. No client secret.</span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-background p-3 text-sm text-foreground">
+            <input
+              type="radio"
+              name="dev-client-type"
+              value="confidential"
+              checked={clientType === 'confidential'}
+              onChange={() => setClientType('confidential')}
+              data-testid="dev-client-type-confidential"
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block font-medium">Confidential</span>
+              <span className="block text-xs text-muted">Backend apps. Secret shown once.</span>
+            </span>
+          </label>
+        </div>
       </div>
       <label className="flex items-center gap-2 text-sm text-foreground">
         <input type="checkbox" checked={allowDeviceFlow} onChange={(e) => setAllowDeviceFlow(e.target.checked)} data-testid="dev-app-device-flow" className="rounded border-border" />

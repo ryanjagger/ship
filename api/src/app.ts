@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import type { CorsOptions } from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -98,6 +99,23 @@ const apiLimiter = rateLimit({
   handler: apiRateLimitHandler,
 });
 
+function corsOriginOption(corsOrigin: string): CorsOptions['origin'] {
+  const origins = corsOrigin
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (origins.length <= 1) return origins[0] ?? corsOrigin;
+
+  const allowed = new Set(origins);
+  return (origin, callback) => {
+    if (!origin || allowed.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  };
+}
+
 
 export function createApp(corsOrigin: string = 'http://localhost:5173'): express.Express {
   const app = express();
@@ -160,7 +178,7 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
   // Apply rate limiting to all API routes
   app.use('/api/', apiLimiter);
   app.use(cors({
-    origin: corsOrigin,
+    origin: corsOriginOption(corsOrigin),
     credentials: true,
   }));
   app.use(express.json({ limit: '10mb' }));  // Large wiki documents can be several MB
@@ -223,7 +241,8 @@ export function createApp(corsOrigin: string = 'http://localhost:5173'): express
   // OAuth 2.0 Authorization Server (Ship as provider). Mounted under /api/oauth
   // so it rides the existing /api proxy. Two mounts with different needs:
   //   • public: GET /authorize (redirect) + POST /token (back-channel, NO CSRF —
-  //     authenticated by client_id+client_secret, not a browser session).
+  //     authenticated by client_id+client_secret for confidential clients, or
+  //     by client_id+PKCE for public clients, not a browser session).
   //   • consent: GET /authorize/validate + POST /authorize/decision back the
   //     React consent screen; session-authed and CSRF-protected (the POST).
   app.use('/api/oauth', oauthPublicRouter);

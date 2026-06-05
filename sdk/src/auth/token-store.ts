@@ -3,9 +3,6 @@
  * `authorizationCodeFlow` persists its token set through an `ITokenStore` so
  * subsequent runs reuse it. Stores NEVER log raw tokens.
  */
-import { promises as fs } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
 
 /** A persisted OAuth token set. Ship issues short-lived access tokens (no refresh). */
 export interface ShipTokenSet {
@@ -56,15 +53,22 @@ export class MemoryTokenStore implements ITokenStore {
  * read back as `null` rather than throwing.
  */
 export class FileTokenStore implements ITokenStore {
-  private readonly path: string;
+  private readonly path?: string;
 
   constructor(filePath?: string) {
-    this.path = filePath ?? join(homedir(), '.ship', 'token.json');
+    this.path = filePath;
+  }
+
+  private async resolvePath(): Promise<string> {
+    if (this.path) return this.path;
+    const [{ homedir }, { join }] = await Promise.all([import('node:os'), import('node:path')]);
+    return join(homedir(), '.ship', 'token.json');
   }
 
   async get(): Promise<ShipTokenSet | null> {
     try {
-      const raw = await fs.readFile(this.path, 'utf8');
+      const [{ promises: fs }, path] = await Promise.all([import('node:fs'), this.resolvePath()]);
+      const raw = await fs.readFile(path, 'utf8');
       return coerceTokenSet(JSON.parse(raw) as unknown);
     } catch {
       return null;
@@ -72,13 +76,19 @@ export class FileTokenStore implements ITokenStore {
   }
 
   async set(tokens: ShipTokenSet): Promise<void> {
-    await fs.mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
-    await fs.writeFile(this.path, `${JSON.stringify(tokens, null, 2)}\n`, { mode: 0o600 });
+    const [{ promises: fs }, { dirname }, path] = await Promise.all([
+      import('node:fs'),
+      import('node:path'),
+      this.resolvePath(),
+    ]);
+    await fs.mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await fs.writeFile(path, `${JSON.stringify(tokens, null, 2)}\n`, { mode: 0o600 });
   }
 
   async clear(): Promise<void> {
     try {
-      await fs.unlink(this.path);
+      const [{ promises: fs }, path] = await Promise.all([import('node:fs'), this.resolvePath()]);
+      await fs.unlink(path);
     } catch {
       /* already absent */
     }

@@ -29,7 +29,7 @@ test.describe('OAuth 2.0 Authorization Code + PKCE', () => {
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page).not.toHaveURL(/\/login/, { timeout: 5000 });
 
-    // 2) Register a READ-ONLY OAuth app via the admin endpoint (gate item 1).
+    // 2) Register a READ-ONLY public PKCE OAuth app via the admin endpoint.
     const csrf = (await (await page.request.get('/api/csrf-token')).json()).token as string;
     const regRes = await page.request.post('/api/admin/oauth-apps', {
       headers: { 'x-csrf-token': csrf },
@@ -37,12 +37,14 @@ test.describe('OAuth 2.0 Authorization Code + PKCE', () => {
         name: 'E2E Read-Only App',
         redirect_uris: [redirectUri],
         requested_scopes: ['documents:read'],
+        client_type: 'public',
       },
     });
     expect(regRes.status()).toBe(201);
-    const reg = (await regRes.json()).data as { client_id: string; client_secret: string };
+    const reg = (await regRes.json()).data as { client_id: string; client_secret?: string; client_type: string };
     expect(reg.client_id).toBeTruthy();
-    expect(reg.client_secret).toBeTruthy(); // shown once
+    expect(reg.client_type).toBe('public');
+    expect(reg.client_secret).toBeUndefined();
 
     // 3) Authorization request → redirected to the React consent screen.
     const authorizeQuery = new URLSearchParams({
@@ -78,7 +80,6 @@ test.describe('OAuth 2.0 Authorization Code + PKCE', () => {
         code,
         redirect_uri: redirectUri,
         client_id: reg.client_id,
-        client_secret: reg.client_secret,
         code_verifier: 'totally-wrong-verifier',
       },
     });
@@ -92,7 +93,6 @@ test.describe('OAuth 2.0 Authorization Code + PKCE', () => {
         code,
         redirect_uri: redirectUri,
         client_id: reg.client_id,
-        client_secret: reg.client_secret,
         code_verifier: verifier,
       },
     });

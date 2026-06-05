@@ -310,6 +310,7 @@ export interface OAuthAppSummary {
   name: string;
   redirect_uris: string[];
   requested_scopes: string[];
+  client_type: 'public' | 'confidential';
   allow_device_flow: boolean;
   /** Platform-managed first-party client (e.g. the Ship CLI): read-only, cannot be deleted/rotated. */
   is_system: boolean;
@@ -324,10 +325,11 @@ export interface OAuthAppSummary {
 export interface OAuthAppSecret {
   id: string;
   client_id: string;
-  client_secret: string;
+  client_secret?: string;
   name: string;
   redirect_uris?: string[];
   requested_scopes?: string[];
+  client_type?: 'public' | 'confidential';
   allow_device_flow?: boolean;
   warning: string;
 }
@@ -658,6 +660,7 @@ export const api = {
       name: string;
       redirect_uris: string[];
       requested_scopes: string[];
+      client_type: 'public' | 'confidential';
       allow_device_flow: boolean;
     }) =>
       request<OAuthAppSecret>('/api/admin/oauth-apps', {
@@ -686,6 +689,7 @@ export const api = {
       name: string;
       redirect_uris: string[];
       requested_scopes: string[];
+      client_type: 'public' | 'confidential';
       allow_device_flow: boolean;
     }) => request<OAuthAppSecret>('/api/developer/apps', { method: 'POST', body: JSON.stringify(data) }),
     rotateAppSecret: (appId: string) =>
