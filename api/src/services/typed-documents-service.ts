@@ -159,6 +159,15 @@ function computedColumns(resource: TypedDocumentResource): string[] {
     ];
   }
 
+  if (resource.documentType === 'person') {
+    return [
+      `(SELECT m.role FROM workspace_memberships m
+        WHERE m.workspace_id = d.workspace_id
+          AND (d.properties->>'user_id') ~ '^[0-9a-fA-F-]{36}$'
+          AND m.user_id = (d.properties->>'user_id')::uuid) AS workspace_role`,
+    ];
+  }
+
   if (resource.documentType === 'sprint') {
     return [
       `(SELECT COUNT(*) FROM documents i
@@ -237,7 +246,10 @@ export function hasTypedDocumentUpdates(input: DocumentUpdateInput): boolean {
 // Write helpers
 // ---------------------------------------------------------------------------
 
-async function validateBelongsTo(
+/** Exported for the v1 issue write path, which re-platforms onto the
+ *  issues-service cores but must keep the 400-on-invalid-belongs_to contract
+ *  (the cores themselves rely on FK constraints, which would surface as 500s). */
+export async function validateBelongsTo(
   client: PoolClient,
   workspaceId: string,
   associations: BelongsToInput[] | undefined

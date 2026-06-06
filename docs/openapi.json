@@ -1139,6 +1139,9 @@
                 "type"
               ]
             }
+          },
+          "confirm_orphan_children": {
+            "type": "boolean"
           }
         }
       },
@@ -1565,6 +1568,33 @@
               "null"
             ]
           },
+          "plan_validated": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "success_criteria": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "monetary_impact_expected": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "monetary_impact_actual": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "inferred_status": {
             "type": "string"
           },
@@ -1627,6 +1657,10 @@
           "has_design_review",
           "design_review_notes",
           "target_date",
+          "plan_validated",
+          "success_criteria",
+          "monetary_impact_expected",
+          "monetary_impact_actual",
           "inferred_status",
           "sprint_count",
           "issue_count",
@@ -1768,6 +1802,33 @@
                     "null"
                   ]
                 },
+                "plan_validated": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "success_criteria": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "monetary_impact_expected": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "monetary_impact_actual": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "inferred_status": {
                   "type": "string"
                 },
@@ -1830,6 +1891,10 @@
                 "has_design_review",
                 "design_review_notes",
                 "target_date",
+                "plan_validated",
+                "success_criteria",
+                "monetary_impact_expected",
+                "monetary_impact_actual",
                 "inferred_status",
                 "sprint_count",
                 "issue_count",
@@ -2067,6 +2132,12 @@
               "string",
               "null"
             ]
+          },
+          "plan_validated": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         }
       },
@@ -2100,6 +2171,13 @@
             "format": "uuid"
           },
           "program_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "project_id": {
             "type": [
               "string",
               "null"
@@ -2237,6 +2315,7 @@
           "status",
           "owner_id",
           "program_id",
+          "project_id",
           "plan",
           "success_criteria",
           "confidence",
@@ -2295,6 +2374,13 @@
                   "format": "uuid"
                 },
                 "program_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "project_id": {
                   "type": [
                     "string",
                     "null"
@@ -2432,6 +2518,7 @@
                 "status",
                 "owner_id",
                 "program_id",
+                "project_id",
                 "plan",
                 "success_criteria",
                 "confidence",
@@ -2648,6 +2735,19 @@
             ],
             "format": "uuid"
           },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "workspace_role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "visibility": {
             "type": "string"
           },
@@ -2672,6 +2772,8 @@
           "role",
           "capacity_hours",
           "reports_to",
+          "user_id",
+          "workspace_role",
           "visibility",
           "created_at",
           "updated_at",
@@ -2718,6 +2820,19 @@
                   ],
                   "format": "uuid"
                 },
+                "user_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "workspace_role": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "visibility": {
                   "type": "string"
                 },
@@ -2742,6 +2857,8 @@
                 "role",
                 "capacity_hours",
                 "reports_to",
+                "user_id",
+                "workspace_role",
                 "visibility",
                 "created_at",
                 "updated_at",
@@ -3737,6 +3854,254 @@
             ]
           }
         }
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "comment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "content": {
+            "type": "string"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "author": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "email"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "document_id",
+          "comment_id",
+          "parent_id",
+          "content",
+          "resolved_at",
+          "author",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "CommentList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "document_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "comment_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "parent_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "resolved_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "author": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "email": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "email"
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "document_id",
+                "comment_id",
+                "parent_id",
+                "content",
+                "resolved_at",
+                "author",
+                "created_at",
+                "updated_at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "CreateComment": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "comment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parent_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "DocumentHistoryList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "document_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "field": {
+                  "type": "string"
+                },
+                "old_value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "new_value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "changed_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "automated_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "document_id",
+                "field",
+                "old_value",
+                "new_value",
+                "changed_by",
+                "automated_by",
+                "created_at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
       },
       "WebhookSubscription": {
         "type": "object",
@@ -5012,6 +5377,75 @@
             "required": false,
             "name": "cursor",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5361,6 +5795,75 @@
             "required": false,
             "name": "cursor",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5617,6 +6120,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Closing a parent with incomplete sub-issues requires confirm_orphan_children",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       },
@@ -5709,6 +6222,75 @@
             },
             "required": false,
             "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
             "in": "query"
           }
         ],
@@ -6059,6 +6641,75 @@
             "required": false,
             "name": "cursor",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6407,6 +7058,75 @@
             },
             "required": false,
             "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
             "in": "query"
           }
         ],
@@ -6757,6 +7477,75 @@
             "required": false,
             "name": "cursor",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
+            "in": "query"
           }
         ],
         "responses": {
@@ -7105,6 +7894,75 @@
             },
             "required": false,
             "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
             "in": "query"
           }
         ],
@@ -7455,6 +8313,75 @@
             "required": false,
             "name": "cursor",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
+            "in": "query"
           }
         ],
         "responses": {
@@ -7803,6 +8730,75 @@
             },
             "required": false,
             "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
             "in": "query"
           }
         ],
@@ -8153,6 +9149,75 @@
             "required": false,
             "name": "cursor",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "belongs_to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "program",
+                "project",
+                "sprint",
+                "parent"
+              ]
+            },
+            "required": false,
+            "name": "belongs_to_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "triage",
+                "backlog",
+                "todo",
+                "in_progress",
+                "in_review",
+                "done",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "name": "updated_after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workspace"
+              ]
+            },
+            "required": false,
+            "name": "visibility",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8460,6 +9525,258 @@
           },
           "404": {
             "description": "WeeklyReview not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/documents/{id}/comments": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "List a document's comments",
+        "description": "Requires scope `comments:read` or broad superscope `documents:read`. 404 when the document is not visible to the token's user.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document's comments, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope (comments:read or documents:read)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Document not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Post a comment on a document",
+        "description": "Requires scope `comments:write` or broad superscope `documents:write`. Omit `comment_id` to start a fresh thread; pass `parent_id` to reply.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateComment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created comment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid comment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope (comments:write or documents:write)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Document or parent comment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/document-history": {
+      "get": {
+        "tags": [
+          "document-history"
+        ],
+        "summary": "List field-change history across documents",
+        "description": "Requires scope `documents:read`. `document_id` repeats up to 100× so a multi-document activity feed is one request. Rows for documents the user cannot see are silently omitted (never a 404).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "minItems": 1,
+                  "maxItems": 100
+                }
+              ]
+            },
+            "required": true,
+            "name": "document_id",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": false,
+            "name": "field",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching history entries, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentHistoryList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope (documents:read)",
             "content": {
               "application/json": {
                 "schema": {

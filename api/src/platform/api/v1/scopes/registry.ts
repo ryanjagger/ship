@@ -49,6 +49,8 @@ const SCOPES: ScopeDefinition[] = [
   { scope: 'standups:write', description: 'Create, update, and delete standups.', exercised: true },
   { scope: 'weekly_reviews:read', description: 'Read weekly reviews.', exercised: true },
   { scope: 'weekly_reviews:write', description: 'Create, update, and delete weekly reviews.', exercised: true },
+  { scope: 'comments:read', description: 'Read document comments.', exercised: true },
+  { scope: 'comments:write', description: 'Post document comments.', exercised: true },
   { scope: 'webhooks:manage', description: 'Manage webhook subscriptions.', exercised: true },
 
   // Developer-platform administration (used by the Developer Portal's first-party

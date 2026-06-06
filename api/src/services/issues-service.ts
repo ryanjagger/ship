@@ -110,6 +110,12 @@ export interface CreateIssueInput {
   is_system_generated?: boolean;
   accountability_target_id?: string | null;
   accountability_type?: string | null;
+  // Fields below exist so the public /api/v1/issues POST (re-platformed onto
+  // this core for write parity) keeps its full contract. The internal route's
+  // zod schema doesn't accept them, so internal behavior is unchanged.
+  estimate?: number | null;
+  content?: unknown;
+  visibility?: 'private' | 'workspace';
 }
 
 export interface UpdateIssueInput {
@@ -124,6 +130,13 @@ export interface UpdateIssueInput {
     updated_by: 'claude';
     [k: string]: unknown;
   };
+  // Public-contract fields (see CreateIssueInput note): the v1 PATCH accepts
+  // these today, so the re-platformed route must keep them working. The
+  // internal route's zod schema doesn't accept them.
+  due_date?: string | null;
+  rejection_reason?: string | null;
+  content?: unknown;
+  visibility?: 'private' | 'workspace';
 }
 
 // Internal row helper (mirrors extractIssueFromRow in the route).
@@ -249,13 +262,24 @@ export async function createIssueCore(
     is_system_generated: is_system_generated || false,
     accountability_target_id: accountability_target_id || null,
     accountability_type: accountability_type || null,
+    // Only present when the caller (the public v1 route) sent it, so
+    // internal-created issues keep their exact pre-existing property set.
+    ...(input.estimate !== undefined ? { estimate: input.estimate } : {}),
   };
 
   const result = await client.query(
-    `INSERT INTO documents (workspace_id, document_type, title, properties, ticket_number, created_by)
-       VALUES ($1, 'issue', $2, $3, $4, $5)
+    `INSERT INTO documents (workspace_id, document_type, title, properties, ticket_number, created_by, content, visibility)
+       VALUES ($1, 'issue', $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-    [ctx.workspaceId, title, JSON.stringify(properties), ticketNumber, ctx.userId]
+    [
+      ctx.workspaceId,
+      title,
+      JSON.stringify(properties),
+      ticketNumber,
+      ctx.userId,
+      input.content != null ? JSON.stringify(input.content) : null,
+      input.visibility ?? 'workspace',
+    ]
   );
 
   const newIssueId = result.rows[0].id;
@@ -441,6 +465,27 @@ export async function patchIssueCore(
     changes.push({ field: 'estimate', oldValue: currentProps.estimate?.toString() || null, newValue: data.estimate?.toString() || null });
     newProps.estimate = data.estimate;
     propsChanged = true;
+  }
+  if (data.due_date !== undefined && data.due_date !== (currentProps.due_date ?? null)) {
+    changes.push({ field: 'due_date', oldValue: currentProps.due_date || null, newValue: data.due_date });
+    newProps.due_date = data.due_date;
+    propsChanged = true;
+  }
+  if (data.rejection_reason !== undefined && data.rejection_reason !== (currentProps.rejection_reason ?? null)) {
+    changes.push({ field: 'rejection_reason', oldValue: currentProps.rejection_reason || null, newValue: data.rejection_reason });
+    newProps.rejection_reason = data.rejection_reason;
+    propsChanged = true;
+  }
+  // Column (not property) updates from the public contract. No history rows —
+  // matches the generic typed-document core these fields migrated from.
+  if (data.content !== undefined) {
+    updates.push(`content = $${paramIndex++}`);
+    values.push(JSON.stringify(data.content));
+    updates.push(`yjs_state = NULL`);
+  }
+  if (data.visibility !== undefined && data.visibility !== existingIssue.visibility) {
+    updates.push(`visibility = $${paramIndex++}`);
+    values.push(data.visibility);
   }
 
   if (data.claude_metadata) {
