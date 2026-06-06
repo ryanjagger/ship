@@ -56,6 +56,12 @@ vi.mock('../workspace-settings.js', () => ({
   getFleetgraphSettings: mockGetFleetgraphSettings,
 }));
 
+// Service-user lookup hits the (mocked) pool — stub it to a fixed id so it
+// doesn't consume mockPoolQuery slots the tests drive in order.
+vi.mock('./service-user.js', () => ({
+  getFleetServiceUserId: vi.fn(async () => 'fleet-service-user-id'),
+}));
+
 // Mock the graph-entry-point sibling of runPlanReview. We mock
 // `./index.js` (not the focused evaluator that previously lived in
 // verdictGenerator.ts — deleted in U4) at the boundary the sweep now
@@ -688,7 +694,7 @@ describe('sweepWorkspaceDrift — LLM verdicts enabled, no existing insight, SUR
     expect(callArgs.entityId).toBe('p-1');
     expect(callArgs.ctx).toEqual({
       workspaceId: 'ws-1',
-      userId: '00000000-0000-0000-0000-000000000000',
+      userId: 'fleet-service-user-id',
       isAdmin: true,
     });
     expect(callArgs.traceMetadata?.workspace_id).toBe('ws-1');
@@ -1103,7 +1109,7 @@ describe('__testing.buildVerdictForProject', () => {
     expect(call.entityId).toBe('p-1');
     expect(call.ctx).toEqual({
       workspaceId: 'ws-1',
-      userId: '00000000-0000-0000-0000-000000000000',
+      userId: 'fleet-service-user-id',
       isAdmin: true,
     });
     expect(call.traceMetadata).toEqual({

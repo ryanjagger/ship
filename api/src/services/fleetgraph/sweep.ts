@@ -68,6 +68,7 @@ import {
   type CreateOrRefreshInsightArgs,
 } from './insight.js';
 import { getFleetgraphSettings } from '../workspace-settings.js';
+import { getFleetServiceUserId } from './service-user.js';
 import { runDriftReasoning } from './index.js';
 import type {
   Drift,
@@ -77,17 +78,13 @@ import type {
   InsightVerdictDecision,
 } from '@ship/shared';
 
-/**
- * Sentinel UUID for service-principal Fleet invocations. Used to construct
- * a FleetContext for runDriftReasoning where no user session exists.
- *
- * Do not change this value once shipped — code may compare against it to
- * detect system-authored runs. With `isAdmin: true`, VISIBILITY_FILTER_SQL
- * short-circuits to TRUE (visibility.ts:65-80), giving the sweep the
- * workspace-wide read access it needs without bespoke service-principal
- * code in any node or tool.
- */
-const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000' as const;
+// Service-principal identity for sweep-initiated Fleet runs lives in
+// service-user.ts (`fleet@ship.system`, migration 062). It replaced the old
+// zero-UUID sentinel: minted access tokens FK `users`, so system-authored
+// runs need a real row. With `isAdmin: true`, VISIBILITY_FILTER_SQL
+// short-circuits to TRUE (visibility.ts:65-80), giving the sweep the
+// workspace-wide read access it needs without bespoke service-principal
+// code in any node or tool.
 
 // ─── Public types ───────────────────────────────────────────────────────
 
@@ -499,7 +496,7 @@ async function buildVerdictForProject(
 
   const ctx = {
     workspaceId: input.workspaceId,
-    userId: SYSTEM_USER_ID,
+    userId: await getFleetServiceUserId(),
     isAdmin: true,
   };
   const result = await runDriftReasoning({
