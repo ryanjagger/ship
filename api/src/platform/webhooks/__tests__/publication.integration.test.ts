@@ -12,6 +12,11 @@ import { createOAuthApp } from '../../oauth/apps.js';
 import { issueAccessToken } from '../../oauth/tokens.js';
 import { createSubscription } from '../subscriptions.js';
 import { createIssueCore, patchIssueCore } from '../../../services/issues-service.js';
+import {
+  createTypedDocumentCore,
+  patchTypedDocumentCore,
+} from '../../../services/typed-documents-service.js';
+import { TYPED_DOCUMENT_RESOURCES } from '../../api/v1/schemas/typed-document.js';
 
 describe('Webhook publication at the write boundary', () => {
   const app = createApp();
@@ -156,6 +161,52 @@ describe('Webhook publication at the write boundary', () => {
         [workspaceId, issueId]
       );
       expect(assignedDelivery.rowCount).toBe(1);
+    } finally {
+      client.release();
+    }
+  });
+
+  it('publishes issue webhooks from the typed-document service cores', async () => {
+    const resource = TYPED_DOCUMENT_RESOURCES.find((r) => r.documentType === 'issue')!;
+    const client = await pool.connect();
+    try {
+      const ctx = { workspaceId, userId };
+      const input = resource.toCreate(resource.createSchema.parse({ title: 'Core Hooked Issue' }));
+      const created = await createTypedDocumentCore(client, ctx, resource, input);
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      expect(created.status).toBe(201);
+      const issueId = (created.body as { id: string }).id;
+
+      let events = await eventsFor(workspaceId);
+      const createdEvent = events.find(
+        (event) =>
+          event.type === 'issue.created' &&
+          (event.payload.data as { object: { id: string } }).object.id === issueId
+      );
+      expect(createdEvent).toBeTruthy();
+
+      const createdDelivery = await pool.query(
+        `SELECT d.status FROM webhook_deliveries d
+         JOIN webhook_events e ON e.id = d.event_id
+         WHERE e.type = 'issue.created' AND e.workspace_id = $1 AND e.payload->'data'->'object'->>'id' = $2`,
+        [workspaceId, issueId]
+      );
+      expect(createdDelivery.rowCount).toBe(1);
+
+      const update = resource.toUpdate(resource.updateSchema.parse({ assignee_id: userId }));
+      const patched = await patchTypedDocumentCore(client, ctx, resource, issueId, update);
+      expect(patched.ok).toBe(true);
+      if (!patched.ok) return;
+      expect(patched.status).toBe(200);
+
+      events = await eventsFor(workspaceId);
+      const assignedEvent = events.find(
+        (event) =>
+          event.type === 'issue.assigned' &&
+          (event.payload.data as { object: { id: string } }).object.id === issueId
+      );
+      expect(assignedEvent).toBeTruthy();
     } finally {
       client.release();
     }
