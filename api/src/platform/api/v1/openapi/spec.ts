@@ -29,6 +29,10 @@ import {
   ListDeliveriesQuerySchema,
   ReplayResponseSchema,
 } from '../schemas/webhook.js';
+import { ScopeListSchema } from '../schemas/scope.js';
+import { OAuthAppListSchema, CreateOAuthAppSchema, CreatedOAuthAppSchema } from '../schemas/app.js';
+import { ConnectionListSchema, RevokeConnectionResponseSchema } from '../schemas/connection.js';
+import { AuditQuerySchema, AuditLogListSchema } from '../schemas/audit.js';
 
 /**
  * The Platform API OpenAPI 3.1 spec (PRD §5.7). Generated in-process from the
@@ -374,6 +378,275 @@ function buildRegistry(): OpenAPIRegistry {
       401: errorResponse('Unauthorized'),
       403: errorResponse('Insufficient scope (webhooks:manage)'),
       404: errorResponse('Delivery not found'),
+    },
+  });
+
+  // ── Developer-platform administration ──────────────────────────────────
+  // The Developer Portal dogfoods these. All `apps:manage`/`connections:manage`/
+  // `audit:read` routes ALSO require the token's user to be a workspace admin
+  // at request time (403 with details.reason=workspace_admin_required).
+  const ScopeList = registry.register('ScopeList', ScopeListSchema);
+  const OAuthAppList = registry.register('OAuthAppList', OAuthAppListSchema);
+  const CreateOAuthApp = registry.register('CreateOAuthApp', CreateOAuthAppSchema);
+  const CreatedOAuthApp = registry.register('CreatedOAuthApp', CreatedOAuthAppSchema);
+  const ConnectionList = registry.register('ConnectionList', ConnectionListSchema);
+  const RevokeConnectionResponse = registry.register('RevokeConnectionResponse', RevokeConnectionResponseSchema);
+  const AuditLogList = registry.register('AuditLogList', AuditLogListSchema);
+  const appAdminNote = 'Requires scope `apps:manage` AND a workspace-admin user.';
+  const appIdParam = z.object({ appId: z.string().uuid() });
+  const appSubscriptionParams = z.object({ appId: z.string().uuid(), subscriptionId: z.string().uuid() });
+  const appDeliveryParams = z.object({ appId: z.string().uuid(), deliveryId: z.string().uuid() });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/scopes',
+    tags: ['scopes'],
+    summary: 'List registered OAuth scopes',
+    description: 'Auth-only: requires a valid access token but **no scope**.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: { description: 'The scope catalog', content: { 'application/json': { schema: ScopeList } } },
+      401: errorResponse('Unauthorized'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/apps',
+    tags: ['apps'],
+    summary: "List the workspace's OAuth apps",
+    description: `${appAdminNote} Returns apps owned by workspace members plus platform-managed system clients.`,
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: { description: 'The workspace OAuth apps', content: { 'application/json': { schema: OAuthAppList } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/apps',
+    tags: ['apps'],
+    summary: 'Register an OAuth app',
+    description: `${appAdminNote} The raw \`client_secret\` (confidential clients) is returned ONLY here and on rotation.`,
+    security: [{ bearerAuth: [] }],
+    request: { body: { content: { 'application/json': { schema: CreateOAuthApp } } } },
+    responses: {
+      201: { description: 'The created app (with one-time client_secret for confidential clients)', content: { 'application/json': { schema: CreatedOAuthApp } } },
+      400: errorResponse('Invalid app registration or unknown scope'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/apps/{appId}/rotate-secret',
+    tags: ['apps'],
+    summary: "Rotate an app's client secret",
+    description: `${appAdminNote} Returns a new one-time \`client_secret\`; the old secret stops working immediately. System clients cannot be rotated; public PKCE clients have no secret.`,
+    security: [{ bearerAuth: [] }],
+    request: { params: appIdParam },
+    responses: {
+      200: { description: 'The app with a fresh one-time client_secret', content: { 'application/json': { schema: CreatedOAuthApp } } },
+      400: errorResponse('Public PKCE clients have no client secret to rotate'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope, not a workspace admin, or a protected system client'),
+      404: errorResponse('App not found in this workspace'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/apps/{appId}',
+    tags: ['apps'],
+    summary: 'Delete an OAuth app',
+    description: `${appAdminNote} Deleting an app revokes every token issued to it. System clients cannot be deleted.`,
+    security: [{ bearerAuth: [] }],
+    request: { params: appIdParam },
+    responses: {
+      204: { description: 'App deleted' },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope, not a workspace admin, or a protected system client'),
+      404: errorResponse('App not found in this workspace'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/apps/{appId}/webhooks',
+    tags: ['apps'],
+    summary: "List an app's webhook subscriptions",
+    description: appAdminNote,
+    security: [{ bearerAuth: [] }],
+    request: { params: appIdParam },
+    responses: {
+      200: { description: "The app's subscriptions in this workspace", content: { 'application/json': { schema: WebhookSubscriptionList } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+      404: errorResponse('App not found in this workspace'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/apps/{appId}/webhooks',
+    tags: ['apps'],
+    summary: 'Create a webhook subscription for an app',
+    description: `${appAdminNote} Event families are gated on the TARGET app's registered scopes. The raw signing \`secret\` is returned ONLY here and on rotation.`,
+    security: [{ bearerAuth: [] }],
+    request: { params: appIdParam, body: { content: { 'application/json': { schema: CreateWebhookSubscription } } } },
+    responses: {
+      201: { description: 'The created subscription (with one-time secret)', content: { 'application/json': { schema: CreatedWebhookSubscription } } },
+      400: errorResponse('Invalid subscription, unknown event type, or the app lacks a required read scope'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+      404: errorResponse('App not found in this workspace'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/apps/{appId}/webhooks/{subscriptionId}',
+    tags: ['apps'],
+    summary: "Update an app's webhook subscription",
+    description: appAdminNote,
+    security: [{ bearerAuth: [] }],
+    request: { params: appSubscriptionParams, body: { content: { 'application/json': { schema: UpdateWebhookSubscription } } } },
+    responses: {
+      200: { description: 'The updated subscription', content: { 'application/json': { schema: WebhookSubscription } } },
+      400: errorResponse('Invalid subscription, unknown event type, or the app lacks a required read scope'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+      404: errorResponse('App or subscription not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/apps/{appId}/webhooks/{subscriptionId}',
+    tags: ['apps'],
+    summary: "Delete an app's webhook subscription",
+    description: appAdminNote,
+    security: [{ bearerAuth: [] }],
+    request: { params: appSubscriptionParams },
+    responses: {
+      204: { description: 'Subscription deleted' },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+      404: errorResponse('App or subscription not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/apps/{appId}/webhooks/{subscriptionId}/rotate-secret',
+    tags: ['apps'],
+    summary: "Rotate an app's webhook signing secret",
+    description: `${appAdminNote} Returns a new one-time \`secret\`; the previous secret stops signing immediately.`,
+    security: [{ bearerAuth: [] }],
+    request: { params: appSubscriptionParams },
+    responses: {
+      200: { description: 'The subscription with a fresh one-time secret', content: { 'application/json': { schema: CreatedWebhookSubscription } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+      404: errorResponse('App or subscription not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/apps/{appId}/deliveries',
+    tags: ['apps'],
+    summary: "List an app's webhook deliveries",
+    description: `${appAdminNote} Filter by subscription, event type, and status.`,
+    security: [{ bearerAuth: [] }],
+    request: { params: appIdParam, query: ListDeliveriesQuerySchema },
+    responses: {
+      200: { description: 'A page of deliveries', content: { 'application/json': { schema: WebhookDeliveryList } } },
+      400: errorResponse('Invalid query parameters'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+      404: errorResponse('App not found in this workspace'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/apps/{appId}/deliveries/{deliveryId}',
+    tags: ['apps'],
+    summary: 'Get a webhook delivery with attempt history',
+    description: appAdminNote,
+    security: [{ bearerAuth: [] }],
+    request: { params: appDeliveryParams },
+    responses: {
+      200: { description: 'The delivery and its attempts', content: { 'application/json': { schema: WebhookDeliveryDetail } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+      404: errorResponse('App or delivery not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/apps/{appId}/deliveries/{deliveryId}/replay',
+    tags: ['apps'],
+    summary: 'Replay a webhook delivery',
+    description: `${appAdminNote} Re-sends the original event (same idempotency key) as a new linked delivery.`,
+    security: [{ bearerAuth: [] }],
+    request: { params: appDeliveryParams },
+    responses: {
+      202: { description: 'A new replay delivery was created', content: { 'application/json': { schema: ReplayResponse } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (apps:manage) or not a workspace admin'),
+      404: errorResponse('App or delivery not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/connections',
+    tags: ['connections'],
+    summary: 'List connected apps',
+    description: 'Requires scope `connections:manage` AND a workspace-admin user. One row per (app, user) pair holding at least one live access token.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: { description: 'The live connections in this workspace', content: { 'application/json': { schema: ConnectionList } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (connections:manage) or not a workspace admin'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/connections/{appId}/users/{userId}',
+    tags: ['connections'],
+    summary: 'Revoke a connection',
+    description: 'Requires scope `connections:manage` AND a workspace-admin user. Revokes every live token the user holds for the app in this workspace.',
+    security: [{ bearerAuth: [] }],
+    request: { params: z.object({ appId: z.string().uuid(), userId: z.string().uuid() }) },
+    responses: {
+      200: { description: 'Tokens revoked', content: { 'application/json': { schema: RevokeConnectionResponse } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (connections:manage) or not a workspace admin'),
+      404: errorResponse('No active connection found to revoke'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/audit',
+    tags: ['audit'],
+    summary: "Query the workspace's public API audit trail",
+    description: 'Requires scope `audit:read` AND a workspace-admin user. One row per authenticated /api/v1 request; no bodies, tokens, or secrets are recorded.',
+    security: [{ bearerAuth: [] }],
+    request: { query: AuditQuerySchema },
+    responses: {
+      200: { description: 'A page of audit entries with the total count', content: { 'application/json': { schema: AuditLogList } } },
+      400: errorResponse('Invalid query parameters'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (audit:read) or not a workspace admin'),
     },
   });
 

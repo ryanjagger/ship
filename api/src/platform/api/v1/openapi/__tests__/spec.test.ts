@@ -42,8 +42,23 @@ describe('Platform API · OpenAPI 3.1 spec', () => {
       '/webhook-deliveries/{id}',
       '/webhook-deliveries/{id}/replay',
     ];
+    const developerAdminPaths = [
+      '/scopes',
+      '/apps',
+      '/apps/{appId}',
+      '/apps/{appId}/rotate-secret',
+      '/apps/{appId}/webhooks',
+      '/apps/{appId}/webhooks/{subscriptionId}',
+      '/apps/{appId}/webhooks/{subscriptionId}/rotate-secret',
+      '/apps/{appId}/deliveries',
+      '/apps/{appId}/deliveries/{deliveryId}',
+      '/apps/{appId}/deliveries/{deliveryId}/replay',
+      '/connections',
+      '/connections/{appId}/users/{userId}',
+      '/audit',
+    ];
     expect(Object.keys(doc.paths).sort()).toEqual(
-      ['/documents', '/documents/{id}', '/me', ...typedPaths, ...webhookPaths].sort()
+      ['/documents', '/documents/{id}', '/me', ...typedPaths, ...webhookPaths, ...developerAdminPaths].sort()
     );
     expect(doc.paths['/documents']).toHaveProperty('get');
     expect(doc.paths['/documents']).toHaveProperty('post');
