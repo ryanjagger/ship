@@ -47,6 +47,11 @@ export const OPERATION_MANIFEST: Record<string, ManifestEntry> = {
   [operationKey('POST', '/documents')]: { sdkMethod: 'client.documents.create' },
   [operationKey('GET', '/documents/{id}')]: { sdkMethod: 'client.documents.get' },
 
+  // Document comments + cross-document field history.
+  [operationKey('GET', '/documents/{id}/comments')]: { sdkMethod: 'client.documents.comments.list' },
+  [operationKey('POST', '/documents/{id}/comments')]: { sdkMethod: 'client.documents.comments.create' },
+  [operationKey('GET', '/document-history')]: { sdkMethod: 'client.documentHistory.list' },
+
   // Typed document resources.
   ...typedResource('wiki-pages', 'wikiPages'),
   ...typedResource('issues', 'issues'),

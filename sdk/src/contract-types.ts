@@ -14,6 +14,8 @@
 import type {
   AuthenticatedUser,
   ShipIssue,
+  ShipComment,
+  ShipDocumentHistoryEntry,
   ShipWebhookSubscription,
   ShipScope,
   ShipOAuthApp,
@@ -26,6 +28,8 @@ import type {
 import type {
   MeResponseSchema,
   IssueSchema,
+  CommentListSchema,
+  DocumentHistoryListSchema,
   WebhookSubscriptionSchema,
   ScopeListSchema,
   OAuthAppListSchema,
@@ -42,6 +46,8 @@ type AssertMutual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : n
 // generated OpenAPI schema. The `void` cast keeps them runtime-free.
 type _Me = AssertMutual<AuthenticatedUser, MeResponseSchema>;
 type _Issue = AssertMutual<ShipIssue, IssueSchema>;
+type _CommentList = AssertMutual<DataList<ShipComment>, CommentListSchema>;
+type _DocumentHistoryList = AssertMutual<DataList<ShipDocumentHistoryEntry>, DocumentHistoryListSchema>;
 type _WebhookSubscription = AssertMutual<ShipWebhookSubscription, WebhookSubscriptionSchema>;
 type _ScopeList = AssertMutual<DataList<ShipScope>, ScopeListSchema>;
 type _OAuthAppList = AssertMutual<DataList<ShipOAuthApp>, OAuthAppListSchema>;
@@ -54,6 +60,8 @@ type _AuditLogList = AssertMutual<AuditLogList, AuditLogListSchema>;
 export type ContractGuards = [
   _Me,
   _Issue,
+  _CommentList,
+  _DocumentHistoryList,
   _WebhookSubscription,
   _ScopeList,
   _OAuthAppList,
