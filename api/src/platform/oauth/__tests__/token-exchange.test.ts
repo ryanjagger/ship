@@ -6,6 +6,7 @@ import { pool } from '../../../db/client.js';
 import { createOAuthApp } from '../apps.js';
 import { issueAuthorizationCode } from '../codes.js';
 import { base64UrlSha256 } from '../pkce.js';
+import { hashToken } from '../tokens.js';
 
 /**
  * Server-side proof of the Authorization Code + PKCE token exchange, including
@@ -23,6 +24,9 @@ describe('OAuth token exchange + PKCE', () => {
   let appId: string;
   let publicClientId: string;
   let publicAppId: string;
+  let offlineClientId: string;
+  let offlineClientSecret: string;
+  let offlineAppId: string;
 
   beforeAll(async () => {
     const ws = await pool.query<{ id: string }>(
@@ -60,15 +64,25 @@ describe('OAuth token exchange + PKCE', () => {
     });
     publicClientId = publicCreated.app.client_id;
     publicAppId = publicCreated.app.id;
+
+    const offlineCreated = await createOAuthApp({
+      name: 'Offline Token Test App',
+      redirectUris: [redirectUri],
+      ownerUserId: userId,
+      requestedScopes: ['documents:read', 'offline_access'],
+    });
+    offlineClientId = offlineCreated.app.client_id;
+    offlineClientSecret = offlineCreated.clientSecret!;
+    offlineAppId = offlineCreated.app.id;
   });
 
   afterAll(async () => {
-    await pool.query('DELETE FROM oauth_apps WHERE id = ANY($1)', [[appId, publicAppId]]);
+    await pool.query('DELETE FROM oauth_apps WHERE id = ANY($1)', [[appId, publicAppId, offlineAppId]]);
     await pool.query('DELETE FROM workspaces WHERE id = $1', [workspaceId]); // cascades codes/tokens/memberships
     await pool.query('DELETE FROM users WHERE id = $1', [userId]);
   });
 
-  async function freshCode(verifier: string, issuedAppId: string = appId): Promise<string> {
+  async function freshCode(verifier: string, issuedAppId: string = appId, scopes: string[] = ['documents:read']): Promise<string> {
     return issueAuthorizationCode({
       appId: issuedAppId,
       userId,
@@ -76,7 +90,7 @@ describe('OAuth token exchange + PKCE', () => {
       redirectUri,
       codeChallenge: base64UrlSha256(verifier),
       codeChallengeMethod: 'S256',
-      scopes: ['documents:read'],
+      scopes,
     });
   }
 
@@ -96,6 +110,7 @@ describe('OAuth token exchange + PKCE', () => {
     expect(res.body.access_token).toMatch(/^ship_at_/);
     expect(res.body.expires_in).toBe(3600);
     expect(res.body.scope).toBe('documents:read');
+    expect(res.body.refresh_token).toBeUndefined();
   });
 
   it('exchanges a public-client code with PKCE and no client_secret', async () => {
@@ -180,6 +195,116 @@ describe('OAuth token exchange + PKCE', () => {
     });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('unsupported_grant_type');
+  });
+
+  it('issues and rotates refresh tokens only when offline_access is granted', async () => {
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    const code = await freshCode(verifier, offlineAppId, ['documents:read', 'offline_access']);
+    const first = await request(app).post('/api/oauth/token').send({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: offlineClientId,
+      client_secret: offlineClientSecret,
+      code_verifier: verifier,
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.access_token).toMatch(/^ship_at_/);
+    expect(first.body.refresh_token).toMatch(/^ship_rt_/);
+    expect(first.body.refresh_token_expires_in).toBeGreaterThan(3600);
+
+    const rotated = await request(app).post('/api/oauth/token').send({
+      grant_type: 'refresh_token',
+      refresh_token: first.body.refresh_token,
+      client_id: offlineClientId,
+      client_secret: offlineClientSecret,
+    });
+    expect(rotated.status).toBe(200);
+    expect(rotated.body.access_token).toMatch(/^ship_at_/);
+    expect(rotated.body.refresh_token).toMatch(/^ship_rt_/);
+    expect(rotated.body.refresh_token).not.toBe(first.body.refresh_token);
+    expect(rotated.body.scope).toBe('documents:read offline_access');
+  });
+
+  it('revokes the refresh-token family when an already-used token is reused', async () => {
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    const code = await freshCode(verifier, offlineAppId, ['documents:read', 'offline_access']);
+    const issued = await request(app).post('/api/oauth/token').send({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: offlineClientId,
+      client_secret: offlineClientSecret,
+      code_verifier: verifier,
+    });
+    expect(issued.status).toBe(200);
+
+    const rotated = await request(app).post('/api/oauth/token').send({
+      grant_type: 'refresh_token',
+      refresh_token: issued.body.refresh_token,
+      client_id: offlineClientId,
+      client_secret: offlineClientSecret,
+    });
+    expect(rotated.status).toBe(200);
+
+    const reuse = await request(app).post('/api/oauth/token').send({
+      grant_type: 'refresh_token',
+      refresh_token: issued.body.refresh_token,
+      client_id: offlineClientId,
+      client_secret: offlineClientSecret,
+    });
+    expect(reuse.status).toBe(400);
+    expect(reuse.body.error).toBe('invalid_grant');
+
+    const familyRevoked = await request(app).post('/api/oauth/token').send({
+      grant_type: 'refresh_token',
+      refresh_token: rotated.body.refresh_token,
+      client_id: offlineClientId,
+      client_secret: offlineClientSecret,
+    });
+    expect(familyRevoked.status).toBe(400);
+    expect(familyRevoked.body.error).toBe('invalid_grant');
+  });
+
+  it('rejects expired and revoked refresh tokens', async () => {
+    async function issueRefreshToken(): Promise<string> {
+      const verifier = crypto.randomBytes(32).toString('base64url');
+      const code = await freshCode(verifier, offlineAppId, ['documents:read', 'offline_access']);
+      const res = await request(app).post('/api/oauth/token').send({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: offlineClientId,
+        client_secret: offlineClientSecret,
+        code_verifier: verifier,
+      });
+      expect(res.status).toBe(200);
+      return res.body.refresh_token as string;
+    }
+
+    const expired = await issueRefreshToken();
+    await pool.query(`UPDATE oauth_refresh_tokens SET expires_at = now() - interval '1 minute' WHERE token_hash = $1`, [
+      hashToken(expired),
+    ]);
+    const expiredRes = await request(app).post('/api/oauth/token').send({
+      grant_type: 'refresh_token',
+      refresh_token: expired,
+      client_id: offlineClientId,
+      client_secret: offlineClientSecret,
+    });
+    expect(expiredRes.status).toBe(400);
+    expect(expiredRes.body.error).toBe('invalid_grant');
+
+    const revoked = await issueRefreshToken();
+    await pool.query(`UPDATE oauth_refresh_tokens SET revoked_at = now() WHERE token_hash = $1`, [hashToken(revoked)]);
+    const revokedRes = await request(app).post('/api/oauth/token').send({
+      grant_type: 'refresh_token',
+      refresh_token: revoked,
+      client_id: offlineClientId,
+      client_secret: offlineClientSecret,
+    });
+    expect(revokedRes.status).toBe(400);
+    expect(revokedRes.body.error).toBe('invalid_grant');
   });
 
   it('is single-use: a consumed code cannot be exchanged twice', async () => {

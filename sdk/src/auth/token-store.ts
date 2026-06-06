@@ -4,13 +4,16 @@
  * subsequent runs reuse it. Stores NEVER log raw tokens.
  */
 
-/** A persisted OAuth token set. Ship issues short-lived access tokens (no refresh). */
+/** A persisted OAuth token set. Refresh fields are present only with offline_access. */
 export interface ShipTokenSet {
   accessToken: string;
   tokenType?: string;
   scope?: string;
   /** Epoch milliseconds at which the access token expires, if known. */
   expiresAt?: number;
+  refreshToken?: string;
+  /** Epoch milliseconds at which the refresh token expires, if known. */
+  refreshExpiresAt?: number;
 }
 
 export interface ITokenStore {
@@ -29,6 +32,8 @@ export function coerceTokenSet(value: unknown): ShipTokenSet | null {
     tokenType: typeof v.tokenType === 'string' ? v.tokenType : undefined,
     scope: typeof v.scope === 'string' ? v.scope : undefined,
     expiresAt: typeof v.expiresAt === 'number' ? v.expiresAt : undefined,
+    refreshToken: typeof v.refreshToken === 'string' ? v.refreshToken : undefined,
+    refreshExpiresAt: typeof v.refreshExpiresAt === 'number' ? v.refreshExpiresAt : undefined,
   };
 }
 

@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import {
   api,
   type OAuthAppSummary,
   type OAuthAppSecret,
+  type OAuthAppListScope,
   type OAuthScope,
   type WorkspaceConnection,
   type WebhookSubscriptionSummary,
@@ -22,15 +25,20 @@ const INPUT =
   'w-full px-3 py-2 bg-background border border-border rounded-md text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent';
 
 type TabKey = 'apps' | 'connections' | 'webhooks' | 'deliveries' | 'audit';
+const VALID_TABS: TabKey[] = ['apps', 'connections', 'webhooks', 'deliveries', 'audit'];
 
 /**
- * Workspace-scoped developer portal (PRD §8). Self-service management of OAuth
- * apps, webhook subscriptions, the delivery log (with replay), and the public
- * API audit trail. Session-authed; the server enforces workspace-admin access,
- * so this surface is safe to expose to any signed-in admin.
+ * Developer portal (PRD §8). Self-service management of OAuth apps, webhook
+ * subscriptions, the delivery log (with replay), and the public API audit
+ * trail. Most views are workspace-scoped; super admins can use the Apps tab's
+ * all-apps lens for global OAuth client management.
  */
 export function DeveloperPortalPage() {
-  const [tab, setTab] = useState<TabKey>('apps');
+  const { isSuperAdmin } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as TabKey | null;
+  const tab: TabKey = tabParam && VALID_TABS.includes(tabParam) ? tabParam : 'apps';
+  const appScope: OAuthAppListScope = isSuperAdmin && searchParams.get('scope') === 'all' ? 'all' : 'workspace';
 
   const tabs: Array<{ key: TabKey; label: string }> = [
     { key: 'apps', label: 'Apps' },
@@ -39,6 +47,21 @@ export function DeveloperPortalPage() {
     { key: 'deliveries', label: 'Delivery log' },
     { key: 'audit', label: 'API audit' },
   ];
+
+  const updateQuery = useCallback((updates: { tab?: TabKey; scope?: OAuthAppListScope }) => {
+    const next = new URLSearchParams(searchParams);
+    if (updates.tab) next.set('tab', updates.tab);
+    if (updates.scope) next.set('scope', updates.scope);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!isSuperAdmin && searchParams.get('scope') === 'all') {
+      const next = new URLSearchParams(searchParams);
+      next.set('scope', 'workspace');
+      setSearchParams(next, { replace: true });
+    }
+  }, [isSuperAdmin, searchParams, setSearchParams]);
 
   return (
     <div className="flex flex-col h-full overflow-auto" data-testid="developer-portal">
@@ -54,7 +77,7 @@ export function DeveloperPortalPage() {
           <button
             key={t.key}
             data-testid={`dev-tab-${t.key}`}
-            onClick={() => setTab(t.key)}
+            onClick={() => updateQuery({ tab: t.key })}
             className={cn(
               'px-3 py-2.5 text-sm border-b-2 -mb-px transition-colors',
               tab === t.key ? 'border-accent text-foreground' : 'border-transparent text-muted hover:text-foreground'
@@ -66,7 +89,13 @@ export function DeveloperPortalPage() {
       </div>
 
       <div className="p-6">
-        {tab === 'apps' && <AppsTab />}
+        {tab === 'apps' && (
+          <AppsTab
+            appScope={appScope}
+            isSuperAdmin={isSuperAdmin}
+            onScopeChange={(scope) => updateQuery({ scope, tab: 'apps' })}
+          />
+        )}
         {tab === 'connections' && <ConnectionsTab />}
         {tab === 'webhooks' && <WebhooksTab />}
         {tab === 'deliveries' && <DeliveriesTab />}
@@ -86,7 +115,15 @@ interface CreateAppInput {
   allow_device_flow: boolean;
 }
 
-function AppsTab() {
+function AppsTab({
+  appScope,
+  isSuperAdmin,
+  onScopeChange,
+}: {
+  appScope: OAuthAppListScope;
+  isSuperAdmin: boolean;
+  onScopeChange: (scope: OAuthAppListScope) => void;
+}) {
   const { showToast } = useToast();
   const [apps, setApps] = useState<OAuthAppSummary[]>([]);
   const [scopes, setScopes] = useState<OAuthScope[]>([]);
@@ -99,19 +136,19 @@ function AppsTab() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const [appsRes, scopesRes] = await Promise.all([api.developer.listApps(), api.developer.listScopes()]);
+    const [appsRes, scopesRes] = await Promise.all([api.developer.listApps(appScope), api.developer.listScopes()]);
     if (appsRes.success && appsRes.data) setApps(appsRes.data);
     else setError(appsRes.error?.message ?? 'Failed to load apps');
     if (scopesRes.success && scopesRes.data) setScopes(scopesRes.data);
     setLoading(false);
-  }, []);
+  }, [appScope]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function handleCreate(input: CreateAppInput) {
-    const res = await api.developer.createApp(input);
+    const res = await api.developer.createApp(input, appScope);
     if (res.success && res.data) {
       setRevealed(res.data);
       setShowCreate(false);
@@ -127,14 +164,14 @@ function AppsTab() {
     const { kind, app } = pending;
     setPending(null);
     if (kind === 'rotate') {
-      const res = await api.developer.rotateAppSecret(app.id);
+      const res = await api.developer.rotateAppSecret(app.id, appScope);
       if (res.success && res.data) {
         setRevealed(res.data);
         showToast('Client secret rotated', 'success');
         void load();
       } else showToast(res.error?.message ?? 'Failed to rotate secret', 'error', 5000);
     } else {
-      const res = await api.developer.deleteApp(app.id);
+      const res = await api.developer.deleteApp(app.id, appScope);
       if (res.success) {
         showToast('OAuth app deleted', 'success');
         void load();
@@ -152,15 +189,47 @@ function AppsTab() {
           OAuth clients that access the public API at <code className="font-mono">/api/v1</code>. Browser
           apps use public PKCE clients with no secret.
         </p>
-        {!showCreate && (
-          <button
-            onClick={() => setShowCreate(true)}
-            data-testid="dev-new-app"
-            className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm text-white hover:bg-accent/90 transition-colors"
-          >
-            New app
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-3">
+          {isSuperAdmin && (
+            <div className="flex overflow-hidden rounded-md border border-border" data-testid="dev-app-scope-toggle">
+              <button
+                type="button"
+                onClick={() => onScopeChange('workspace')}
+                data-testid="dev-app-scope-workspace"
+                className={cn(
+                  'px-3 py-1.5 text-sm transition-colors',
+                  appScope === 'workspace'
+                    ? 'bg-accent text-white'
+                    : 'text-muted hover:bg-border/40 hover:text-foreground'
+                )}
+              >
+                Workspace apps
+              </button>
+              <button
+                type="button"
+                onClick={() => onScopeChange('all')}
+                data-testid="dev-app-scope-all"
+                className={cn(
+                  'border-l border-border px-3 py-1.5 text-sm transition-colors',
+                  appScope === 'all'
+                    ? 'bg-accent text-white'
+                    : 'text-muted hover:bg-border/40 hover:text-foreground'
+                )}
+              >
+                All apps
+              </button>
+            </div>
+          )}
+          {!showCreate && (
+            <button
+              onClick={() => setShowCreate(true)}
+              data-testid="dev-new-app"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm text-white hover:bg-accent/90 transition-colors"
+            >
+              New app
+            </button>
+          )}
+        </div>
       </div>
 
       {showCreate && <CreateAppForm scopes={scopes} onCancel={() => setShowCreate(false)} onCreate={handleCreate} />}
@@ -173,14 +242,16 @@ function AppsTab() {
               <th className={TH}>Client ID</th>
               <th className={TH}>Type</th>
               <th className={TH}>Scopes</th>
+              <th className={TH}>Device flow</th>
               <th className={TH}>Owner</th>
+              <th className={TH}>Created</th>
               <th className={cn(TH, 'text-right')}>Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {apps.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted">
                   No apps yet. Create one to start building on the API.
                 </td>
               </tr>
@@ -204,10 +275,26 @@ function AppsTab() {
                   <td className={cn(TD, 'text-muted')}>
                     {app.requested_scopes.length ? app.requested_scopes.join(', ') : '—'}
                   </td>
+                  <td className={TD}>
+                    {app.allow_device_flow ? (
+                      <span className="text-green-500">Enabled</span>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
                   <td className={cn(TD, 'text-muted')}>{app.owner_email ?? '—'}</td>
+                  <td className={cn(TD, 'text-muted whitespace-nowrap')}>
+                    {new Date(app.created_at).toLocaleDateString()}
+                  </td>
                   <td className={cn(TD, 'text-right whitespace-nowrap')}>
                     {app.is_system ? (
-                      <span className="text-sm text-muted">Managed by platform</span>
+                      <span
+                        className="text-sm text-muted"
+                        title="This client is provisioned and managed by the platform."
+                        data-testid="dev-app-system-managed"
+                      >
+                        Managed by platform
+                      </span>
                     ) : (
                       <>
                         {app.client_type === 'confidential' && (

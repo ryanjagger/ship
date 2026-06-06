@@ -16,10 +16,11 @@ const SYSTEM_CLIENT_PROTECTED =
 const PUBLIC_CLIENT_NO_SECRET = 'Public PKCE clients do not have a client secret to rotate.';
 
 /**
- * Admin-only OAuth app registration (PRD §5.2). This is internal tooling — it
- * lives behind Ship's session auth + CSRF + super-admin guard and uses the
- * internal `{ success, data }` envelope, NOT the public ApiError contract. A
- * self-service developer portal is out of scope for the gate.
+ * Admin-only OAuth app registration API (PRD §5.2). This remains for direct
+ * internal automation and protocol tests; the UI now lives in the Developer
+ * Portal's super-admin all-apps lens. It sits behind Ship's session auth + CSRF
+ * + super-admin guard and uses the internal `{ success, data }` envelope, NOT
+ * the public ApiError contract.
  */
 const router: RouterType = Router();
 

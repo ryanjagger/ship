@@ -343,7 +343,7 @@ async function seedMinimalTestData(pool: Pool): Promise<void> {
   // marks migrations applied WITHOUT running them. The scope list MUST mirror
   // migration 056 — `ship login` requests webhooks:manage/people:read and the device
   // flow rejects scopes the app isn't registered for (invalid_scope). Also needed so
-  // the admin OAuth Apps spec can assert system clients render read-only.
+  // the Developer Portal all-apps spec can assert system clients render read-only.
   await pool.query(
     `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, allow_device_flow, is_system)
      VALUES ('client_ship_cli', 'unused-public-client-no-secret', 'Ship CLI', ARRAY[]::text[], NULL, ARRAY['documents:read', 'documents:write', 'webhooks:manage', 'people:read'], true, true)

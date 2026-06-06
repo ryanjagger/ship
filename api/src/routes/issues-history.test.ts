@@ -249,6 +249,8 @@ describe('Issues History API', () => {
       vi.mocked(mockClient.query)
         // Get existing issue
         .mockResolvedValueOnce({ rows: [existingIssue] } as any)
+        // Load belongs_to for the pre-update webhook payload
+        .mockResolvedValueOnce({ rows: [] } as any)
         // Check for children (cascade warning check)
         .mockResolvedValueOnce({ rows: [] } as any)
         // BEGIN
@@ -259,6 +261,16 @@ describe('Issues History API', () => {
         .mockResolvedValueOnce({ rows: [updatedRow] } as any)
         // Fetch updated issue after UPDATE
         .mockResolvedValueOnce({ rows: [updatedRow] } as any)
+        // Load belongs_to for the post-update webhook payload
+        .mockResolvedValueOnce({ rows: [] } as any)
+        // Persist issue.updated webhook event
+        .mockResolvedValueOnce({ rows: [] } as any)
+        // Fan out issue.updated webhook deliveries
+        .mockResolvedValueOnce({ rows: [] } as any)
+        // Persist issue.status_changed webhook event
+        .mockResolvedValueOnce({ rows: [] } as any)
+        // Fan out issue.status_changed webhook deliveries
+        .mockResolvedValueOnce({ rows: [] } as any)
         // COMMIT
         .mockResolvedValueOnce({ rows: [] } as any);
 

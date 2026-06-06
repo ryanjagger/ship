@@ -50,6 +50,11 @@ const SCOPES: ScopeDefinition[] = [
   { scope: 'weekly_reviews:read', description: 'Read weekly reviews.', exercised: true },
   { scope: 'weekly_reviews:write', description: 'Create, update, and delete weekly reviews.', exercised: true },
   { scope: 'webhooks:manage', description: 'Manage webhook subscriptions.', exercised: true },
+  {
+    scope: 'offline_access',
+    description: 'Issue a refresh token so an installed integration can keep access after the one-hour access token expires.',
+    exercised: true,
+  },
 ];
 
 export class ScopeRegistry {
