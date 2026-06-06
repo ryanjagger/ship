@@ -627,7 +627,7 @@ function AppPicker({ apps, value, onChange }: { apps: OAuthAppSummary[]; value: 
       <option value="">Select an app…</option>
       {apps.map((a) => (
         <option key={a.id} value={a.id}>
-          {a.name}
+          {a.is_system ? `${a.name} (system)` : a.name}
         </option>
       ))}
     </select>
