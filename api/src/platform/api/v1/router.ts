@@ -7,6 +7,10 @@ import { documentsRouter } from './routes/documents.js';
 import { typedDocumentRouters } from './routes/typed-documents.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { webhookDeliveriesRouter } from './routes/webhook-deliveries.js';
+import { appsRouter } from './routes/apps.js';
+import { connectionsRouter } from './routes/connections.js';
+import { auditRouter } from './routes/audit.js';
+import { scopesRouter } from './routes/scopes.js';
 import { generateV1OpenApiDocument } from './openapi/spec.js';
 
 /**
@@ -44,6 +48,12 @@ v1Router.use('/me', meRouter);
 // `/webhook-deliveries` are not shadowed by any future path collision.
 v1Router.use('/webhooks', webhooksRouter);
 v1Router.use('/webhook-deliveries', webhookDeliveriesRouter);
+// Developer-platform admin surface (Developer Portal dogfoods these): apps +
+// per-app webhooks/deliveries, connections, audit, and the scope catalog.
+v1Router.use('/apps', appsRouter);
+v1Router.use('/connections', connectionsRouter);
+v1Router.use('/audit', auditRouter);
+v1Router.use('/scopes', scopesRouter);
 for (const resource of typedDocumentRouters) {
   v1Router.use(`/${resource.path}`, resource.router);
 }

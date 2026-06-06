@@ -2,19 +2,20 @@ import { useState, useEffect, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import {
-  api,
-  type OAuthAppSummary,
-  type OAuthAppSecret,
-  type OAuthAppListScope,
-  type OAuthScope,
-  type WorkspaceConnection,
-  type WebhookSubscriptionSummary,
-  type WebhookSubscriptionSecret,
-  type WebhookDeliverySummary,
-  type WebhookDeliveryDetail,
-  type PublicApiAuditRow,
-} from '@/lib/api';
+import { api, type OAuthAppListScope } from '@/lib/api';
+import type {
+  ShipOAuthApp,
+  CreatedOAuthApp,
+  ShipScope,
+  ShipConnection,
+  ShipWebhookSubscription,
+  CreatedWebhookSubscription,
+  ShipWebhookDelivery,
+  ShipWebhookDeliveryDetail,
+  PublicApiAuditEntry,
+} from '@ryanjagger/ship-sdk';
+import { usePortalClient } from '@/hooks/usePortalClient';
+import { sdkErrorMessage } from '@/lib/portal-client';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
 import { cn } from '@/lib/cn';
@@ -23,6 +24,19 @@ const TH = 'px-4 py-3 text-left text-sm font-medium text-muted';
 const TD = 'px-4 py-3 text-sm';
 const INPUT =
   'w-full px-3 py-2 bg-background border border-border rounded-md text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent';
+
+/** One-time secret copy (the public API returns secrets only on create/rotate). */
+const SECRET_WARNING = 'Save this secret now. It will not be shown again.';
+/** The portal's own system client — its API traffic is hidden from the audit tab by default. */
+const PORTAL_CLIENT_ID = 'client_ship_developer_portal';
+
+/** What the secret-reveal modal needs; satisfied by both SDK and legacy lens responses. */
+interface RevealedAppSecret {
+  name: string;
+  client_id: string;
+  client_secret?: string;
+  warning: string;
+}
 
 type TabKey = 'apps' | 'connections' | 'webhooks' | 'deliveries' | 'audit';
 const VALID_TABS: TabKey[] = ['apps', 'connections', 'webhooks', 'deliveries', 'audit'];
@@ -125,37 +139,56 @@ function AppsTab({
   onScopeChange: (scope: OAuthAppListScope) => void;
 }) {
   const { showToast } = useToast();
-  const [apps, setApps] = useState<OAuthAppSummary[]>([]);
-  const [scopes, setScopes] = useState<OAuthScope[]>([]);
+  const withClient = usePortalClient();
+  const [apps, setApps] = useState<ShipOAuthApp[]>([]);
+  const [scopes, setScopes] = useState<ShipScope[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [revealed, setRevealed] = useState<OAuthAppSecret | null>(null);
-  const [pending, setPending] = useState<{ kind: 'rotate' | 'delete'; app: OAuthAppSummary } | null>(null);
+  const [revealed, setRevealed] = useState<RevealedAppSecret | null>(null);
+  const [pending, setPending] = useState<{ kind: 'rotate' | 'delete'; app: ShipOAuthApp } | null>(null);
 
+  // Workspace lens goes through the SDK (the portal is a public-API client);
+  // the super-admin all-apps lens is cross-workspace and stays on the slim
+  // internal route. The scope catalog always comes from the SDK.
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const [appsRes, scopesRes] = await Promise.all([api.developer.listApps(appScope), api.developer.listScopes()]);
-    if (appsRes.success && appsRes.data) setApps(appsRes.data);
-    else setError(appsRes.error?.message ?? 'Failed to load apps');
-    if (scopesRes.success && scopesRes.data) setScopes(scopesRes.data);
+    try {
+      if (appScope === 'all') {
+        const [appsRes, scopesList] = await Promise.all([
+          api.developer.listAllApps(),
+          withClient((c) => c.scopes.list()),
+        ]);
+        if (appsRes.success && appsRes.data) setApps(appsRes.data);
+        else throw new Error(appsRes.error?.message ?? 'Failed to load apps');
+        setScopes(scopesList.data);
+      } else {
+        const [appsList, scopesList] = await withClient((c) => Promise.all([c.apps.list(), c.scopes.list()]));
+        setApps(appsList.data);
+        setScopes(scopesList.data);
+      }
+    } catch (err) {
+      setError(sdkErrorMessage(err, 'Failed to load apps'));
+    }
     setLoading(false);
-  }, [appScope]);
+  }, [appScope, withClient]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  // Creation always goes through the SDK: a created app is owned by the caller,
+  // so it shows up in both lenses.
   async function handleCreate(input: CreateAppInput) {
-    const res = await api.developer.createApp(input, appScope);
-    if (res.success && res.data) {
-      setRevealed(res.data);
+    try {
+      const created = await withClient((c) => c.apps.create(input));
+      setRevealed(created);
       setShowCreate(false);
       showToast('OAuth app created', 'success');
       void load();
-    } else {
-      showToast(res.error?.message ?? 'Failed to create app', 'error', 5000);
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to create app'), 'error', 5000);
     }
   }
 
@@ -164,18 +197,34 @@ function AppsTab({
     const { kind, app } = pending;
     setPending(null);
     if (kind === 'rotate') {
-      const res = await api.developer.rotateAppSecret(app.id, appScope);
-      if (res.success && res.data) {
-        setRevealed(res.data);
+      try {
+        let rotated: RevealedAppSecret;
+        if (appScope === 'all') {
+          const res = await api.developer.rotateAppSecretAll(app.id);
+          if (!res.success || !res.data) throw new Error(res.error?.message ?? 'Failed to rotate secret');
+          rotated = res.data;
+        } else {
+          rotated = await withClient((c) => c.apps.rotateSecret(app.id));
+        }
+        setRevealed(rotated);
         showToast('Client secret rotated', 'success');
         void load();
-      } else showToast(res.error?.message ?? 'Failed to rotate secret', 'error', 5000);
+      } catch (err) {
+        showToast(sdkErrorMessage(err, 'Failed to rotate secret'), 'error', 5000);
+      }
     } else {
-      const res = await api.developer.deleteApp(app.id, appScope);
-      if (res.success) {
+      try {
+        if (appScope === 'all') {
+          const res = await api.developer.deleteAppAll(app.id);
+          if (!res.success) throw new Error(res.error?.message ?? 'Failed to delete app');
+        } else {
+          await withClient((c) => c.apps.delete(app.id));
+        }
         showToast('OAuth app deleted', 'success');
         void load();
-      } else showToast(res.error?.message ?? 'Failed to delete app', 'error', 5000);
+      } catch (err) {
+        showToast(sdkErrorMessage(err, 'Failed to delete app'), 'error', 5000);
+      }
     }
   }
 
@@ -359,7 +408,7 @@ function CreateAppForm({
   onCancel,
   onCreate,
 }: {
-  scopes: OAuthScope[];
+  scopes: ShipScope[];
   onCancel: () => void;
   onCreate: (input: CreateAppInput) => Promise<void>;
 }) {
@@ -491,19 +540,23 @@ function CreateAppForm({
  */
 function ConnectionsTab() {
   const { showToast } = useToast();
-  const [connections, setConnections] = useState<WorkspaceConnection[]>([]);
+  const withClient = usePortalClient();
+  const [connections, setConnections] = useState<ShipConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<WorkspaceConnection | null>(null);
+  const [pending, setPending] = useState<ShipConnection | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const res = await api.developer.listConnections();
-    if (res.success && res.data) setConnections(res.data);
-    else setError(res.error?.message ?? 'Failed to load connections');
+    try {
+      const res = await withClient((c) => c.connections.list());
+      setConnections(res.data);
+    } catch (err) {
+      setError(sdkErrorMessage(err, 'Failed to load connections'));
+    }
     setLoading(false);
-  }, []);
+  }, [withClient]);
 
   useEffect(() => {
     void load();
@@ -513,11 +566,13 @@ function ConnectionsTab() {
     if (!pending) return;
     const conn = pending;
     setPending(null);
-    const res = await api.developer.revokeConnection(conn.app_id, conn.user_id);
-    if (res.success) {
+    try {
+      await withClient((c) => c.connections.revoke(conn.app_id, conn.user_id));
       showToast('Connection revoked', 'success');
       void load();
-    } else showToast(res.error?.message ?? 'Failed to revoke connection', 'error', 5000);
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to revoke connection'), 'error', 5000);
+    }
   }
 
   if (loading) return <Loading />;
@@ -609,19 +664,24 @@ function ConnectionsTab() {
 // ── App picker (shared by Webhooks + Deliveries) ─────────────────────────────
 
 function useApps() {
-  const [apps, setApps] = useState<OAuthAppSummary[]>([]);
+  const withClient = usePortalClient();
+  const [apps, setApps] = useState<ShipOAuthApp[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     void (async () => {
-      const res = await api.developer.listApps();
-      if (res.success && res.data) setApps(res.data);
+      try {
+        const res = await withClient((c) => c.apps.list());
+        setApps(res.data);
+      } catch {
+        // The picker just renders empty; tab-level actions surface their own errors.
+      }
       setLoading(false);
     })();
-  }, []);
+  }, [withClient]);
   return { apps, loading };
 }
 
-function AppPicker({ apps, value, onChange }: { apps: OAuthAppSummary[]; value: string; onChange: (id: string) => void }) {
+function AppPicker({ apps, value, onChange }: { apps: ShipOAuthApp[]; value: string; onChange: (id: string) => void }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} data-testid="dev-app-picker" className={cn(INPUT, 'max-w-sm')}>
       <option value="">Select an app…</option>
@@ -638,51 +698,63 @@ function AppPicker({ apps, value, onChange }: { apps: OAuthAppSummary[]; value: 
 
 function WebhooksTab() {
   const { showToast } = useToast();
+  const withClient = usePortalClient();
   const { apps, loading: appsLoading } = useApps();
   const [appId, setAppId] = useState('');
-  const [subs, setSubs] = useState<WebhookSubscriptionSummary[]>([]);
+  const [subs, setSubs] = useState<ShipWebhookSubscription[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const [revealed, setRevealed] = useState<WebhookSubscriptionSecret | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<WebhookSubscriptionSummary | null>(null);
+  const [revealed, setRevealed] = useState<CreatedWebhookSubscription | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ShipWebhookSubscription | null>(null);
 
   const load = useCallback(async (id: string) => {
     if (!id) return setSubs([]);
     setLoading(true);
-    const res = await api.developer.listSubscriptions(id);
-    if (res.success && res.data) setSubs(res.data);
+    try {
+      const res = await withClient((c) => c.apps.webhooks.list(id));
+      setSubs(res.data);
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to load subscriptions'), 'error', 5000);
+    }
     setLoading(false);
-  }, []);
+  }, [withClient, showToast]);
 
   useEffect(() => {
     void load(appId);
   }, [appId, load]);
 
   async function handleCreate(input: { url: string; events: string[] }) {
-    const res = await api.developer.createSubscription(appId, input);
-    if (res.success && res.data) {
-      setRevealed(res.data);
+    try {
+      const created = await withClient((c) => c.apps.webhooks.create(appId, input));
+      setRevealed(created);
       setShowCreate(false);
       showToast('Subscription created', 'success');
       void load(appId);
-    } else showToast(res.error?.message ?? 'Failed to create subscription', 'error', 5000);
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to create subscription'), 'error', 5000);
+    }
   }
 
-  async function toggleActive(sub: WebhookSubscriptionSummary) {
-    const res = await api.developer.updateSubscription(appId, sub.id, { active: !sub.active });
-    if (res.success) void load(appId);
-    else showToast(res.error?.message ?? 'Failed to update subscription', 'error', 5000);
+  async function toggleActive(sub: ShipWebhookSubscription) {
+    try {
+      await withClient((c) => c.apps.webhooks.update(appId, sub.id, { active: !sub.active }));
+      void load(appId);
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to update subscription'), 'error', 5000);
+    }
   }
 
   async function confirmDelete() {
     if (!pendingDelete) return;
     const sub = pendingDelete;
     setPendingDelete(null);
-    const res = await api.developer.deleteSubscription(appId, sub.id);
-    if (res.success) {
+    try {
+      await withClient((c) => c.apps.webhooks.delete(appId, sub.id));
       showToast('Subscription deleted', 'success');
       void load(appId);
-    } else showToast(res.error?.message ?? 'Failed to delete subscription', 'error', 5000);
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to delete subscription'), 'error', 5000);
+    }
   }
 
   if (appsLoading) return <Loading />;
@@ -749,7 +821,7 @@ function WebhooksTab() {
       {revealed && (
         <SecretRevealModal
           title="Webhook signing secret"
-          warning={revealed.warning}
+          warning={SECRET_WARNING}
           rows={[{ label: 'Signing secret', value: revealed.secret, testId: 'dev-sub-secret-value' }]}
           onClose={() => setRevealed(null)}
         />
@@ -829,36 +901,48 @@ const DELIVERY_STATUS_COLOR: Record<string, string> = {
 
 function DeliveriesTab() {
   const { showToast } = useToast();
+  const withClient = usePortalClient();
   const { apps, loading: appsLoading } = useApps();
   const [appId, setAppId] = useState('');
-  const [deliveries, setDeliveries] = useState<WebhookDeliverySummary[]>([]);
+  const [deliveries, setDeliveries] = useState<ShipWebhookDelivery[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
-  const [detail, setDetail] = useState<WebhookDeliveryDetail | null>(null);
+  const [detail, setDetail] = useState<ShipWebhookDeliveryDetail | null>(null);
 
   const load = useCallback(async (id: string, status: string) => {
     if (!id) return setDeliveries([]);
     setLoading(true);
-    const res = await api.developer.listDeliveries(id, status ? { status } : undefined);
-    if (res.success && res.data) setDeliveries(res.data);
+    try {
+      const res = await withClient((c) =>
+        c.apps.deliveries.list(id, status ? { status: status as ShipWebhookDelivery['status'] } : {})
+      );
+      setDeliveries(res.data);
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to load deliveries'), 'error', 5000);
+    }
     setLoading(false);
-  }, []);
+  }, [withClient, showToast]);
 
   useEffect(() => {
     void load(appId, statusFilter);
   }, [appId, statusFilter, load]);
 
   async function openDetail(id: string) {
-    const res = await api.developer.getDelivery(appId, id);
-    if (res.success && res.data) setDetail(res.data);
+    try {
+      setDetail(await withClient((c) => c.apps.deliveries.get(appId, id)));
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to load delivery'), 'error', 5000);
+    }
   }
 
   async function replay(id: string) {
-    const res = await api.developer.replayDelivery(appId, id);
-    if (res.success && res.data) {
-      showToast(`Replayed — new delivery ${res.data.delivery_id.slice(0, 8)}…`, 'success');
+    try {
+      const res = await withClient((c) => c.apps.deliveries.replay(appId, id));
+      showToast(`Replayed — new delivery ${res.delivery_id.slice(0, 8)}…`, 'success');
       void load(appId, statusFilter);
-    } else showToast(res.error?.message ?? 'Failed to replay delivery', 'error', 5000);
+    } catch (err) {
+      showToast(sdkErrorMessage(err, 'Failed to replay delivery'), 'error', 5000);
+    }
   }
 
   if (appsLoading) return <Loading />;
@@ -936,7 +1020,7 @@ function DeliveriesTab() {
   );
 }
 
-function DeliveryDetailModal({ detail, onClose, onReplay }: { detail: WebhookDeliveryDetail; onClose: () => void; onReplay: () => void }) {
+function DeliveryDetailModal({ detail, onClose, onReplay }: { detail: ShipWebhookDeliveryDetail; onClose: () => void; onReplay: () => void }) {
   const canReplay = detail.status === 'failed' || detail.status === 'dead_lettered';
   return (
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
@@ -1000,43 +1084,66 @@ function DeliveryDetailModal({ detail, onClose, onReplay }: { detail: WebhookDel
 // ── API audit ─────────────────────────────────────────────────────────────────
 
 function AuditTab() {
-  const [rows, setRows] = useState<PublicApiAuditRow[]>([]);
+  const withClient = usePortalClient();
+  const [rows, setRows] = useState<PublicApiAuditEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusClass, setStatusClass] = useState('');
+  // The portal's own SDK calls are recorded like any client's; hide them by
+  // default so this view isn't a feedback loop of its own polling.
+  const [includePortal, setIncludePortal] = useState(false);
 
-  const load = useCallback(async (sc: string) => {
+  const load = useCallback(async (sc: string, withPortal: boolean) => {
     setLoading(true);
     setError(null);
-    const res = await api.developer.listAudit(sc ? { status_class: sc } : undefined);
-    if (res.success && res.data) {
-      setRows(res.data.data);
-      setTotal(res.data.total);
-    } else setError(res.error?.message ?? 'Failed to load audit log');
+    try {
+      const res = await withClient((c) =>
+        c.audit.list({
+          ...(sc ? { status_class: Number(sc) as 2 | 4 | 5 } : {}),
+          ...(withPortal ? {} : { exclude_client_id: PORTAL_CLIENT_ID }),
+        })
+      );
+      setRows(res.data);
+      setTotal(res.total);
+    } catch (err) {
+      setError(sdkErrorMessage(err, 'Failed to load audit log'));
+    }
     setLoading(false);
-  }, []);
+  }, [withClient]);
 
   useEffect(() => {
-    void load(statusClass);
-  }, [statusClass, load]);
+    void load(statusClass, includePortal);
+  }, [statusClass, includePortal, load]);
 
   return (
     <div className="space-y-4" data-testid="dev-audit">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted">Authenticated requests to your workspace's public API ({total} total).</p>
-        <select value={statusClass} onChange={(e) => setStatusClass(e.target.value)} data-testid="dev-audit-status-filter" className={cn(INPUT, 'max-w-[160px]')}>
-          <option value="">All statuses</option>
-          <option value="2">2xx success</option>
-          <option value="4">4xx client error</option>
-          <option value="5">5xx server error</option>
-        </select>
+        <div className="flex shrink-0 items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-muted whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={includePortal}
+              onChange={(e) => setIncludePortal(e.target.checked)}
+              data-testid="dev-audit-include-portal"
+              className="rounded border-border"
+            />
+            Include Developer Portal traffic
+          </label>
+          <select value={statusClass} onChange={(e) => setStatusClass(e.target.value)} data-testid="dev-audit-status-filter" className={cn(INPUT, 'max-w-[160px]')}>
+            <option value="">All statuses</option>
+            <option value="2">2xx success</option>
+            <option value="4">4xx client error</option>
+            <option value="5">5xx server error</option>
+          </select>
+        </div>
       </div>
 
       {loading ? (
         <Loading />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void load(statusClass)} />
+        <ErrorState message={error} onRetry={() => void load(statusClass, includePortal)} />
       ) : (
         <div className="border border-border rounded-lg overflow-hidden">
           <table className="w-full">

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api, UserInfo, Workspace } from '@/lib/api';
+import { clearPortalToken } from '@/lib/portal-client';
 import { useWorkspace, WorkspaceWithRole } from '@/contexts/WorkspaceContext';
 
 // Cache key for offline auth
@@ -160,6 +161,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setWorkspaces([]);
     setImpersonating(null);
     clearCachedAuthData();
+    // Drop the Developer Portal's cached public-API bearer token: it has its
+    // own 15-min TTL and authorizes the user it was minted for, so it must not
+    // survive into another user's login in this same tab.
+    clearPortalToken();
   }, [setCurrentWorkspace, setWorkspaces]);
 
   const endImpersonation = useCallback(async () => {

@@ -411,6 +411,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@ryanjagger/ship-sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@ship/shared':
         specifier: workspace:*
         version: link:../shared

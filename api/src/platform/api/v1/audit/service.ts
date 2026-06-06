@@ -77,6 +77,13 @@ export interface AuditQueryFilters {
   statusClass?: 2 | 3 | 4 | 5;
   from?: Date;
   to?: Date;
+  /**
+   * Hide one client's traffic. The Developer Portal — itself a public-API
+   * client — excludes its own client_id by default so the audit view isn't a
+   * feedback loop of its own polling. Recording is unconditional; only the
+   * query filters.
+   */
+  excludeClientId?: string;
   limit?: number;
   offset?: number;
 }
@@ -119,6 +126,10 @@ export async function queryPublicApiAudit(filters: AuditQueryFilters): Promise<A
   if (filters.to) {
     where.push(`created_at <= $${i++}`);
     params.push(filters.to);
+  }
+  if (filters.excludeClientId) {
+    where.push(`client_id IS DISTINCT FROM $${i++}`);
+    params.push(filters.excludeClientId);
   }
 
   const whereSql = where.join(' AND ');

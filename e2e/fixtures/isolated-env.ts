@@ -350,6 +350,16 @@ async function seedMinimalTestData(pool: Pool): Promise<void> {
      ON CONFLICT (client_id) DO NOTHING`
   );
 
+  // System OAuth client for the Developer Portal SPA. Provisioned by migration 061
+  // in real environments; mirrored here for the same reason as the CLI client above.
+  // The portal mints short-lived tokens for this app via POST /api/developer/token
+  // and uses them against /api/v1 — without this row every portal tab 500s at mint.
+  await pool.query(
+    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, client_type, allow_device_flow, is_system)
+     VALUES ('client_ship_developer_portal', NULL, 'Developer Portal', ARRAY[]::text[], NULL, ARRAY['apps:manage', 'connections:manage', 'audit:read'], 'public', false, true)
+     ON CONFLICT (client_id) DO NOTHING`
+  );
+
   // Hash the test password
   const passwordHash = await bcrypt.hash('admin123', 10);
 

@@ -71,4 +71,22 @@ export const OPERATION_MANIFEST: Record<string, ManifestEntry> = {
   [operationKey('GET', '/webhook-deliveries')]: { sdkMethod: 'client.webhooks.deliveries.list' },
   [operationKey('GET', '/webhook-deliveries/{id}')]: { sdkMethod: 'client.webhooks.deliveries.get' },
   [operationKey('POST', '/webhook-deliveries/{id}/replay')]: { sdkMethod: 'client.webhooks.deliveries.replay' },
+
+  // Developer-platform administration (the Developer Portal dogfoods these).
+  [operationKey('GET', '/scopes')]: { sdkMethod: 'client.scopes.list' },
+  [operationKey('GET', '/apps')]: { sdkMethod: 'client.apps.list' },
+  [operationKey('POST', '/apps')]: { sdkMethod: 'client.apps.create' },
+  [operationKey('POST', '/apps/{appId}/rotate-secret')]: { sdkMethod: 'client.apps.rotateSecret' },
+  [operationKey('DELETE', '/apps/{appId}')]: { sdkMethod: 'client.apps.delete' },
+  [operationKey('GET', '/apps/{appId}/webhooks')]: { sdkMethod: 'client.apps.webhooks.list' },
+  [operationKey('POST', '/apps/{appId}/webhooks')]: { sdkMethod: 'client.apps.webhooks.create' },
+  [operationKey('PATCH', '/apps/{appId}/webhooks/{subscriptionId}')]: { sdkMethod: 'client.apps.webhooks.update' },
+  [operationKey('DELETE', '/apps/{appId}/webhooks/{subscriptionId}')]: { sdkMethod: 'client.apps.webhooks.delete' },
+  [operationKey('POST', '/apps/{appId}/webhooks/{subscriptionId}/rotate-secret')]: { sdkMethod: 'client.apps.webhooks.rotateSecret' },
+  [operationKey('GET', '/apps/{appId}/deliveries')]: { sdkMethod: 'client.apps.deliveries.list' },
+  [operationKey('GET', '/apps/{appId}/deliveries/{deliveryId}')]: { sdkMethod: 'client.apps.deliveries.get' },
+  [operationKey('POST', '/apps/{appId}/deliveries/{deliveryId}/replay')]: { sdkMethod: 'client.apps.deliveries.replay' },
+  [operationKey('GET', '/connections')]: { sdkMethod: 'client.connections.list' },
+  [operationKey('DELETE', '/connections/{appId}/users/{userId}')]: { sdkMethod: 'client.connections.revoke' },
+  [operationKey('GET', '/audit')]: { sdkMethod: 'client.audit.list' },
 };

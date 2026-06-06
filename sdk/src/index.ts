@@ -568,6 +568,119 @@ export interface DataList<T> {
   data: T[];
 }
 
+// ── Developer-platform administration ───────────────────────────────────────
+// Workspace OAuth-app admin (`apps:manage`), connections (`connections:manage`),
+// and the public API audit trail (`audit:read`). Beyond the scope, these
+// endpoints require the token's USER to be a workspace admin — a member-role
+// user's token gets 403 with details.reason = 'workspace_admin_required'.
+
+/** A registered OAuth scope from `GET /api/v1/scopes`. */
+export interface ShipScope {
+  scope: string;
+  description: string;
+  exercised: boolean;
+}
+
+export interface ShipOAuthApp {
+  id: string;
+  client_id: string;
+  name: string;
+  redirect_uris: string[];
+  owner_user_id: string | null;
+  requested_scopes: string[];
+  client_type: 'public' | 'confidential';
+  allow_device_flow: boolean;
+  /** Platform-managed first-party client (e.g. the Ship CLI) — read-only. */
+  is_system: boolean;
+  owner_email: string | null;
+  owner_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateOAuthAppInput {
+  name: string;
+  /** Required unless `allow_device_flow` is true. */
+  redirect_uris?: string[];
+  requested_scopes?: string[];
+  /** Browser/SPAs should be `public` (PKCE only); backend apps `confidential`. Defaults to `confidential`. */
+  client_type?: 'public' | 'confidential';
+  allow_device_flow?: boolean;
+}
+
+/** Returned by app create + rotate-secret: `client_secret` (confidential clients) is shown once. */
+export interface CreatedOAuthApp {
+  id: string;
+  client_id: string;
+  client_secret?: string;
+  name: string;
+  redirect_uris: string[];
+  requested_scopes: string[];
+  client_type: 'public' | 'confidential';
+  allow_device_flow: boolean;
+  warning: string;
+}
+
+/** A connected app: one (app, user) pair holding at least one live access token. */
+export interface ShipConnection {
+  app_id: string;
+  client_id: string;
+  app_name: string;
+  is_system: boolean;
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  /** Union of scopes across the pair's live tokens. */
+  scopes: string[];
+  active_token_count: number;
+  first_authorized_at: string;
+  last_used_at: string | null;
+  expires_at: string;
+}
+
+export interface RevokeConnectionResult {
+  tokens_revoked: number;
+}
+
+/** One authenticated /api/v1 request (no bodies, tokens, or secrets recorded). */
+export interface PublicApiAuditEntry {
+  id: string;
+  created_at: string;
+  client_id: string | null;
+  app_id: string | null;
+  token_id: string | null;
+  user_id: string | null;
+  workspace_id: string | null;
+  method: string;
+  route: string;
+  scope: string | null;
+  status: number;
+  latency_ms: number;
+  request_id: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+}
+
+export interface AuditListParams {
+  app_id?: string;
+  user_id?: string;
+  route?: string;
+  /** 2 | 3 | 4 | 5 → matches 2xx/3xx/4xx/5xx. */
+  status_class?: 2 | 3 | 4 | 5;
+  /** ISO 8601 timestamps. */
+  from?: string;
+  to?: string;
+  /** Hide one client's traffic (e.g. the Developer Portal excludes its own client_id). */
+  exclude_client_id?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditLogList {
+  data: PublicApiAuditEntry[];
+  total: number;
+}
+
 /** Internal transport shared by the client and its resource sub-clients. */
 interface Transport {
   request<T>(method: string, path: string, body?: unknown): Promise<T>;
@@ -711,6 +824,152 @@ export class WebhooksClient {
   }
 }
 
+/** The registered scope catalog (`GET /api/v1/scopes`, auth-only). */
+export class ScopesClient {
+  constructor(private readonly transport: Transport) {}
+
+  list(): Promise<DataList<ShipScope>> {
+    return this.transport.request<DataList<ShipScope>>('GET', '/api/v1/scopes');
+  }
+}
+
+/**
+ * Webhook subscriptions of a TARGET app (`/api/v1/apps/{appId}/webhooks`).
+ * Unlike `client.webhooks` (the calling app's own subscriptions), these manage
+ * any workspace app's subscriptions; event families are gated on the TARGET
+ * app's registered scopes. Requires `apps:manage` + a workspace-admin user.
+ */
+export class AppWebhooksClient {
+  constructor(private readonly transport: Transport) {}
+
+  list(appId: string): Promise<DataList<ShipWebhookSubscription>> {
+    return this.transport.request<DataList<ShipWebhookSubscription>>('GET', `/api/v1/apps/${encodeURIComponent(appId)}/webhooks`);
+  }
+
+  create(appId: string, input: CreateWebhookSubscriptionInput): Promise<CreatedWebhookSubscription> {
+    return this.transport.request<CreatedWebhookSubscription>('POST', `/api/v1/apps/${encodeURIComponent(appId)}/webhooks`, input);
+  }
+
+  update(appId: string, subscriptionId: string, input: UpdateWebhookSubscriptionInput): Promise<ShipWebhookSubscription> {
+    return this.transport.request<ShipWebhookSubscription>(
+      'PATCH',
+      `/api/v1/apps/${encodeURIComponent(appId)}/webhooks/${encodeURIComponent(subscriptionId)}`,
+      input
+    );
+  }
+
+  async delete(appId: string, subscriptionId: string): Promise<void> {
+    await this.transport.request<null>(
+      'DELETE',
+      `/api/v1/apps/${encodeURIComponent(appId)}/webhooks/${encodeURIComponent(subscriptionId)}`
+    );
+  }
+
+  rotateSecret(appId: string, subscriptionId: string): Promise<CreatedWebhookSubscription> {
+    return this.transport.request<CreatedWebhookSubscription>(
+      'POST',
+      `/api/v1/apps/${encodeURIComponent(appId)}/webhooks/${encodeURIComponent(subscriptionId)}/rotate-secret`
+    );
+  }
+}
+
+/** Delivery log + replay of a TARGET app (`/api/v1/apps/{appId}/deliveries`). */
+export class AppDeliveriesClient {
+  constructor(private readonly transport: Transport) {}
+
+  list(appId: string, params: WebhookDeliveryListParams = {}): Promise<DataList<ShipWebhookDelivery>> {
+    const qs = new URLSearchParams();
+    if (params.subscription_id) qs.set('subscription_id', params.subscription_id);
+    if (params.event_type) qs.set('event_type', params.event_type);
+    if (params.status) qs.set('status', params.status);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.transport.request<DataList<ShipWebhookDelivery>>('GET', `/api/v1/apps/${encodeURIComponent(appId)}/deliveries${suffix}`);
+  }
+
+  get(appId: string, deliveryId: string): Promise<ShipWebhookDeliveryDetail> {
+    return this.transport.request<ShipWebhookDeliveryDetail>(
+      'GET',
+      `/api/v1/apps/${encodeURIComponent(appId)}/deliveries/${encodeURIComponent(deliveryId)}`
+    );
+  }
+
+  replay(appId: string, deliveryId: string): Promise<WebhookReplayResult> {
+    return this.transport.request<WebhookReplayResult>(
+      'POST',
+      `/api/v1/apps/${encodeURIComponent(appId)}/deliveries/${encodeURIComponent(deliveryId)}/replay`
+    );
+  }
+}
+
+/**
+ * Workspace OAuth-app administration (`/api/v1/apps`, scope `apps:manage` + a
+ * workspace-admin user). The raw `client_secret` appears only in the create and
+ * rotate responses; system clients cannot be rotated or deleted.
+ */
+export class AppsClient {
+  readonly webhooks: AppWebhooksClient;
+  readonly deliveries: AppDeliveriesClient;
+
+  constructor(private readonly transport: Transport) {
+    this.webhooks = new AppWebhooksClient(transport);
+    this.deliveries = new AppDeliveriesClient(transport);
+  }
+
+  list(): Promise<DataList<ShipOAuthApp>> {
+    return this.transport.request<DataList<ShipOAuthApp>>('GET', '/api/v1/apps');
+  }
+
+  create(input: CreateOAuthAppInput): Promise<CreatedOAuthApp> {
+    return this.transport.request<CreatedOAuthApp>('POST', '/api/v1/apps', input);
+  }
+
+  rotateSecret(appId: string): Promise<CreatedOAuthApp> {
+    return this.transport.request<CreatedOAuthApp>('POST', `/api/v1/apps/${encodeURIComponent(appId)}/rotate-secret`);
+  }
+
+  async delete(appId: string): Promise<void> {
+    await this.transport.request<null>('DELETE', `/api/v1/apps/${encodeURIComponent(appId)}`);
+  }
+}
+
+/** Connected apps (`/api/v1/connections`, scope `connections:manage` + a workspace-admin user). */
+export class ConnectionsClient {
+  constructor(private readonly transport: Transport) {}
+
+  list(): Promise<DataList<ShipConnection>> {
+    return this.transport.request<DataList<ShipConnection>>('GET', '/api/v1/connections');
+  }
+
+  /** Revoke every live token `userId` holds for `appId` in the workspace. */
+  revoke(appId: string, userId: string): Promise<RevokeConnectionResult> {
+    return this.transport.request<RevokeConnectionResult>(
+      'DELETE',
+      `/api/v1/connections/${encodeURIComponent(appId)}/users/${encodeURIComponent(userId)}`
+    );
+  }
+}
+
+/** Public API audit trail (`/api/v1/audit`, scope `audit:read` + a workspace-admin user). */
+export class AuditClient {
+  constructor(private readonly transport: Transport) {}
+
+  list(params: AuditListParams = {}): Promise<AuditLogList> {
+    const qs = new URLSearchParams();
+    if (params.app_id) qs.set('app_id', params.app_id);
+    if (params.user_id) qs.set('user_id', params.user_id);
+    if (params.route) qs.set('route', params.route);
+    if (params.status_class != null) qs.set('status_class', String(params.status_class));
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    if (params.exclude_client_id) qs.set('exclude_client_id', params.exclude_client_id);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.offset != null) qs.set('offset', String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.transport.request<AuditLogList>('GET', `/api/v1/audit${suffix}`);
+  }
+}
+
 export class ShipClient implements Transport {
   readonly documents: DocumentsClient;
   readonly wikiPages: TypedResourceClient<ShipWikiPage, CreateWikiPageInput, UpdateWikiPageInput>;
@@ -724,6 +983,10 @@ export class ShipClient implements Transport {
   readonly standups: TypedResourceClient<ShipStandup, CreateStandupInput, UpdateStandupInput>;
   readonly weeklyReviews: TypedResourceClient<ShipWeeklyReview, CreateWeeklyReviewInput, UpdateWeeklyReviewInput>;
   readonly webhooks: WebhooksClient;
+  readonly scopes: ScopesClient;
+  readonly apps: AppsClient;
+  readonly connections: ConnectionsClient;
+  readonly audit: AuditClient;
 
   private readonly token: string;
   private readonly baseUrl: string;
@@ -751,6 +1014,10 @@ export class ShipClient implements Transport {
     this.standups = new TypedResourceClient(this, 'standups');
     this.weeklyReviews = new TypedResourceClient(this, 'weekly-reviews');
     this.webhooks = new WebhooksClient(this);
+    this.scopes = new ScopesClient(this);
+    this.apps = new AppsClient(this);
+    this.connections = new ConnectionsClient(this);
+    this.audit = new AuditClient(this);
   }
 
   /** GET /api/v1/me — the authenticated user + current workspace. */
