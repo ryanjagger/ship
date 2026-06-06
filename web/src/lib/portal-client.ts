@@ -17,12 +17,21 @@ const EXPIRY_MARGIN_MS = 60_000;
 interface CachedToken {
   token: string;
   expiresAt: number;
-  workspaceKey: string;
+  /**
+   * `${userId}:${workspaceId}` — the USER is part of the key. The bearer token
+   * authorizes its minted user regardless of the current cookie session, so a
+   * workspace-only key would let a token minted by an admin be reused after a
+   * same-tab logout/login by a different (possibly non-admin) user, or across
+   * an impersonation switch. Keying by effective user forces a re-mint — and
+   * the mint endpoint authorizes the CURRENT session — whenever identity
+   * changes. Logout also clears the cache outright (useAuth → clearPortalToken).
+   */
+  cacheKey: string;
 }
 
 let cached: CachedToken | null = null;
 
-async function mintToken(workspaceKey: string): Promise<CachedToken> {
+async function mintToken(cacheKey: string): Promise<CachedToken> {
   const res = await api.developer.mintToken();
   if (!res.success || !res.data) {
     throw new Error(res.error?.message ?? 'Failed to authorize the developer portal');
@@ -30,30 +39,31 @@ async function mintToken(workspaceKey: string): Promise<CachedToken> {
   cached = {
     token: res.data.access_token,
     expiresAt: Date.now() + res.data.expires_in * 1000,
-    workspaceKey,
+    cacheKey,
   };
   return cached;
 }
 
-/** Drop the cached token (e.g. on logout); the next call re-mints. */
+/** Drop the cached token (called on logout); the next call re-mints. */
 export function clearPortalToken(): void {
   cached = null;
 }
 
 /**
- * Run `fn` with an authenticated ShipClient for the given workspace. Mints a
- * token when none is cached, the workspace changed, or expiry is near; retries
- * exactly once with a fresh token when the SDK reports an auth error (expired
- * or revoked token). Non-auth SDK errors propagate to the caller.
+ * Run `fn` with an authenticated ShipClient for the given user + workspace.
+ * Mints a token when none is cached, the user or workspace changed, or expiry
+ * is near; retries exactly once with a fresh token when the SDK reports an
+ * auth error (expired or revoked token). Non-auth SDK errors propagate to the
+ * caller.
  */
 export async function withPortalClient<T>(
-  workspaceKey: string,
+  cacheKey: string,
   fn: (client: ShipClient) => Promise<T>
 ): Promise<T> {
   const fresh =
-    cached && cached.workspaceKey === workspaceKey && Date.now() < cached.expiresAt - EXPIRY_MARGIN_MS
+    cached && cached.cacheKey === cacheKey && Date.now() < cached.expiresAt - EXPIRY_MARGIN_MS
       ? cached
-      : await mintToken(workspaceKey);
+      : await mintToken(cacheKey);
   try {
     return await fn(new ShipClient({ token: fresh.token, baseUrl: apiBaseUrl }));
   } catch (err) {
@@ -62,7 +72,7 @@ export async function withPortalClient<T>(
     // authorization answer (missing scope, not a workspace admin) — a fresh
     // token would not change it.
     if (!(sdkErr.kind === 'auth' && sdkErr.status === 401)) throw err;
-    const reminted = await mintToken(workspaceKey);
+    const reminted = await mintToken(cacheKey);
     return fn(new ShipClient({ token: reminted.token, baseUrl: apiBaseUrl }));
   }
 }
