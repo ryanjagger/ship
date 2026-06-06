@@ -169,7 +169,11 @@ export async function listOAuthApps(): Promise<OAuthAppListItem[]> {
  * List OAuth apps for the developer portal, scoped to a workspace (PRD §8). Apps
  * are owned by a user (no workspace_id column), so "apps in the workspace" means
  * apps owned by any member of that workspace — the model agreed for v1
- * (workspace admins manage every such app). Never selects the secret hash.
+ * (workspace admins manage every such app). System clients (e.g. the Ship CLI)
+ * have no owner and are platform-wide, so they appear in every workspace: their
+ * webhook subscriptions/deliveries are workspace-scoped at the query layer, and
+ * the app itself stays read-only via the `is_system` route guards. Never selects
+ * the secret hash.
  */
 export async function listOAuthAppsForWorkspace(workspaceId: string): Promise<OAuthAppListItem[]> {
   const result = await pool.query<OAuthAppListItem>(
@@ -177,8 +181,12 @@ export async function listOAuthAppsForWorkspace(workspaceId: string): Promise<OA
             a.requested_scopes, a.client_type, a.allow_device_flow, a.is_system, a.created_at, a.updated_at,
             u.email AS owner_email, u.name AS owner_name
      FROM oauth_apps a
-     JOIN workspace_memberships m ON m.user_id = a.owner_user_id AND m.workspace_id = $1
      LEFT JOIN users u ON u.id = a.owner_user_id
+     WHERE a.is_system
+        OR EXISTS (
+          SELECT 1 FROM workspace_memberships m
+          WHERE m.user_id = a.owner_user_id AND m.workspace_id = $1
+        )
      ORDER BY a.created_at DESC`,
     [workspaceId]
   );
@@ -188,15 +196,23 @@ export async function listOAuthAppsForWorkspace(workspaceId: string): Promise<OA
 /**
  * Fetch an app only if its owner is a member of the given workspace — the
  * authorization gate for every workspace-scoped developer-portal app action.
- * Returns null when the app doesn't exist or isn't visible to the workspace.
+ * System clients (no owner) are visible to every workspace so their
+ * workspace-scoped webhook subscriptions/deliveries can be managed from the
+ * portal; mutations of the app row itself are blocked by the `is_system`
+ * route guards. Returns null when the app doesn't exist or isn't visible to
+ * the workspace.
  */
 export async function findOAuthAppForWorkspace(id: string, workspaceId: string): Promise<OAuthApp | null> {
   const result = await pool.query<OAuthApp>(
     `SELECT a.id, a.client_id, a.name, a.redirect_uris, a.owner_user_id,
             a.requested_scopes, a.client_type, a.allow_device_flow, a.is_system, a.created_at, a.updated_at
      FROM oauth_apps a
-     JOIN workspace_memberships m ON m.user_id = a.owner_user_id AND m.workspace_id = $2
-     WHERE a.id = $1`,
+     WHERE a.id = $1
+       AND (a.is_system
+        OR EXISTS (
+          SELECT 1 FROM workspace_memberships m
+          WHERE m.user_id = a.owner_user_id AND m.workspace_id = $2
+        ))`,
     [id, workspaceId]
   );
   return result.rows[0] ?? null;
