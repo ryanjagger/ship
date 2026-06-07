@@ -21,6 +21,7 @@ const {
   mockGetInsightByIdentity,
   mockGetFleetgraphSettings,
   mockRunDriftReasoning,
+  mockGatherRows,
 } = vi.hoisted(() => ({
   mockClientQuery: vi.fn(),
   mockRelease: vi.fn(),
@@ -31,6 +32,7 @@ const {
   mockGetInsightByIdentity: vi.fn(),
   mockGetFleetgraphSettings: vi.fn(),
   mockRunDriftReasoning: vi.fn(),
+  mockGatherRows: vi.fn(),
 }));
 
 vi.mock('../../db/client.js', () => ({
@@ -60,6 +62,13 @@ vi.mock('../workspace-settings.js', () => ({
 // doesn't consume mockPoolQuery slots the tests drive in order.
 vi.mock('./service-user.js', () => ({
   getFleetServiceUserId: vi.fn(async () => 'fleet-service-user-id'),
+}));
+
+// Domain reads travel /api/v1 via sweep-rows (issue #95); these tests drive
+// the dispatch loop with fixture rows. sweep-rows has its own tests (and the
+// aggregate parity test) for the transport side.
+vi.mock('./sweep-rows.js', () => ({
+  gatherSweepRows: mockGatherRows,
 }));
 
 // Mock the graph-entry-point sibling of runPlanReview. We mock
@@ -99,6 +108,8 @@ beforeEach(() => {
   mockGetInsightByIdentity.mockReset();
   mockGetFleetgraphSettings.mockReset();
   mockRunDriftReasoning.mockReset();
+  mockGatherRows.mockReset();
+  mockGatherRows.mockResolvedValue([]);
 
   // Default: LLM verdicts OFF (existing tests assume deterministic-only).
   mockGetFleetgraphSettings.mockResolvedValue({
@@ -138,6 +149,27 @@ function healthyRow(id: string): Record<string, unknown> {
   };
 }
 
+/**
+ * Convert the legacy SQL-row-shaped fixtures into SweepProjectRow objects and
+ * apply gatherSweepRows' contract: only drift-eligible (active/planned)
+ * projects are returned, already camelCased with Date fields.
+ */
+function toSweepRows(rawRows: unknown[]): Array<Record<string, unknown>> {
+  return (rawRows as Array<Record<string, unknown>>)
+    .filter((r) => r.inferred_status === 'active' || r.inferred_status === 'planned')
+    .map((r) => ({
+      id: r.id,
+      title: (r.title as string | undefined) ?? null,
+      inferredStatus: r.inferred_status,
+      plan: r.plan ?? null,
+      planLastEditedAt: r.plan_last_edited_at ? new Date(r.plan_last_edited_at as string) : null,
+      lastMovementAt: r.last_movement_at ? new Date(r.last_movement_at as string) : null,
+      openNow: Number(r.open_now ?? 0),
+      incompleteNow: Number(r.incomplete_now ?? 0),
+      incomplete7dAgo: Number(r.incomplete_7d_ago ?? 0),
+    }));
+}
+
 function mockNoClientLockSequence(opts: { acquired: boolean; queryRows?: unknown[] }): void {
   // Session-scoped advisory lock; no wrapping transaction.
   mockClientQuery.mockResolvedValueOnce({
@@ -150,11 +182,8 @@ function mockNoClientLockSequence(opts: { acquired: boolean; queryRows?: unknown
     return;
   }
 
-  // The per-project SELECT.
-  mockClientQuery.mockResolvedValueOnce({
-    rows: opts.queryRows ?? [],
-    rowCount: (opts.queryRows ?? []).length,
-  });
+  // The per-workspace rows now come from the (mocked) sweep-rows module.
+  mockGatherRows.mockResolvedValueOnce(toSweepRows(opts.queryRows ?? []));
   // pg_advisory_unlock (finally).
   mockClientQuery.mockResolvedValueOnce({ rows: [{ unlocked: true }], rowCount: 1 });
 }
@@ -235,7 +264,7 @@ describe('sweepWorkspaceDrift — happy path (no client)', () => {
     expect(firstCall.verdict.decision).toMatch(/^SURFACE_/);
   });
 
-  it('pg_try_advisory_lock → SELECT projects → pg_advisory_unlock in order; no transaction', async () => {
+  it('pg_try_advisory_lock → gather rows (v1) → pg_advisory_unlock; no transaction', async () => {
     mockNoClientLockSequence({
       acquired: true,
       queryRows: [healthyRow('p-1')],
@@ -248,9 +277,10 @@ describe('sweepWorkspaceDrift — happy path (no client)', () => {
     // The lock-key parameter is `sweep:<workspaceId>`.
     const lockParams = mockClientQuery.mock.calls[0]![1] as unknown[];
     expect(lockParams[0]).toBe('sweep:ws-1');
-    // Followed by the per-project SELECT, then the session unlock.
-    expect(calls[1]).toMatch(/FROM workspace_projects/);
-    expect(calls[2]).toMatch(/pg_advisory_unlock\(hashtextextended/);
+    // Rows are gathered through the public API while the lock is held...
+    expect(mockGatherRows).toHaveBeenCalledWith('ws-1', expect.any(Date));
+    // ...then the session unlock. No other SQL runs on the lock client.
+    expect(calls[1]).toMatch(/pg_advisory_unlock\(hashtextextended/);
     // No transaction is opened around the LLM-bearing loop.
     expect(calls).not.toContain('BEGIN');
     expect(calls).not.toContain('COMMIT');
@@ -543,10 +573,11 @@ describe('sweepWorkspaceDrift — lock-busy path (no client)', () => {
   it('mid-loop error → advisory unlock + release; error rethrown', async () => {
     mockClientQuery
       .mockResolvedValueOnce({ rows: [{ locked: true }], rowCount: 1 }) // lock acquired
-      .mockRejectedValueOnce(new Error('SELECT exploded')) // project SELECT fails
       .mockResolvedValueOnce({ rows: [{ unlocked: true }], rowCount: 1 }); // pg_advisory_unlock (finally)
+    mockGatherRows.mockReset();
+    mockGatherRows.mockRejectedValueOnce(new Error('gather exploded')); // v1 reads fail
 
-    await expect(sweepWorkspaceDrift('ws-1')).rejects.toThrow(/SELECT exploded/);
+    await expect(sweepWorkspaceDrift('ws-1')).rejects.toThrow(/gather exploded/);
 
     const calls = mockClientQuery.mock.calls.map((c) => String(c[0]).trim());
     expect(calls.some((s) => /pg_advisory_unlock/.test(s))).toBe(true);
@@ -580,24 +611,21 @@ describe('sweepWorkspaceDrift — crash guard', () => {
 // ─── With-client path ─────────────────────────────────────────────────
 
 describe('sweepWorkspaceDrift — with-client path', () => {
-  it('does NOT issue BEGIN/SET LOCAL/lock probe/COMMIT — caller owns the tx', async () => {
+  it('issues NO SQL on the external client — it only holds the caller\'s lock', async () => {
     const externalQuery = vi.fn();
-    externalQuery.mockResolvedValueOnce({
-      rows: [healthyRow('p-1')],
-      rowCount: 1,
-    });
-
     const externalClient = { query: externalQuery, release: vi.fn() };
+    mockGatherRows.mockReset();
+    mockGatherRows.mockResolvedValueOnce(toSweepRows([healthyRow('p-1')]));
 
-    await sweepWorkspaceDrift('ws-1', {
+    const result = await sweepWorkspaceDrift('ws-1', {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       client: externalClient as any,
     });
+    expect(result.scanned).toBe(1);
 
-    // Only the per-project SELECT is issued on the external client.
-    expect(externalQuery).toHaveBeenCalledTimes(1);
-    const sql = String(externalQuery.mock.calls[0]![0]);
-    expect(sql).toMatch(/FROM workspace_projects/);
+    // The domain reads travel /api/v1; the lock client carries no queries.
+    expect(externalQuery).not.toHaveBeenCalled();
+    expect(mockGatherRows).toHaveBeenCalledWith('ws-1', expect.any(Date));
 
     // The internal pool client was NEVER acquired.
     expect(mockClientQuery).not.toHaveBeenCalled();
@@ -606,7 +634,6 @@ describe('sweepWorkspaceDrift — with-client path', () => {
 
   it('does not call pg_try_advisory_xact_lock on the external client', async () => {
     const externalQuery = vi.fn();
-    externalQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
     const externalClient = { query: externalQuery, release: vi.fn() };
 
     await sweepWorkspaceDrift('ws-1', {

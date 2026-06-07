@@ -57,11 +57,8 @@
 import { createHash, randomUUID } from 'crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../db/client.js';
-import {
-  driftIssueAggregates,
-  driftPlanLastEditedAt,
-} from '../drift/driftSql.js';
 import { computeProjectDrift, type DriftInput } from '../drift/computeProjectDrift.js';
+import { gatherSweepRows } from './sweep-rows.js';
 import {
   createOrRefreshInsight,
   getInsightByIdentity,
@@ -130,18 +127,6 @@ export function sweepWorkspaceLockKeyParams(workspaceId: string): string {
 
 // ─── Public API ─────────────────────────────────────────────────────────
 
-interface SweepRow {
-  id: string;
-  title: string | null;
-  inferred_status: string;
-  plan: string | null;
-  plan_last_edited_at: string | Date | null;
-  last_movement_at: string | Date | null;
-  open_now: string | number | null;
-  incomplete_now: string | number | null;
-  incomplete_7d_ago: string | number | null;
-}
-
 export async function sweepWorkspaceDrift(
   workspaceId: string,
   opts?: { client?: PoolClient }
@@ -207,86 +192,24 @@ export async function sweepWorkspaceDrift(
 // ─── Per-project loop ───────────────────────────────────────────────────
 
 /**
- * Per-project aggregate pull + decide + dispatch. Single SELECT per
- * workspace, mirroring the projects.ts list CTE shape but scoped to one
- * workspace and joined directly (no visibility filter — the sweep is a
- * service-level worker that operates on the full workspace).
+ * Per-project decide + dispatch. The DOMAIN reads (projects, issue
+ * aggregates, plan-edit recency) come from `gatherSweepRows` — the public API
+ * as the fleet@ship.system service user (issue #95); the v1 `inferred_status`
+ * column computes the same archived > completed > active/planned > backlog
+ * shape this loop's SQL used to inline. Only `active`/`planned` rows arrive
+ * (computeProjectDrift's ELIGIBLE_STATUSES). The verdict routing and insight
+ * dispatch below are agent machinery and stay internal.
  *
- * The `inferred_status` shape matches projects.ts: archived > completed
- * (plan_validated set) > active (current sprint allocation) > planned
- * (future allocation) > backlog. Only `active`/`planned` are drift-eligible
- * (see computeProjectDrift's ELIGIBLE_STATUSES).
+ * `_lockClient` only holds the per-workspace session advisory lock for the
+ * duration of the loop (see the LOCKING CONTRACT header) — no queries run on
+ * it here anymore.
  */
 async function runSweepLoop(
   workspaceId: string,
-  client: PoolClient
+  _lockClient: PoolClient
 ): Promise<SweepResult> {
-  const sql = `
-    WITH workspace_projects AS (
-      SELECT d.id, d.title, d.created_at, d.archived_at, d.properties
-        FROM documents d
-       WHERE d.workspace_id = $1
-         AND d.document_type = 'project'
-         AND d.archived_at IS NULL
-         AND d.deleted_at IS NULL
-    ),
-    sprint_status AS (
-      SELECT (s.properties->>'project_id')::uuid AS project_id,
-             CASE MAX(
-               CASE
-                 WHEN CURRENT_DATE BETWEEN
-                   (w.sprint_start_date + ((s.properties->>'sprint_number')::int - 1) * 7)
-                   AND (w.sprint_start_date + ((s.properties->>'sprint_number')::int - 1) * 7 + 6)
-                 THEN 3
-                 WHEN CURRENT_DATE < (w.sprint_start_date + ((s.properties->>'sprint_number')::int - 1) * 7)
-                 THEN 2
-                 ELSE 1
-               END
-             )
-             WHEN 3 THEN 'active'
-             WHEN 2 THEN 'planned'
-             ELSE NULL
-             END AS allocation_status
-        FROM documents s
-        JOIN workspaces w ON w.id = s.workspace_id
-        JOIN workspace_projects vp ON vp.id = (s.properties->>'project_id')::uuid
-       WHERE s.document_type = 'sprint'
-         AND s.workspace_id = $1
-         AND jsonb_array_length(COALESCE(s.properties->'assignee_ids', '[]'::jsonb)) > 0
-       GROUP BY (s.properties->>'project_id')::uuid
-    ),
-    issue_drift AS (
-      SELECT da.related_id AS project_id,
-             ${driftIssueAggregates('i')}
-        FROM document_associations da
-        JOIN documents i ON i.id = da.document_id
-                        AND i.document_type = 'issue'
-                        AND i.archived_at IS NULL AND i.deleted_at IS NULL
-        JOIN workspace_projects vp ON vp.id = da.related_id
-       WHERE da.relationship_type = 'project'
-       GROUP BY da.related_id
-    )
-    SELECT d.id,
-           d.title,
-           CASE
-             WHEN d.archived_at IS NOT NULL THEN 'archived'
-             WHEN d.properties->>'plan_validated' IS NOT NULL THEN 'completed'
-             ELSE COALESCE(ss.allocation_status, 'backlog')
-           END AS inferred_status,
-           d.properties->>'plan' AS plan,
-           ${driftPlanLastEditedAt('d')} AS plan_last_edited_at,
-           id_cte.last_movement_at,
-           COALESCE(id_cte.open_now, 0) AS open_now,
-           COALESCE(id_cte.incomplete_now, 0) AS incomplete_now,
-           COALESCE(id_cte.incomplete_7d_ago, 0) AS incomplete_7d_ago
-      FROM workspace_projects d
-      LEFT JOIN sprint_status ss ON ss.project_id = d.id
-      LEFT JOIN issue_drift id_cte ON id_cte.project_id = d.id
-  `;
-
-  const res = await client.query<SweepRow>(sql, [workspaceId]);
-
   const now = new Date();
+  const rows = await gatherSweepRows(workspaceId, now);
   // Per-tick UUID. Stamped into every insight's evidence + threaded into
   // every LLM call's LangSmith metadata so "all traces from this tick" is
   // queryable. Generated even when LLM verdicts are disabled (cheap and
@@ -307,25 +230,14 @@ async function runSweepLoop(
   let suppressed = 0;
   let degraded = false;
 
-  for (const row of res.rows) {
-    const inferredStatus = row.inferred_status;
-    // Eligibility filter (mirrors computeProjectDrift's ELIGIBLE_STATUSES).
-    // Ineligible projects don't count toward `scanned`.
-    if (inferredStatus !== 'active' && inferredStatus !== 'planned') {
-      continue;
-    }
+  for (const row of rows) {
+    // gatherSweepRows only returns drift-eligible (active/planned) projects.
     scanned++;
 
-    const lastMovementAt = row.last_movement_at ? new Date(row.last_movement_at) : null;
-    const planLastEditedAt = row.plan_last_edited_at
-      ? new Date(row.plan_last_edited_at)
-      : null;
-    const openNow = Number(row.open_now ?? 0);
-    const incompleteNow = Number(row.incomplete_now ?? 0);
-    const incomplete7dAgo = Number(row.incomplete_7d_ago ?? 0);
+    const { lastMovementAt, planLastEditedAt, openNow, incompleteNow, incomplete7dAgo } = row;
 
     const driftInput: DriftInput = {
-      inferredStatus,
+      inferredStatus: row.inferredStatus,
       lastMovementAt,
       planText: row.plan,
       planLastEditedAt,
