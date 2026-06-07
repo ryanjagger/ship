@@ -18,9 +18,10 @@
  *    post-commit accountability checks) are returned as a `sideEffects` payload
  *    for the caller to run after COMMIT — the route runs them; tools may ignore
  *    them. This keeps the transactional core pure.
- *  - `actorSource` is a parameter: the route passes its existing value (the
- *    issue PATCH route passes `data.claude_metadata?.updated_by`, i.e. undefined
- *    or 'claude'); the agent tool passes 'fleetgraph'. This drives the
+ *  - `actorSource` is a parameter: the internal route passes its existing value
+ *    (the issue PATCH route passes `data.claude_metadata?.updated_by`, i.e.
+ *    undefined or 'claude'); the public v1 route passes the OAuth client_id
+ *    (so Fleet-agent edits read `client_ship_fleet_agent`). This drives the
  *    `automated_by` provenance column in document_history.
  *
  * Authorization: the patch core re-runs the SAME visibility check the route ran
@@ -333,8 +334,9 @@ export async function createIssueCore(
  *  - 400 when there is nothing to update.
  *  - 200 with the updated issue otherwise.
  *
- * `actorSource` becomes `automated_by` in document_history. The route passes
- * `input.claude_metadata?.updated_by`; the agent tool passes 'fleetgraph'.
+ * `actorSource` becomes `automated_by` in document_history. The internal route
+ * passes `input.claude_metadata?.updated_by`; the v1 route passes the OAuth
+ * client_id (Fleet-agent edits read `client_ship_fleet_agent`).
  *
  * NOTE: the caller must NOT have opened a transaction before calling — this
  * function does its read-then-validate work on the client and then opens the
