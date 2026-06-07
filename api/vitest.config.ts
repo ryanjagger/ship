@@ -15,6 +15,12 @@ export default defineConfig({
         process.env.DATABASE_URL_TEST ||
         'postgresql://ship:ship_dev_password@localhost:5432/ship_test',
       NODE_ENV: 'test',
+      // Fleet reads/writes travel /api/v1 in-process, so DB-backed suites can
+      // burn hundreds of requests per minute on one cached token. Lift the
+      // platform limiter out of the way; the rate-limit suites set their own
+      // tight budgets via process.env / explicit config.
+      PLATFORM_RATE_LIMIT_TOKEN_PER_MIN: '100000',
+      PLATFORM_RATE_LIMIT_APP_PER_MIN: '100000',
       // Never emit LangSmith traces from the suite. Models are mocked, but a
       // developer's .env.local LANGSMITH_TRACING=true must not leak into any
       // unmocked path and turn tests into network calls. These overrides win

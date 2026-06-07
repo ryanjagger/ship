@@ -24,6 +24,9 @@ export interface PlatformAuth {
   workspaceId: string;
   grantedScopes: string[];
   tokenId: string;
+  /** True for platform-managed system clients — drives the workspace-keyed
+   *  rate-limit bucket (see rate-limit/service.ts). */
+  isSystemApp: boolean;
   /** The scope actually matched by requireScope/requireAnyScope (for audit). */
   matchedScope?: string;
 }
@@ -74,6 +77,7 @@ export async function bearerAuth(req: Request, res: Response, next: NextFunction
       workspaceId: result.token.workspaceId,
       grantedScopes: result.token.scopes,
       tokenId: result.token.tokenId,
+      isSystemApp: result.token.isSystemApp,
     };
 
     // Record the request to the public audit trail on res.finish (PRD §7). Hooked

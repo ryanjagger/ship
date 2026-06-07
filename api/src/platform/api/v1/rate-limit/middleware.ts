@@ -26,7 +26,12 @@ export async function applyRateLimit(req: Request, res: Response): Promise<boole
 
   let decision;
   try {
-    decision = await consumeRateLimit(platform.appId, platform.tokenId);
+    decision = await consumeRateLimit({
+      appId: platform.appId,
+      tokenId: platform.tokenId,
+      isSystemApp: platform.isSystemApp,
+      workspaceId: platform.workspaceId,
+    });
   } catch (error) {
     // Fail OPEN: a limiter outage must not take down the whole public API. Log
     // and let the request through (the per-IP limiter still applies).

@@ -44,6 +44,15 @@ beforeAll(async () => {
     issue_iterations, documents, audit_logs, workspace_memberships,
     users, workspaces
     CASCADE`)
+
+  // Re-seed the Fleet service user (migration 062) — an invariant row real
+  // environments always have, but the TRUNCATE above wipes. DB-backed sweep
+  // tests resolve it via getFleetServiceUserId(), which throws when missing.
+  await pool.query(
+    `INSERT INTO users (email, password_hash, name, is_super_admin)
+     VALUES ('fleet@ship.system', NULL, 'Fleet', true)
+     ON CONFLICT (email) DO NOTHING`
+  )
 })
 
 afterAll(async () => {

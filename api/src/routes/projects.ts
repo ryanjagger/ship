@@ -1393,9 +1393,11 @@ router.post('/:id/fleet/retro/apply', authMiddleware, async (req: Request, res: 
     // returns 404 — the same denial the user would get directly.
     const proposal = buildPatchProjectProposal({ id, plan_validated: parsed.data.plan_validated });
     const outcome = await executeProposal({ workspaceId, userId, isAdmin }, proposal);
-    if (outcome.status === 201) {
+    if (outcome.mutated) {
       broadcastToUser(userId, 'accountability:updated', { type: 'project_retro', targetId: id as string });
     }
+    // Since the Fleet v1 migration this is 200 + the project DTO on success
+    // (was 201 + the retro body); the web client only checks res.ok.
     res.status(outcome.status).json(outcome.body);
   } catch (err) {
     console.error('Fleet retro apply error:', err);

@@ -52,6 +52,11 @@ export type ShipSDKError =
   | { kind: 'rate_limit'; status: 429; retryAfter?: number; resetAt?: Date; limit?: number; remaining?: number; message: string; requestId?: string }
   | { kind: 'not_found'; status: 404; code: string; message: string; requestId?: string }
   | { kind: 'validation'; status: 400 | 422; code: string; message: string; details?: unknown; requestId?: string }
+  // 409: the write needs explicit confirmation (e.g. issue PATCH closing a
+  // parent with open sub-issues without confirm_orphan_children). `details`
+  // carries the server's conflict payload. NOTE: added in 0.2.0 — a breaking
+  // change for exhaustive `switch (error.kind)` consumers.
+  | { kind: 'conflict'; status: 409; code: string; message: string; details?: unknown; requestId?: string }
   | { kind: 'server'; status: number; code: string; message: string; requestId?: string; cause?: unknown };
 
 export type ShipSDKErrorKind = ShipSDKError['kind'];
@@ -76,12 +81,15 @@ function kindForApiError(code: string, status: number): ShipSDKErrorKind {
       return 'not_found';
     case 'validation_failed':
       return 'validation';
+    case 'conflict':
+      return 'conflict';
     default:
       // Status-based fallback for codes we don't recognize.
       if (status === 401 || status === 403) return 'auth';
       if (status === 429) return 'rate_limit';
       if (status === 404) return 'not_found';
       if (status === 400 || status === 422) return 'validation';
+      if (status === 409) return 'conflict';
       return 'server';
   }
 }
@@ -163,6 +171,8 @@ export function toShipSDKError(err: unknown): ShipSDKError {
         return { kind: 'not_found', status: 404, code: err.code, ...base };
       case 'validation':
         return { kind: 'validation', status: (err.status === 422 ? 422 : 400), code: err.code, details: err.details, ...base };
+      case 'conflict':
+        return { kind: 'conflict', status: 409, code: err.code, details: err.details, ...base };
       case 'server':
         return { kind: 'server', status: err.status, code: err.code, ...base };
     }
@@ -234,6 +244,20 @@ export interface UpdateDocumentInput {
 export interface ListTypedResourceParams {
   limit?: number;
   cursor?: string;
+  /** Only documents associated with this related document id. */
+  belongs_to?: string;
+  /** Narrow `belongs_to` to one relationship type. */
+  belongs_to_type?: 'program' | 'project' | 'sprint' | 'parent';
+  /** Filter on the issue state (meaningful for `issues`). */
+  state?: IssueState;
+  /** ISO 8601 bounds on `updated_at`. */
+  updated_before?: string;
+  updated_after?: string;
+  /**
+   * `'workspace'` restricts results to workspace-visible documents, EXCLUDING
+   * the caller's own private documents — use when building shared context.
+   */
+  visibility?: 'workspace';
 }
 
 export type CreateTypedResourceInput = Omit<CreateDocumentInput, 'document_type'>;
@@ -320,6 +344,10 @@ export interface ShipProject extends BaseResource {
   has_design_review: boolean | null;
   design_review_notes: string | null;
   target_date: string | null;
+  plan_validated: boolean | null;
+  success_criteria: string[] | null;
+  monetary_impact_expected: string | null;
+  monetary_impact_actual: string | null;
   inferred_status: string;
   sprint_count: number;
   issue_count: number;
@@ -327,6 +355,8 @@ export interface ShipProject extends BaseResource {
   missing_fields: string[];
   archived_at: string | null;
   converted_from_id: string | null;
+  /** Outgoing associations (canonical hierarchy links; e.g. the program). */
+  belongs_to: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent'; title?: string; color?: string }>;
 }
 
 export interface ShipSprint extends BaseResource {
@@ -335,6 +365,7 @@ export interface ShipSprint extends BaseResource {
   status: 'planning' | 'active' | 'completed';
   owner_id: string | null;
   program_id: string | null;
+  project_id: string | null;
   plan: string | null;
   success_criteria: string[] | null;
   confidence: number | null;
@@ -354,6 +385,8 @@ export interface ShipSprint extends BaseResource {
   has_retro: boolean;
   retro_outcome: string | null;
   retro_id: string | null;
+  /** Outgoing associations (canonical hierarchy links; e.g. project/program). */
+  belongs_to: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent'; title?: string; color?: string }>;
 }
 
 export interface ShipPerson extends BaseResource {
@@ -362,6 +395,10 @@ export interface ShipPerson extends BaseResource {
   role: string | null;
   capacity_hours: number | null;
   reports_to: string | null;
+  /** The auth user backing this directory entry (null for unlinked entries). */
+  user_id: string | null;
+  /** The linked user's workspace membership role (null when unlinked). */
+  workspace_role: string | null;
   visibility: string;
   created_by: string | null;
 }
@@ -415,6 +452,8 @@ export interface UpdateIssueInput extends Omit<UpdateTypedResourceInput, 'parent
   estimate?: number | null;
   due_date?: string | null;
   rejection_reason?: string | null;
+  /** Confirm closing a parent whose sub-issues are still open (409 `conflict` otherwise). */
+  confirm_orphan_children?: boolean;
 }
 
 export interface CreateProgramInput extends Omit<CreateTypedResourceInput, 'content' | 'parent_id' | 'properties'> {
@@ -445,6 +484,8 @@ export interface CreateProjectInput extends Omit<CreateTypedResourceInput, 'pare
 export interface UpdateProjectInput extends Partial<CreateProjectInput> {
   has_design_review?: boolean | null;
   design_review_notes?: string | null;
+  /** Setting this marks the project retro as filled (inferred_status → completed). */
+  plan_validated?: boolean | null;
 }
 
 export interface CreateSprintInput extends Omit<CreateTypedResourceInput, 'parent_id' | 'properties'> {
@@ -488,6 +529,55 @@ export interface CreateWeeklyReviewInput extends Omit<CreateTypedResourceInput, 
   plan_validated?: boolean | null;
 }
 export type UpdateWeeklyReviewInput = Partial<CreateWeeklyReviewInput>;
+
+// ── Comments + document history ─────────────────────────────────────────────
+
+export interface ShipCommentAuthor {
+  id: string;
+  name: string | null;
+  email: string | null;
+}
+
+export interface ShipComment {
+  id: string;
+  document_id: string;
+  /** Editor thread anchor id — groups replies into one inline thread. */
+  comment_id: string;
+  parent_id: string | null;
+  content: string;
+  resolved_at: string | null;
+  author: ShipCommentAuthor;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCommentInput {
+  content: string;
+  /** Thread anchor; server-generated when omitted (a fresh top-level thread). */
+  comment_id?: string;
+  /** Reply target — must be an existing comment on the same document. */
+  parent_id?: string;
+}
+
+/** One `document_history` row: a field-level change with provenance. */
+export interface ShipDocumentHistoryEntry {
+  id: number;
+  document_id: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_by: string | null;
+  /** Automated change source: an OAuth client_id for agent edits, null for humans. */
+  automated_by: string | null;
+  created_at: string;
+}
+
+export interface DocumentHistoryListParams {
+  /** Up to 100 document ids — one request covers a whole activity feed. */
+  document_id: string[];
+  field?: string;
+  limit?: number;
+}
 
 // ── Webhooks ────────────────────────────────────────────────────────────────
 
@@ -686,8 +776,48 @@ interface Transport {
   request<T>(method: string, path: string, body?: unknown): Promise<T>;
 }
 
-export class DocumentsClient {
+/** Comments on a document (`/api/v1/documents/{id}/comments`). */
+export class DocumentCommentsClient {
   constructor(private readonly transport: Transport) {}
+
+  /** List a document's comments, oldest first. Scope: comments:read or documents:read. */
+  list(documentId: string): Promise<DataList<ShipComment>> {
+    return this.transport.request<DataList<ShipComment>>(
+      'GET',
+      `/api/v1/documents/${encodeURIComponent(documentId)}/comments`
+    );
+  }
+
+  /** Post a comment. Scope: comments:write or documents:write. */
+  create(documentId: string, input: CreateCommentInput): Promise<ShipComment> {
+    return this.transport.request<ShipComment>(
+      'POST',
+      `/api/v1/documents/${encodeURIComponent(documentId)}/comments`,
+      input
+    );
+  }
+}
+
+/** Cross-document field history (`/api/v1/document-history`, scope documents:read). */
+export class DocumentHistoryClient {
+  constructor(private readonly transport: Transport) {}
+
+  list(params: DocumentHistoryListParams): Promise<DataList<ShipDocumentHistoryEntry>> {
+    const qs = new URLSearchParams();
+    for (const id of params.document_id) qs.append('document_id', id);
+    if (params.field) qs.set('field', params.field);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    return this.transport.request<DataList<ShipDocumentHistoryEntry>>('GET', `/api/v1/document-history?${qs.toString()}`);
+  }
+}
+
+export class DocumentsClient {
+  /** Comments on a document (`client.documents.comments.list/create`). */
+  readonly comments: DocumentCommentsClient;
+
+  constructor(private readonly transport: Transport) {
+    this.comments = new DocumentCommentsClient(transport);
+  }
 
   list(params: ListDocumentsParams = {}): Promise<DocumentList> {
     const qs = new URLSearchParams();
@@ -732,6 +862,12 @@ export class TypedResourceClient<TResource = unknown, TCreate = CreateTypedResou
     const qs = new URLSearchParams();
     if (params.limit != null) qs.set('limit', String(params.limit));
     if (params.cursor) qs.set('cursor', params.cursor);
+    if (params.belongs_to) qs.set('belongs_to', params.belongs_to);
+    if (params.belongs_to_type) qs.set('belongs_to_type', params.belongs_to_type);
+    if (params.state) qs.set('state', params.state);
+    if (params.updated_before) qs.set('updated_before', params.updated_before);
+    if (params.updated_after) qs.set('updated_after', params.updated_after);
+    if (params.visibility) qs.set('visibility', params.visibility);
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
     return this.transport.request<Page<TResource>>('GET', `/api/v1/${this.path}${suffix}`);
   }
@@ -972,6 +1108,7 @@ export class AuditClient {
 
 export class ShipClient implements Transport {
   readonly documents: DocumentsClient;
+  readonly documentHistory: DocumentHistoryClient;
   readonly wikiPages: TypedResourceClient<ShipWikiPage, CreateWikiPageInput, UpdateWikiPageInput>;
   readonly issues: TypedResourceClient<ShipIssue, CreateIssueInput, UpdateIssueInput>;
   readonly programs: TypedResourceClient<ShipProgram, CreateProgramInput, UpdateProgramInput>;
@@ -1003,6 +1140,7 @@ export class ShipClient implements Transport {
     this.fetchImpl = options.fetch ? fetchImpl : fetchImpl.bind(globalThis);
 
     this.documents = new DocumentsClient(this);
+    this.documentHistory = new DocumentHistoryClient(this);
     this.wikiPages = new TypedResourceClient(this, 'wiki-pages');
     this.issues = new TypedResourceClient(this, 'issues');
     this.programs = new TypedResourceClient(this, 'programs');

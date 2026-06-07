@@ -22,6 +22,7 @@ async function main() {
   const { setupCollaboration } = await import('./collaboration/index.js');
   const { startScheduler } = await import('./scheduler/index.js');
   const { startWebhookScheduler } = await import('./platform/webhooks/scheduler.js');
+  const { configureFleetApiClient } = await import('./services/fleetgraph/api-client.js');
 
   const PORT = process.env.PORT || 3000;
   const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
@@ -41,6 +42,12 @@ async function main() {
   server.listen(PORT, () => {
     console.log(`API server running on http://localhost:${PORT}`);
     console.log(`CORS origin: ${CORS_ORIGIN}`);
+
+    // Fleet agent → public API transport: loopback HTTP into this same server
+    // (SHIP_SELF_URL overrides for deployments where loopback is wrong), so
+    // scopes, rate limits, and the public audit trail genuinely execute on
+    // every Fleet domain read/write.
+    configureFleetApiClient({ baseUrl: process.env.SHIP_SELF_URL || `http://127.0.0.1:${PORT}` });
   });
 
   // Register the FleetGraph hourly sweep (gated by FLEETGRAPH_SWEEP_ENABLED;

@@ -1,20 +1,23 @@
 /**
  * Fleet analysis service.
  *
- * Gathers project signals (direct SQL, visibility-filtered, least-privilege)
- * and decides whether the plan is a good, testable hypothesis: does it name
+ * Gathers project signals through the public API (`/api/v1` via the Fleet
+ * client, issue #95 — visibility as the acting user, no admin bypass) and
+ * decides whether the plan is a good, testable hypothesis: does it name
  * what will change, for whom, by how much (AI-judged), and by when (the
  * project's Target Date)? It also produces a retro recommendation. The model is
  * NEVER allowed to set plan_validated; Fleet only advises (R7a).
  *
  * U4 builds the fresh result objects. U5 adds input-hash caching on
- * properties.fleet (getReview).
+ * properties.fleet (getReview) — the cache WRITE stays internal (a v1 PATCH
+ * would bump updated_at and fire project.updated webhooks for a cache refresh).
  */
 
 import { createHash } from 'crypto';
 import { pool } from '../db/client.js';
-import { VISIBILITY_FILTER_SQL } from '../middleware/visibility.js';
 import { extractText } from '../utils/document-content.js';
+import { ShipApiError } from '@ryanjagger/ship-sdk';
+import { withFleetClient } from './fleetgraph/api-client.js';
 import type {
   FleetPlanReview,
   FleetRetroRecommendation,
@@ -81,86 +84,70 @@ interface ProjectRow {
     fleet?: FleetCacheBlob | null;
   } | null;
 }
-interface IssueRow {
-  state: string | null;
-  title: string;
-}
-interface CountRow {
-  n: string | number;
-}
 
 /**
  * Returns the project's Fleet signals, or null when the project is not visible
- * to the requester. Issues are visibility-filtered at ORDINARY-MEMBER privilege
- * (never widened for admins) so the cached result is safe to serve to any
- * caller who can see the project.
+ * to the requester. Reads travel /api/v1 as the acting user. Issues are
+ * fetched at ORDINARY-MEMBER privilege (`visibility: 'workspace'` — never
+ * widened, no created_by personalization) so the cached result is safe to
+ * serve to any caller who can see the project, and the cache hashes
+ * (planReviewHash / retroHash over plan/criteria/issues/impacts/retroText)
+ * stay viewer-independent and unchanged by the transport.
  */
 export async function gatherSignals(
   projectId: string,
   ctx: FleetContext
 ): Promise<FleetSignals | null> {
-  const projectResult = await pool.query<ProjectRow>(
-    `SELECT id, title, content, properties FROM documents
-     WHERE id = $1 AND workspace_id = $2 AND document_type = 'project'
-       AND ${VISIBILITY_FILTER_SQL('documents', '$3', '$4')}`,
-    [projectId, ctx.workspaceId, ctx.userId, ctx.isAdmin]
-  );
-  const project = projectResult.rows[0];
-  if (!project) return null;
+  return withFleetClient(ctx, async (client) => {
+    // The broad document GET carries title, properties (including the
+    // properties.fleet cache blob), AND content in one call; the typed project
+    // DTO deliberately omits content. 404 → not visible → null.
+    let doc;
+    try {
+      doc = await client.documents.get(projectId);
+    } catch (err) {
+      if (err instanceof ShipApiError && err.status === 404) return null;
+      throw err;
+    }
+    if (doc.document_type !== 'project') return null;
 
-  const props = project.properties || {};
+    const props = (doc.properties ?? {}) as ProjectRow['properties'] & Record<string, unknown>;
 
-  // Viewer-INDEPENDENT input for the shared per-project cache: only
-  // workspace-visible issues (no `created_by = $userId` personalization). This
-  // keeps the cache key stable across viewers and ensures the cached analysis
-  // never contains another user's private issues.
-  const issuesResult = await pool.query<IssueRow>(
-    `SELECT d.properties->>'state' as state, d.title
-     FROM documents d
-     JOIN document_associations da ON da.document_id = d.id
-       AND da.related_id = $1 AND da.relationship_type = 'project'
-     WHERE d.workspace_id = $2 AND d.document_type = 'issue'
-       AND d.archived_at IS NULL AND d.deleted_at IS NULL
-       AND d.visibility = 'workspace'
-     ORDER BY d.created_at ASC`,
-    [projectId, ctx.workspaceId]
-  );
+    // Viewer-INDEPENDENT input for the shared per-project cache: only
+    // workspace-visible issues. Same created_at ASC order as the v1 list.
+    const done: string[] = [];
+    const cancelled: string[] = [];
+    const active: string[] = [];
+    for await (const issue of client.issues.iterate({ belongs_to: projectId, belongs_to_type: 'project', visibility: 'workspace', limit: 100 })) {
+      if (issue.state === 'done') done.push(issue.title);
+      else if (issue.state === 'cancelled') cancelled.push(issue.title);
+      else active.push(issue.title);
+    }
 
-  const weeksResult = await pool.query<CountRow>(
-    `SELECT COUNT(*) as n FROM documents d
-     JOIN document_associations da ON da.document_id = d.id
-       AND da.related_id = $1 AND da.relationship_type = 'project'
-     WHERE d.document_type = 'sprint'`,
-    [projectId]
-  );
+    let weeksCount = 0;
+    for await (const _sprint of client.sprints.iterate({ belongs_to: projectId, belongs_to_type: 'project', visibility: 'workspace', limit: 100 })) {
+      weeksCount += 1;
+    }
 
-  const done: string[] = [];
-  const cancelled: string[] = [];
-  const active: string[] = [];
-  for (const issue of issuesResult.rows) {
-    if (issue.state === 'done') done.push(issue.title);
-    else if (issue.state === 'cancelled') cancelled.push(issue.title);
-    else active.push(issue.title);
-  }
+    const successCriteria = Array.isArray(props?.success_criteria)
+      ? props.success_criteria.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+      : [];
 
-  const successCriteria = Array.isArray(props.success_criteria)
-    ? props.success_criteria.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
-    : [];
-
-  return {
-    projectId: project.id,
-    title: project.title,
-    plan: props.plan ?? null,
-    successCriteria,
-    monetaryImpactExpected: props.monetary_impact_expected ?? null,
-    monetaryImpactActual: props.monetary_impact_actual ?? null,
-    planValidated: props.plan_validated ?? null,
-    targetDate: props.target_date ?? null,
-    retroText: extractText(project.content).trim(),
-    issues: { done, cancelled, active },
-    weeksCount: Number(weeksResult.rows[0]?.n ?? 0),
-    existingCache: project.properties?.fleet ?? null,
-  };
+    return {
+      projectId: doc.id,
+      title: doc.title,
+      plan: props?.plan ?? null,
+      successCriteria,
+      monetaryImpactExpected: props?.monetary_impact_expected ?? null,
+      monetaryImpactActual: props?.monetary_impact_actual ?? null,
+      planValidated: props?.plan_validated ?? null,
+      targetDate: props?.target_date ?? null,
+      retroText: extractText(doc.content).trim(),
+      issues: { done, cancelled, active },
+      weeksCount,
+      existingCache: (props?.fleet as FleetCacheBlob | null | undefined) ?? null,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

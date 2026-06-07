@@ -260,6 +260,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -566,6 +572,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -852,6 +864,15 @@ export interface paths {
                         "application/json": components["schemas"]["ApiError"];
                     };
                 };
+                /** @description Closing a parent with incomplete sub-issues requires confirm_orphan_children */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
             };
         };
         trace?: never;
@@ -872,6 +893,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -1178,6 +1205,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -1484,6 +1517,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -1790,6 +1829,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -2096,6 +2141,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -2402,6 +2453,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -2708,6 +2765,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -3014,6 +3077,12 @@ export interface paths {
                 query?: {
                     limit?: number;
                     cursor?: string;
+                    belongs_to?: string;
+                    belongs_to_type?: "program" | "project" | "sprint" | "parent";
+                    state?: "triage" | "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+                    updated_before?: string;
+                    updated_after?: string;
+                    visibility?: "workspace";
                 };
                 header?: never;
                 path?: never;
@@ -3302,6 +3371,209 @@ export interface paths {
                 };
             };
         };
+        trace?: never;
+    };
+    "/documents/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a document's comments
+         * @description Requires scope `comments:read` or broad superscope `documents:read`. 404 when the document is not visible to the token's user.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The document's comments, oldest first */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CommentList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Insufficient scope (comments:read or documents:read) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Document not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Post a comment on a document
+         * @description Requires scope `comments:write` or broad superscope `documents:write`. Omit `comment_id` to start a fresh thread; pass `parent_id` to reply.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CreateComment"];
+                };
+            };
+            responses: {
+                /** @description The created comment */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"];
+                    };
+                };
+                /** @description Invalid comment */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Insufficient scope (comments:write or documents:write) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Document or parent comment not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/document-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List field-change history across documents
+         * @description Requires scope `documents:read`. `document_id` repeats up to 100× so a multi-document activity feed is one request. Rows for documents the user cannot see are silently omitted (never a 404).
+         */
+        get: {
+            parameters: {
+                query: {
+                    document_id: string | string[];
+                    field?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Matching history entries, newest first */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DocumentHistoryList"];
+                    };
+                };
+                /** @description Invalid query parameters */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Insufficient scope (documents:read) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/webhooks": {
@@ -5231,6 +5503,7 @@ export interface components {
                 title?: string;
                 color?: string;
             }[];
+            confirm_orphan_children?: boolean;
         };
         Program: {
             /** Format: uuid */
@@ -5330,6 +5603,10 @@ export interface components {
             has_design_review: boolean | null;
             design_review_notes: string | null;
             target_date: string | null;
+            plan_validated: boolean | null;
+            success_criteria: string[] | null;
+            monetary_impact_expected: string | null;
+            monetary_impact_actual: string | null;
             inferred_status: string;
             sprint_count: number;
             issue_count: number;
@@ -5340,6 +5617,14 @@ export interface components {
             archived_at: string | null;
             /** Format: uuid */
             converted_from_id: string | null;
+            belongs_to: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                type: "program" | "project" | "sprint" | "parent";
+                title?: string;
+                color?: string;
+            }[];
         };
         ProjectListResponse: {
             data: {
@@ -5371,6 +5656,10 @@ export interface components {
                 has_design_review: boolean | null;
                 design_review_notes: string | null;
                 target_date: string | null;
+                plan_validated: boolean | null;
+                success_criteria: string[] | null;
+                monetary_impact_expected: string | null;
+                monetary_impact_actual: string | null;
                 inferred_status: string;
                 sprint_count: number;
                 issue_count: number;
@@ -5381,6 +5670,14 @@ export interface components {
                 archived_at: string | null;
                 /** Format: uuid */
                 converted_from_id: string | null;
+                belongs_to: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "program" | "project" | "sprint" | "parent";
+                    title?: string;
+                    color?: string;
+                }[];
             }[];
             next_cursor: string | null;
         };
@@ -5431,6 +5728,7 @@ export interface components {
             target_date?: string | null;
             has_design_review?: boolean | null;
             design_review_notes?: string | null;
+            plan_validated?: boolean | null;
         };
         Sprint: {
             /** Format: uuid */
@@ -5443,6 +5741,8 @@ export interface components {
             owner_id: string | null;
             /** Format: uuid */
             program_id: string | null;
+            /** Format: uuid */
+            project_id: string | null;
             plan: string | null;
             success_criteria: string[] | null;
             confidence: number | null;
@@ -5474,6 +5774,14 @@ export interface components {
             retro_id: string | null;
             created_at: string;
             updated_at: string;
+            belongs_to: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                type: "program" | "project" | "sprint" | "parent";
+                title?: string;
+                color?: string;
+            }[];
         };
         SprintListResponse: {
             data: {
@@ -5487,6 +5795,8 @@ export interface components {
                 owner_id: string | null;
                 /** Format: uuid */
                 program_id: string | null;
+                /** Format: uuid */
+                project_id: string | null;
                 plan: string | null;
                 success_criteria: string[] | null;
                 confidence: number | null;
@@ -5518,6 +5828,14 @@ export interface components {
                 retro_id: string | null;
                 created_at: string;
                 updated_at: string;
+                belongs_to: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "program" | "project" | "sprint" | "parent";
+                    title?: string;
+                    color?: string;
+                }[];
             }[];
             next_cursor: string | null;
         };
@@ -5566,6 +5884,9 @@ export interface components {
             capacity_hours: number | null;
             /** Format: uuid */
             reports_to: string | null;
+            /** Format: uuid */
+            user_id: string | null;
+            workspace_role: string | null;
             visibility: string;
             created_at: string;
             updated_at: string;
@@ -5582,6 +5903,9 @@ export interface components {
                 capacity_hours: number | null;
                 /** Format: uuid */
                 reports_to: string | null;
+                /** Format: uuid */
+                user_id: string | null;
+                workspace_role: string | null;
                 visibility: string;
                 created_at: string;
                 updated_at: string;
@@ -5842,6 +6166,69 @@ export interface components {
             /** Format: uuid */
             owner_id?: string | null;
             plan_validated?: boolean | null;
+        };
+        Comment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            document_id: string;
+            /** Format: uuid */
+            comment_id: string;
+            /** Format: uuid */
+            parent_id: string | null;
+            content: string;
+            resolved_at: string | null;
+            author: {
+                /** Format: uuid */
+                id: string;
+                name: string | null;
+                email: string | null;
+            };
+            created_at: string;
+            updated_at: string;
+        };
+        CommentList: {
+            data: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                document_id: string;
+                /** Format: uuid */
+                comment_id: string;
+                /** Format: uuid */
+                parent_id: string | null;
+                content: string;
+                resolved_at: string | null;
+                author: {
+                    /** Format: uuid */
+                    id: string;
+                    name: string | null;
+                    email: string | null;
+                };
+                created_at: string;
+                updated_at: string;
+            }[];
+        };
+        CreateComment: {
+            content: string;
+            /** Format: uuid */
+            comment_id?: string;
+            /** Format: uuid */
+            parent_id?: string;
+        };
+        DocumentHistoryList: {
+            data: {
+                id: number;
+                /** Format: uuid */
+                document_id: string;
+                field: string;
+                old_value: string | null;
+                new_value: string | null;
+                /** Format: uuid */
+                changed_by: string | null;
+                automated_by: string | null;
+                created_at: string;
+            }[];
         };
         WebhookSubscription: {
             /** Format: uuid */
