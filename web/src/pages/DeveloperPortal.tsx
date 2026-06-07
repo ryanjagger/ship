@@ -899,6 +899,11 @@ const DELIVERY_STATUS_COLOR: Record<string, string> = {
   replayed: 'text-muted',
 };
 
+// Delivered rows are replayable too (e.g. to test a consumer's idempotency
+// handling) — the replay reuses the original event, so the idempotency key
+// is identical and the source keeps its `delivered` status.
+const REPLAYABLE_STATUSES: ReadonlySet<string> = new Set(['delivered', 'failed', 'dead_lettered']);
+
 function DeliveriesTab() {
   const { showToast } = useToast();
   const withClient = usePortalClient();
@@ -997,7 +1002,7 @@ function DeliveriesTab() {
                       <button onClick={() => void openDetail(d.id)} className="text-sm text-accent-text hover:underline">
                         Details
                       </button>
-                      {(d.status === 'failed' || d.status === 'dead_lettered') && (
+                      {REPLAYABLE_STATUSES.has(d.status) && (
                         <button
                           onClick={() => void replay(d.id)}
                           data-testid={`dev-replay-${d.id}`}
@@ -1021,7 +1026,7 @@ function DeliveriesTab() {
 }
 
 function DeliveryDetailModal({ detail, onClose, onReplay }: { detail: ShipWebhookDeliveryDetail; onClose: () => void; onReplay: () => void }) {
-  const canReplay = detail.status === 'failed' || detail.status === 'dead_lettered';
+  const canReplay = REPLAYABLE_STATUSES.has(detail.status);
   return (
     <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>

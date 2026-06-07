@@ -474,6 +474,20 @@ async function seedMinimalTestData(pool: Pool): Promise<void> {
     [seedSubId, seedEvent.rows[0].id]
   );
 
+  // A second, successfully delivered event/delivery so the portal's
+  // "replay a delivered delivery" flow is exercisable end-to-end.
+  const seedDeliveredEvent = await pool.query(
+    `INSERT INTO webhook_events (id, workspace_id, actor_user_id, type, api_version, payload, idempotency_key)
+     VALUES ('evt_seed_delivered', $1, $2, 'issue.created', 'v1', $3, 'evt_seed_delivered')
+     RETURNING id`,
+    [workspaceId, userId, JSON.stringify({ id: 'evt_seed_delivered', type: 'issue.created', data: { object: { id: 'seed-delivered' } } })]
+  );
+  await pool.query(
+    `INSERT INTO webhook_deliveries (subscription_id, event_id, status, attempt_count, next_attempt_at, last_response_status, delivered_at)
+     VALUES ($1, $2, 'delivered', 1, NULL, 200, now())`,
+    [seedSubId, seedDeliveredEvent.rows[0].id]
+  );
+
   // A live access token for the dev app, so the portal's Connections tab (apps
   // holding an unexpired token) has a row to render and revoke. Hash is a
   // placeholder — the token is never presented, only listed/revoked by app+user.

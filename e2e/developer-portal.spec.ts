@@ -79,6 +79,7 @@ test.describe('Developer Portal', () => {
 
     // The seeded dev-owned app with a dead-lettered delivery.
     await page.getByTestId('dev-app-picker').selectOption({ label: 'Seed Webhook App' });
+    await page.getByTestId('dev-delivery-status-filter').selectOption('dead_lettered');
     const deliveryRow = page.getByTestId('dev-delivery-row').first();
     await expect(deliveryRow).toBeVisible();
     await expect(deliveryRow).toContainText('dead_lettered');
@@ -86,6 +87,28 @@ test.describe('Developer Portal', () => {
     // Replay it; a success toast confirms a new delivery id.
     await deliveryRow.getByRole('button', { name: 'Replay' }).click();
     await expect(page.getByText(/Replayed — new delivery/i)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('replay a delivered delivery — the original keeps its delivered status', async ({ page }) => {
+    await login(page);
+    await page.goto('/developer');
+    await page.getByTestId('dev-tab-deliveries').click();
+
+    // The seeded delivered delivery (same dev-owned app).
+    await page.getByTestId('dev-app-picker').selectOption({ label: 'Seed Webhook App' });
+    await page.getByTestId('dev-delivery-status-filter').selectOption('delivered');
+    const deliveryRow = page.getByTestId('dev-delivery-row').first();
+    await expect(deliveryRow).toBeVisible();
+    await expect(deliveryRow).toContainText('delivered');
+
+    // Delivered rows are replayable (e.g. to test consumer idempotency handling).
+    await deliveryRow.getByRole('button', { name: 'Replay' }).click();
+    await expect(page.getByText(/Replayed — new delivery/i)).toBeVisible({ timeout: 5000 });
+
+    // The list reloads with the 'delivered' filter still applied: the original
+    // keeps its delivered audit record (only the new replay row is pending).
+    await expect(page.getByTestId('dev-delivery-row')).toHaveCount(1);
+    await expect(page.getByTestId('dev-delivery-row').first()).toContainText('delivered');
   });
 
   test('Connections tab lists a live token and revokes it', async ({ page }) => {
