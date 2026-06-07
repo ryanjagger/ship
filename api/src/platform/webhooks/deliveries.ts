@@ -248,9 +248,11 @@ export async function listAttempts(deliveryId: string): Promise<WebhookDeliveryA
  * Replay a delivery: stamp the source `replayed` (audit) and spawn a NEW pending
  * delivery for the same subscription+event, linked via `replay_of_delivery_id`.
  * Reusing the same `event_id` means the envelope id + idempotency_key are
- * identical; the fresh signature timestamp falls out at send time. Returns the
- * new delivery id + the reused event id, or null if the source isn't in the
- * caller's app+workspace.
+ * identical; the fresh signature timestamp falls out at send time. A `delivered`
+ * source keeps its status — `replayed` means "superseded", which is wrong for a
+ * delivery that succeeded; lineage is preserved on the new row either way.
+ * Returns the new delivery id + the reused event id, or null if the source
+ * isn't in the caller's app+workspace.
  */
 export async function createReplay(
   sourceDeliveryId: string,
@@ -273,9 +275,10 @@ export async function createReplay(
       await client.query('ROLLBACK');
       return null;
     }
-    await client.query(`UPDATE webhook_deliveries SET status = 'replayed', updated_at = now() WHERE id = $1`, [
-      sourceDeliveryId,
-    ]);
+    await client.query(
+      `UPDATE webhook_deliveries SET status = 'replayed', updated_at = now() WHERE id = $1 AND status <> 'delivered'`,
+      [sourceDeliveryId]
+    );
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO webhook_deliveries (subscription_id, event_id, status, attempt_count, next_attempt_at, replay_of_delivery_id)
        VALUES ($1, $2, 'pending', 0, now(), $3)
