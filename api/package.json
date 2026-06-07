@@ -37,6 +37,7 @@
     "@langchain/langgraph-checkpoint": "1.0.2",
     "@langchain/openai": "1.4.7",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@ryanjagger/ship-sdk": "workspace:*",
     "@ship/shared": "workspace:*",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
@@ -65,7 +66,6 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "@ryanjagger/ship-sdk": "workspace:*",
     "@types/bcryptjs": "^3.0.0",
     "@types/compression": "^1.8.1",
     "@types/cookie": "^1.0.0",

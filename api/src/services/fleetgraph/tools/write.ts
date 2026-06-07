@@ -33,33 +33,33 @@
  * rejected at the type boundary before any proposal is even formed, so injected
  * content cannot smuggle a write past the tool.
  *
+ * ── TRANSPORT: THE PUBLIC API (issue #95) ───────────────────────────────────
+ * Executors perform their domain writes through `/api/v1` via the SDK
+ * (`withFleetClient`), as the `client_ship_fleet_agent` OAuth app with a token
+ * minted for the ACTING user: scope-bounded, rate-limited, recorded in
+ * `public_api_audit_logs`, and subject to exactly the authorization any
+ * third-party agent gets (v1 has no admin bypass — the same 404 a stranger
+ * would see). The proposal builders / zod boundary / contentHash / interrupt-
+ * resume protocol are unchanged.
+ *
  * ── AUDIT + PROVENANCE ──────────────────────────────────────────────────────
  * Every successful agent write logs `logAuditEvent({ action, resourceType,
- * resourceId, details: { agent_initiated: true, approved_by: userId } })`, and
- * field changes flow `actorSource='fleetgraph'` into `document_history.automated_by`
- * (issue patches), marking the agent as the field-change source.
+ * resourceId, details: { agent_initiated: true, approved_by: userId } })` —
+ * the public audit trail records the HTTP request but cannot carry these agent
+ * semantics, so the internal audit row stays. Issue field changes flow the
+ * OAuth client_id into `document_history.automated_by` via the v1 route
+ * (provenance label `client_ship_fleet_agent`).
  */
 
 import { z } from 'zod';
 import { tool } from '@langchain/core/tools';
 import crypto from 'crypto';
-import { pool } from '../../../db/client.js';
+import { ShipApiError } from '@ryanjagger/ship-sdk';
 import { logAuditEvent } from '../../audit.js';
-import {
-  createIssueCore,
-  patchIssueCore,
-  runIssueSideEffects,
-  type CreateIssueInput,
-  type UpdateIssueInput,
-} from '../../issues-service.js';
-import { postCommentCore, type PostCommentInput } from '../../comments-service.js';
-import { patchProjectRetroCore } from '../../projects-service.js';
+import { withFleetClient } from '../api-client.js';
 import type { FleetContext } from '../../fleet-service.js';
 
 export type { FleetContext };
-
-/** The actor-source recorded for agent-driven field changes. */
-export const FLEETGRAPH_SOURCE = 'fleetgraph';
 
 // ---------------------------------------------------------------------------
 // Shared enums (MUST match the real DB enums used by the routes' schemas)
@@ -303,79 +303,86 @@ export async function executeProposal(ctx: FleetContext, proposal: WriteProposal
   throw new Error(`Unknown proposal kind: ${(proposal as WriteProposal).kind}`);
 }
 
+/**
+ * Map a v1 denial onto the non-mutating result shape the action node and the
+ * retro-apply route already understand. Only the statuses the old service
+ * cores returned in-band are mapped; anything else (rate limit, 5xx, network)
+ * propagates as a throw — same as a DB error did before.
+ */
+function deniedResult(kind: WriteProposalKind, err: ShipApiError, resourceId: string | null): ExecuteResult {
+  return {
+    kind,
+    status: err.status,
+    body: { error: err.message, ...(err.details ?? {}) },
+    resourceId,
+    mutated: false,
+  };
+}
+
+const MAPPED_DENIALS = new Set([400, 404, 409]);
+
 async function executeCreateIssue(ctx: FleetContext, args: CreateIssueArgs): Promise<ExecuteResult> {
-  const client = await pool.connect();
-  try {
-    const input: CreateIssueInput = {
+  // Failures (e.g. an invalid belongs_to target → 400) throw, exactly as the
+  // old transactional path threw before committing — no partial state either way.
+  const issue = await withFleetClient(ctx, (client) =>
+    client.issues.create({
       title: args.title,
       state: args.state,
       priority: args.priority,
       assignee_id: args.assignee_id ?? null,
       belongs_to: args.belongs_to ?? [],
-    };
-    const outcome = await createIssueCore(client, ctx, input);
-    await runIssueSideEffects(outcome.sideEffects);
-    const resourceId: string | null = (outcome.body as any)?.id ?? null;
-    if (outcome.status === 201 && resourceId) {
-      await logAuditEvent({
-        workspaceId: ctx.workspaceId,
-        actorUserId: ctx.userId,
-        action: 'issue.create',
-        resourceType: 'issue',
-        resourceId,
-        details: { agent_initiated: true, approved_by: ctx.userId },
-      });
-    }
-    return { kind: 'create_issue', status: outcome.status, body: outcome.body, resourceId, mutated: outcome.status === 201 };
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
+    })
+  );
+  await logAuditEvent({
+    workspaceId: ctx.workspaceId,
+    actorUserId: ctx.userId,
+    action: 'issue.create',
+    resourceType: 'issue',
+    resourceId: issue.id,
+    details: { agent_initiated: true, approved_by: ctx.userId },
+  });
+  return { kind: 'create_issue', status: 201, body: issue, resourceId: issue.id, mutated: true };
 }
 
 async function executePatchIssue(ctx: FleetContext, args: PatchIssueArgs): Promise<ExecuteResult> {
-  const client = await pool.connect();
   try {
-    const input: UpdateIssueInput = {
-      title: args.title,
-      state: args.state,
-      priority: args.priority,
-      assignee_id: args.assignee_id,
-      belongs_to: args.belongs_to,
-      confirm_orphan_children: args.confirm_orphan_children,
-    };
-    // actorSource = 'fleetgraph' → document_history.automated_by provenance.
-    const outcome = await patchIssueCore(client, ctx, args.id, input, FLEETGRAPH_SOURCE);
-    await runIssueSideEffects(outcome.sideEffects);
-    const mutated = outcome.status === 200;
-    if (mutated) {
-      await logAuditEvent({
-        workspaceId: ctx.workspaceId,
-        actorUserId: ctx.userId,
-        action: 'issue.update',
-        resourceType: 'issue',
-        resourceId: args.id,
-        details: { agent_initiated: true, approved_by: ctx.userId },
-      });
-    }
-    return { kind: 'patch_issue', status: outcome.status, body: outcome.body, resourceId: args.id, mutated };
+    const issue = await withFleetClient(ctx, (client) =>
+      client.issues.update(args.id, {
+        title: args.title,
+        state: args.state,
+        priority: args.priority,
+        assignee_id: args.assignee_id,
+        belongs_to: args.belongs_to,
+        confirm_orphan_children: args.confirm_orphan_children,
+      })
+    );
+    await logAuditEvent({
+      workspaceId: ctx.workspaceId,
+      actorUserId: ctx.userId,
+      action: 'issue.update',
+      resourceType: 'issue',
+      resourceId: args.id,
+      details: { agent_initiated: true, approved_by: ctx.userId },
+    });
+    return { kind: 'patch_issue', status: 200, body: issue, resourceId: args.id, mutated: true };
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    // 404 (not visible), 409 (incomplete children without the confirm flag),
+    // 400 (estimate-for-sprint, nothing to update) → the same non-mutating
+    // result the service core returned in-band before the v1 migration.
+    if (err instanceof ShipApiError && MAPPED_DENIALS.has(err.status)) {
+      return deniedResult('patch_issue', err, args.id);
+    }
     throw err;
-  } finally {
-    client.release();
   }
 }
 
 async function executePatchProject(ctx: FleetContext, args: PatchProjectArgs): Promise<ExecuteResult> {
-  // User-scoped, route-equivalent write via the shared core (visibility-checked
-  // load → merge → UPDATE). A non-visible project returns 404 and is NOT audited
-  // as a write — the agent gets the same denial the user would.
-  const outcome = await patchProjectRetroCore(pool, ctx, args.id, { plan_validated: args.plan_validated });
-  const mutated = outcome.status === 201;
-  if (mutated) {
+  try {
+    // v1 returns 200 + the project DTO (the old retro core returned 201 + the
+    // retro body) — consumers key off `mutated`, not the status/body shape.
+    const project = await withFleetClient(ctx, (client) =>
+      client.projects.update(args.id, { plan_validated: args.plan_validated })
+    );
     await logAuditEvent({
       workspaceId: ctx.workspaceId,
       actorUserId: ctx.userId,
@@ -384,31 +391,39 @@ async function executePatchProject(ctx: FleetContext, args: PatchProjectArgs): P
       resourceId: args.id,
       details: { agent_initiated: true, approved_by: ctx.userId, plan_validated: args.plan_validated },
     });
+    return { kind: 'patch_project', status: 200, body: project, resourceId: args.id, mutated: true };
+  } catch (err) {
+    if (err instanceof ShipApiError && MAPPED_DENIALS.has(err.status)) {
+      return deniedResult('patch_project', err, args.id);
+    }
+    throw err;
   }
-  return { kind: 'patch_project', status: outcome.status, body: outcome.body, resourceId: args.id, mutated };
 }
 
 async function executePostComment(ctx: FleetContext, args: PostCommentArgs): Promise<ExecuteResult> {
-  const input: PostCommentInput = {
-    // The agent does not control the client-side comment_id; mint one server-side.
-    comment_id: crypto.randomUUID(),
-    content: args.content,
-    parent_id: args.parent_id,
-  };
-  const outcome = await postCommentCore(pool, ctx, args.document_id, input);
-  const mutated = outcome.status === 201;
-  const resourceId: string | null = mutated ? (outcome.body as any).id : null;
-  if (mutated) {
+  try {
+    // The agent does not control the editor thread id; v1 mints one server-side.
+    const comment = await withFleetClient(ctx, (client) =>
+      client.documents.comments.create(args.document_id, {
+        content: args.content,
+        parent_id: args.parent_id,
+      })
+    );
     await logAuditEvent({
       workspaceId: ctx.workspaceId,
       actorUserId: ctx.userId,
       action: 'comment.create',
       resourceType: 'comment',
-      resourceId: resourceId ?? undefined,
+      resourceId: comment.id,
       details: { agent_initiated: true, approved_by: ctx.userId, document_id: args.document_id },
     });
+    return { kind: 'post_comment', status: 201, body: comment, resourceId: comment.id, mutated: true };
+  } catch (err) {
+    if (err instanceof ShipApiError && MAPPED_DENIALS.has(err.status)) {
+      return deniedResult('post_comment', err, null);
+    }
+    throw err;
   }
-  return { kind: 'post_comment', status: outcome.status, body: outcome.body, resourceId, mutated };
 }
 
 // ---------------------------------------------------------------------------

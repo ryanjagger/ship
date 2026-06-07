@@ -14,6 +14,8 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { pool } from '../../db/client.js';
+import { createApp } from '../../app.js';
+import { setupFleetClientForTests, resetFleetApiClient } from '../../test-utils/fleet-fixture.js';
 import {
   sweepWorkspaceDrift,
   SweepInProgressError,
@@ -110,6 +112,9 @@ async function seedDriftingProject(opts: { workspaceId: string }): Promise<strin
 }
 
 beforeAll(async () => {
+  // Sweep domain reads travel /api/v1 as the fleet service user.
+  await setupFleetClientForTests(createApp());
+
   // Two workspaces: one with a drifting project, one with nothing.
   const ws = await pool.query<{ id: string }>(
     `INSERT INTO workspaces (name) VALUES ($1) RETURNING id`,
@@ -139,6 +144,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  resetFleetApiClient();
   // Best-effort cleanup — suite-level TRUNCATE handles the rest.
   await pool
     .query(`DELETE FROM workspaces WHERE id IN ($1, $2)`, [workspaceId, emptyWorkspaceId])

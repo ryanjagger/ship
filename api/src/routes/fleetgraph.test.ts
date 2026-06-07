@@ -52,6 +52,7 @@ vi.mock('../services/fleet-ai.js', async (importOriginal) => {
 
 import { createApp } from '../app.js';
 import { pool } from '../db/client.js';
+import { setupFleetClientForTests, resetFleetApiClient } from '../test-utils/fleet-fixture.js';
 import { generateOpenAPIDocument } from '../openapi/registry.js';
 import '../openapi/schemas/index.js';
 import { __resetFleetChatRateLimitForTests } from '../services/fleetgraph/rate-limit.js';
@@ -107,6 +108,9 @@ describe('FleetGraph chat API', () => {
   }
 
   beforeAll(async () => {
+    // Chat read/write tools travel /api/v1 through the Fleet client.
+    await setupFleetClientForTests(app);
+
     workspaceId = (await pool.query(`INSERT INTO workspaces (name) VALUES ($1) RETURNING id`, [`FG WS ${runId}`])).rows[0].id;
     userId = (await pool.query(`INSERT INTO users (email, password_hash, name) VALUES ($1,'h','U') RETURNING id`, [email])).rows[0].id;
     otherUserId = (await pool.query(`INSERT INTO users (email, password_hash, name) VALUES ($1,'h','O') RETURNING id`, [otherEmail])).rows[0].id;
@@ -127,6 +131,7 @@ describe('FleetGraph chat API', () => {
   });
 
   afterAll(async () => {
+    resetFleetApiClient();
     await pool.query('DELETE FROM sessions WHERE user_id IN ($1,$2,$3)', [userId, otherUserId, adminUserId]);
     await pool.query('DELETE FROM documents WHERE workspace_id = $1', [workspaceId]);
     await pool.query('DELETE FROM workspace_memberships WHERE user_id IN ($1,$2,$3)', [userId, otherUserId, adminUserId]);

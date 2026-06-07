@@ -39,6 +39,7 @@ export interface TypedDocumentRow {
   retro_outcome?: string | null;
   retro_id?: string | null;
   inferred_status?: string | null;
+  workspace_role?: string | null;
 }
 
 export interface DocumentWriteInput {
@@ -269,6 +270,8 @@ const UpdateIssueSchema = BaseUpdateSchema.omit({ parent_id: true }).extend({
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   rejection_reason: z.string().nullable().optional(),
   belongs_to: z.array(BelongsToSchema).optional(),
+  /** Confirm closing a parent whose sub-issues are still open (409 otherwise). */
+  confirm_orphan_children: z.boolean().optional(),
 });
 
 const ProgramSchema = z.object({
@@ -325,6 +328,10 @@ const ProjectSchema = z.object({
   has_design_review: z.boolean().nullable(),
   design_review_notes: z.string().nullable(),
   target_date: z.string().nullable(),
+  plan_validated: z.boolean().nullable(),
+  success_criteria: z.array(z.string()).nullable(),
+  monetary_impact_expected: z.string().nullable(),
+  monetary_impact_actual: z.string().nullable(),
   inferred_status: z.string(),
   sprint_count: z.number().int(),
   issue_count: z.number().int(),
@@ -334,6 +341,8 @@ const ProjectSchema = z.object({
   updated_at: DateTime,
   archived_at: DateTime.nullable(),
   converted_from_id: Uuid.nullable(),
+  /** Outgoing associations (canonical hierarchy links; e.g. the program). */
+  belongs_to: z.array(BelongsToSchema),
 });
 const CreateProjectSchema = BaseCreateSchema.omit({ parent_id: true }).extend({
   impact: z.number().int().min(1).max(5).nullable().optional(),
@@ -364,6 +373,7 @@ const UpdateProjectSchema = BaseUpdateSchema.omit({ parent_id: true }).extend({
   target_date: z.string().nullable().optional(),
   has_design_review: z.boolean().nullable().optional(),
   design_review_notes: z.string().nullable().optional(),
+  plan_validated: z.boolean().nullable().optional(),
 });
 
 const SprintSchema = z.object({
@@ -373,6 +383,7 @@ const SprintSchema = z.object({
   status: z.enum(['planning', 'active', 'completed']),
   owner_id: Uuid.nullable(),
   program_id: Uuid.nullable(),
+  project_id: Uuid.nullable(),
   plan: z.string().nullable(),
   success_criteria: z.array(z.string()).nullable(),
   confidence: z.number().int().min(0).max(100).nullable(),
@@ -394,6 +405,8 @@ const SprintSchema = z.object({
   retro_id: Uuid.nullable(),
   created_at: DateTime,
   updated_at: DateTime,
+  /** Outgoing associations (canonical hierarchy links; e.g. project/program). */
+  belongs_to: z.array(BelongsToSchema),
 });
 const CreateSprintSchema = BaseCreateSchema.omit({ parent_id: true }).extend({
   sprint_number: z.number().int().positive(),
@@ -421,6 +434,10 @@ const PersonSchema = z.object({
   role: z.string().nullable(),
   capacity_hours: z.number().nullable(),
   reports_to: Uuid.nullable(),
+  /** The auth user backing this directory entry (null for unlinked entries). */
+  user_id: Uuid.nullable(),
+  /** The linked user's workspace membership role (null when unlinked). */
+  workspace_role: z.string().nullable(),
   visibility: z.string(),
   created_at: DateTime,
   updated_at: DateTime,
@@ -582,7 +599,7 @@ function createResource(config: Omit<TypedDocumentResource, 'listResponseSchema'
 
 const issueKeys = ['state', 'priority', 'assignee_id', 'estimate', 'source', 'due_date', 'is_system_generated', 'accountability_target_id', 'accountability_type', 'rejection_reason'];
 const programKeys = ['color', 'emoji', 'owner_id', 'accountable_id', 'consulted_ids', 'informed_ids'];
-const projectKeys = ['impact', 'confidence', 'ease', 'color', 'emoji', 'program_id', 'owner_id', 'accountable_id', 'consulted_ids', 'informed_ids', 'plan', 'target_date', 'has_design_review', 'design_review_notes'];
+const projectKeys = ['impact', 'confidence', 'ease', 'color', 'emoji', 'program_id', 'owner_id', 'accountable_id', 'consulted_ids', 'informed_ids', 'plan', 'target_date', 'has_design_review', 'design_review_notes', 'plan_validated'];
 const sprintKeys = ['sprint_number', 'owner_id', 'program_id', 'status', 'plan', 'success_criteria', 'confidence'];
 const weeklyKeys = ['person_id', 'project_id', 'week_number', 'submitted_at'];
 const standupKeys = ['author_id', 'date', 'submitted_at'];
@@ -701,6 +718,10 @@ export const TYPED_DOCUMENT_RESOURCES = [
         has_design_review: bool(p.has_design_review),
         design_review_notes: str(p.design_review_notes),
         target_date: str(p.target_date),
+        plan_validated: bool(p.plan_validated),
+        success_criteria: Array.isArray(p.success_criteria) ? stringArray(p.success_criteria) : null,
+        monetary_impact_expected: str(p.monetary_impact_expected),
+        monetary_impact_actual: str(p.monetary_impact_actual),
         inferred_status: str(row.inferred_status) ?? 'backlog',
         sprint_count: int(row.sprint_count),
         issue_count: int(row.issue_count),
@@ -710,6 +731,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
         updated_at: iso(row.updated_at),
         archived_at: isoNullable(row.archived_at),
         converted_from_id: row.converted_from_id ?? null,
+        belongs_to: belongsTo(row.belongs_to),
       };
     },
     toCreate: (input) => writeFromKnownFields(input as Record<string, unknown>, projectKeys),
@@ -735,6 +757,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
         status: (str(p.status) ?? 'planning') as 'planning' | 'active' | 'completed',
         owner_id: str(p.owner_id) ?? (Array.isArray(p.assignee_ids) ? str(p.assignee_ids[0]) : null),
         program_id: str(p.program_id),
+        project_id: str(p.project_id),
         plan: str(p.plan),
         success_criteria: Array.isArray(p.success_criteria) ? stringArray(p.success_criteria) : null,
         confidence: num(p.confidence),
@@ -756,6 +779,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
         retro_id: row.retro_id ?? null,
         created_at: iso(row.created_at),
         updated_at: iso(row.updated_at),
+        belongs_to: belongsTo(row.belongs_to),
       };
     },
     toCreate: (input) => {
@@ -793,6 +817,8 @@ export const TYPED_DOCUMENT_RESOURCES = [
         role: str(p.role),
         capacity_hours: num(p.capacity_hours),
         reports_to: str(p.reports_to),
+        user_id: str(p.user_id),
+        workspace_role: row.workspace_role ?? null,
         visibility: row.visibility,
         created_at: iso(row.created_at),
         updated_at: iso(row.updated_at),
@@ -885,6 +911,21 @@ export const TYPED_DOCUMENT_RESOURCES = [
 export const TypedDocumentListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   cursor: z.string().optional(),
+  /** Only documents associated (document_associations) with this related id. */
+  belongs_to: Uuid.optional(),
+  /** Narrow `belongs_to` to one relationship type. */
+  belongs_to_type: z.enum(['program', 'project', 'sprint', 'parent']).optional(),
+  /** Filter on properties->>'state' (meaningful for issues). */
+  state: IssueStateSchema.optional(),
+  updated_before: z.string().datetime({ offset: true }).optional(),
+  updated_after: z.string().datetime({ offset: true }).optional(),
+  /**
+   * `visibility=workspace` restricts results to workspace-visible documents,
+   * EXCLUDING the caller's own private documents. Load-bearing for agents
+   * building shareable context: a cache keyed on workspace state must never
+   * absorb one viewer's private rows.
+   */
+  visibility: z.literal('workspace').optional(),
 });
 
 export type TypedDocumentResourcePath = (typeof TYPED_DOCUMENT_RESOURCES)[number]['path'];

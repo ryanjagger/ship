@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import crypto from 'crypto'
 import { pool } from '../../../db/client.js'
+import { createApp } from '../../../app.js'
+import { setupFleetClientForTests, resetFleetApiClient } from '../../../test-utils/fleet-fixture.js'
 import {
   buildCreateIssueProposal,
   buildPatchIssueProposal,
@@ -16,10 +18,14 @@ import {
  *  - R8:  each tool, given an approved proposal, performs the mutation.
  *  - R9/AE2: a write for a target the user cannot see is rejected identically.
  *  - R12: successful writes audit `agent_initiated:true` + approver; issue field
- *         changes record `automated_by='fleetgraph'` in document_history.
- *  - Parity: tool-driven writes match route-driven writes (same service core).
- *  - Rollback: a DB error leaves no partial state.
+ *         changes record `automated_by='client_ship_fleet_agent'` (the OAuth
+ *         client_id) in document_history.
+ *  - Parity: tool-driven writes match route-driven writes (same /api/v1 path).
+ *  - Rollback: a failed write leaves no partial state.
  *  - Strict zod: malformed/out-of-scope args are rejected before any DB write.
+ *
+ * Executors travel /api/v1 through the Fleet API client (issue #95); the
+ * fixture wires it to this in-process app via the supertest fetch adapter.
  */
 describe('FleetGraph write tools (U6)', () => {
   const testRunId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -39,6 +45,8 @@ describe('FleetGraph write tools (U6)', () => {
   let otherCtx: FleetContext
 
   beforeAll(async () => {
+    await setupFleetClientForTests(createApp())
+
     const ws = await pool.query(`INSERT INTO workspaces (name) VALUES ($1) RETURNING id`, [`Write Tools ${testRunId}`])
     workspaceId = ws.rows[0].id
 
@@ -95,6 +103,7 @@ describe('FleetGraph write tools (U6)', () => {
   })
 
   afterAll(async () => {
+    resetFleetApiClient()
     await pool.query('DELETE FROM comments WHERE workspace_id = $1', [workspaceId])
     await pool.query('DELETE FROM document_history WHERE document_id IN (SELECT id FROM documents WHERE workspace_id = $1)', [workspaceId])
     await pool.query('DELETE FROM audit_logs WHERE workspace_id = $1', [workspaceId])
@@ -213,7 +222,7 @@ describe('FleetGraph write tools (U6)', () => {
       expect(audit.rows[0].details.approved_by).toBe(userId)
     })
 
-    it('issue field change records automated_by=fleetgraph in history', async () => {
+    it('issue field change records the OAuth client_id in history provenance', async () => {
       const created = await executeProposal(ctx, buildCreateIssueProposal({ title: 'Provenance issue' }))
       const issueId = created.resourceId!
       await executeProposal(ctx, buildPatchIssueProposal({ id: issueId, state: 'todo' }))
@@ -223,7 +232,8 @@ describe('FleetGraph write tools (U6)', () => {
         [issueId]
       )
       expect(hist.rows.length).toBeGreaterThanOrEqual(1)
-      expect(hist.rows[0].automated_by).toBe('fleetgraph')
+      // Provenance label is the v1 client_id (was 'fleetgraph' pre-#95).
+      expect(hist.rows[0].automated_by).toBe('client_ship_fleet_agent')
       expect(hist.rows[0].new_value).toBe('todo')
     })
 
@@ -232,6 +242,53 @@ describe('FleetGraph write tools (U6)', () => {
       await executeProposal(otherCtx, buildPatchIssueProposal({ id: privateProjectId, state: 'cancelled' }))
       const after = await pool.query(`SELECT COUNT(*)::int c FROM audit_logs WHERE workspace_id = $1`, [workspaceId])
       expect(after.rows[0].c).toBe(before.rows[0].c)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // 409 round-trip: incomplete children → conflict → confirm → applied
+  // -------------------------------------------------------------------------
+  describe('patch_issue 409 conflict round-trip', () => {
+    it('closing a parent with an open child → 409 non-mutating result; confirming orphans and closes', async () => {
+      const parent = await executeProposal(ctx, buildCreateIssueProposal({ title: 'Conflict parent' }))
+      const parentId = parent.resourceId!
+      await executeProposal(ctx, buildCreateIssueProposal({ title: 'Conflict child', belongs_to: [{ id: parentId, type: 'parent' }] }))
+
+      const conflict = await executeProposal(ctx, buildPatchIssueProposal({ id: parentId, state: 'done' }))
+      expect(conflict.mutated).toBe(false)
+      expect(conflict.status).toBe(409)
+      // The conflict payload survives the SDK error mapping (details carried through).
+      expect((conflict.body as any).reason).toBe('incomplete_children')
+      const unchanged = await pool.query(`SELECT properties->>'state' as state FROM documents WHERE id = $1`, [parentId])
+      expect(unchanged.rows[0].state).toBe('backlog')
+
+      const confirmed = await executeProposal(
+        ctx,
+        buildPatchIssueProposal({ id: parentId, state: 'done', confirm_orphan_children: true })
+      )
+      expect(confirmed.mutated).toBe(true)
+      expect(confirmed.status).toBe(200)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Public audit trail: agent writes are visible as client_ship_fleet_agent
+  // -------------------------------------------------------------------------
+  describe('public API audit trail', () => {
+    it('an executed write lands in public_api_audit_logs under the fleet client_id', async () => {
+      const result = await executeProposal(ctx, buildCreateIssueProposal({ title: 'Publicly audited' }))
+      expect(result.mutated).toBe(true)
+
+      const audit = await pool.query(
+        `SELECT client_id, user_id, method, route, status FROM public_api_audit_logs
+          WHERE workspace_id = $1 AND client_id = 'client_ship_fleet_agent' AND method = 'POST'
+          ORDER BY created_at DESC LIMIT 1`,
+        [workspaceId]
+      )
+      expect(audit.rows.length).toBe(1)
+      expect(audit.rows[0].user_id).toBe(userId)
+      expect(audit.rows[0].route).toContain('/issues')
+      expect(audit.rows[0].status).toBe(201)
     })
   })
 
@@ -333,7 +390,8 @@ describe('FleetGraph write tools (U6)', () => {
 
       const result = await executeProposal(ctx, proposal)
       expect(result.mutated).toBe(true)
-      expect(result.status).toBe(201)
+      // v1 PATCH returns 200 + the project DTO (was 201 + the retro body).
+      expect(result.status).toBe(200)
 
       const check = await pool.query(`SELECT properties->>'plan_validated' as pv FROM documents WHERE id = $1`, [projectId])
       expect(check.rows[0].pv).toBe('true')

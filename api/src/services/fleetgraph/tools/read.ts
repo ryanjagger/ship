@@ -2,28 +2,34 @@
  * FleetGraph read tools (U5).
  *
  * Gives the agent VISIBILITY-CORRECT read access to a focal Project/Week and
- * its associated entities. Every read threads a `FleetContext` (the same shape
- * `fleet-service.ts` uses) and applies the same `VISIBILITY_FILTER_SQL` so the
- * agent can NEVER see more than the requesting user can.
+ * its associated entities. Every read travels the public API (`/api/v1`)
+ * through the Fleet API client (issue #95) with a token minted for the ACTING
+ * user, so the agent can NEVER see more than that user can through the public
+ * contract — scope-bounded, rate-limited, and recorded in the public audit
+ * trail. (Pre-#95 these were direct SQL reads with an admin bypass via
+ * VISIBILITY_FILTER_SQL; v1 has no admin bypass, so admin chat reads narrowed
+ * to ordinary-member visibility — an intentional change.)
  *
  * Two layers live here:
  *
  *  1. Underlying async fetch functions (`fetchFocal`, `fetchAssociations`,
- *     `fetchPeople`, `fetchRecentActivity`) — FleetContext-scoped,
- *     visibility-filtered, returning already-escaped (prompt-safe) values.
- *     These are what `nodes/fetch.ts` fans out in parallel.
+ *     `fetchPeople`, `fetchRecentActivity`) — FleetContext-scoped, returning
+ *     already-escaped (prompt-safe) values. These are what `nodes/fetch.ts`
+ *     fans out in parallel.
  *
  *  2. A CONSOLIDATED traversal (`assembleEntityContext`) that resolves the
- *     focal entity ONCE and then batches the dependent reads — mirroring the
- *     program→project→week→issues/standups assembly in `routes/claude.ts`
- *     (data traversal only; NOT its CSRF-bypass / no-visibility posture).
- *     `fetch.ts` calls this so a single fetch run does not issue per-entity
- *     duplicate queries (satisfies R3).
+ *     focal entity ONCE and then batches the dependent reads. `fetch.ts` calls
+ *     this so a single fetch run does not issue per-entity duplicate requests
+ *     (satisfies R3).
+ *
+ * Shareable-context invariant: list reads pass `visibility: 'workspace'` so
+ * results never include the acting viewer's PRIVATE issues — the same
+ * precedent as `gatherSignals` (results may be cached/shared beyond the
+ * viewer).
  *
  * (The chat reason node binds ONLY the write `propose_*` tools; the full read
  * context is pre-assembled into the system prompt by the fetch node, so there is
- * no agentic read-tool loop. LangChain `tool()` wrappers for the read functions
- * were removed as dead code.)
+ * no agentic read-tool loop.)
  *
  * PROMPT-INJECTION DEFENSE: every value derived from untrusted document content
  * (titles, plan text, body text, comment text, standup text) is run through
@@ -31,9 +37,9 @@
  * "</plan>" or "<system>" cannot break out of prompt delimiters downstream.
  */
 
-import { pool } from '../../../db/client.js';
-import { VISIBILITY_FILTER_SQL } from '../../../middleware/visibility.js';
+import { ShipApiError, type ShipClient, type ShipDocument, type ShipIssue, type ShipSprint } from '@ryanjagger/ship-sdk';
 import { extractText } from '../../../utils/document-content.js';
+import { withFleetClient } from '../api-client.js';
 import type { FleetContext } from '../../fleet-service.js';
 
 export type { FleetContext };
@@ -65,11 +71,21 @@ export function escapeContent(s: string | null | undefined): string {
   return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Normalize a pg timestamp (Date or string) to an ISO string, or null. */
+/** Normalize a timestamp to an ISO string, or null. */
 function toIso(v: unknown): string | null {
   if (v == null) return null;
   if (v instanceof Date) return v.toISOString();
   return String(v);
+}
+
+/** Swallow a v1 404 (not visible / wrong type / archived) into null. */
+async function orNull<T>(fn: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof ShipApiError && err.status === 404) return null;
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -151,19 +167,14 @@ export interface AssociationsResult {
 // Focal entity resolution (single source of truth for visibility)
 // ---------------------------------------------------------------------------
 
-interface FocalRow {
-  id: string;
-  title: string;
-  content: unknown;
-  properties: Record<string, unknown> | null;
-}
-
 /**
  * Resolve + visibility-check the focal entity. Returns null when the entity is
  * not visible to the requester (used everywhere to deny without leaking).
  *
- * Visibility uses the resolved-boolean shape of VISIBILITY_FILTER_SQL: a
- * non-admin sees workspace docs + their own private docs; an admin sees all.
+ * One `GET /api/v1/documents/{id}` covers every focal type: it carries title,
+ * properties, AND content (the typed project/sprint DTOs deliberately omit
+ * content), and enforces the v1 read posture (workspace-visible or own,
+ * not archived/deleted).
  */
 export async function fetchFocal(
   entityId: string,
@@ -171,24 +182,17 @@ export async function fetchFocal(
   ctx: FleetContext
 ): Promise<FocalEntity | null> {
   const docType = resolveDocumentType(entityType);
-  const result = await pool.query<FocalRow>(
-    `SELECT id, title, content, properties FROM documents
-       WHERE id = $1 AND workspace_id = $2 AND document_type = $3
-         AND archived_at IS NULL AND deleted_at IS NULL
-         AND ${VISIBILITY_FILTER_SQL('documents', '$4', ctx.isAdmin)}`,
-    [entityId, ctx.workspaceId, docType, ctx.userId]
-  );
-  const row = result.rows[0];
-  if (!row) return null;
+  const doc = await orNull(() => withFleetClient(ctx, (client) => client.documents.get(entityId)));
+  if (!doc || doc.document_type !== docType) return null;
 
-  const props = row.properties ?? {};
+  const props = doc.properties ?? {};
   if (docType === 'issue') {
     return {
-      id: row.id,
+      id: doc.id,
       entityType,
       documentType: 'issue',
-      title: escapeContent(row.title),
-      body: escapeContent(extractText(row.content).trim()),
+      title: escapeContent(doc.title),
+      body: escapeContent(extractText(doc.content).trim()),
       properties: {
         plan: null,
         status: null,
@@ -204,11 +208,11 @@ export async function fetchFocal(
     };
   }
   return {
-    id: row.id,
+    id: doc.id,
     entityType,
     documentType: docType,
-    title: escapeContent(row.title),
-    body: escapeContent(extractText(row.content).trim()),
+    title: escapeContent(doc.title),
+    body: escapeContent(extractText(doc.content).trim()),
     properties: {
       plan: escapeContent((props.plan as string | undefined) ?? null) || null,
       status: escapeContent((props.status as string | undefined) ?? null) || null,
@@ -237,15 +241,51 @@ export async function fetchFocal(
 // Associations (hierarchy ancestors + issues + weeks)
 // ---------------------------------------------------------------------------
 
+const BELONGS_TO_DOC_TYPE: Record<string, string> = {
+  program: 'program',
+  project: 'project',
+  sprint: 'sprint',
+  parent: 'issue',
+};
+
+/** Drain a typed list with the shareable-context visibility posture. */
+async function listAllIssues(
+  client: ShipClient,
+  belongsTo: string,
+  belongsToType: 'program' | 'project' | 'sprint' | 'parent'
+): Promise<ShipIssue[]> {
+  const rows: ShipIssue[] = [];
+  for await (const issue of client.issues.iterate({ belongs_to: belongsTo, belongs_to_type: belongsToType, visibility: 'workspace', limit: 100 })) {
+    rows.push(issue);
+  }
+  return rows;
+}
+
+async function listAllSprints(client: ShipClient, projectId: string): Promise<ShipSprint[]> {
+  const rows: ShipSprint[] = [];
+  for await (const sprint of client.sprints.iterate({ belongs_to: projectId, belongs_to_type: 'project', visibility: 'workspace', limit: 100 })) {
+    rows.push(sprint);
+  }
+  return rows;
+}
+
+function issueToAssociated(issue: ShipIssue, relation: string): AssociatedEntity {
+  return {
+    id: issue.id,
+    documentType: 'issue',
+    title: escapeContent(issue.title),
+    relation,
+    status: escapeContent(issue.state) || null,
+  };
+}
+
 /**
- * Fetch the focal entity's associations in BATCHED queries (not per-entity).
- * For a project: program ancestor + issues + weeks(sprints). For a week
- * (sprint): project + program ancestors + issues on the sprint.
- *
- * Issues are read at ORDINARY-MEMBER privilege (workspace-visible only, no
- * created_by personalization, no admin bypass) — the same precedent as
- * `gatherSignals` in fleet-service.ts, so results are shareable and never
- * surface another user's private issues.
+ * Fetch the focal entity's associations: ancestors from the typed DTOs
+ * (issue `belongs_to`; sprint `project_id`/`program_id`; project
+ * `program_id`), plus issues/weeks via `belongs_to`-filtered lists at
+ * ORDINARY-MEMBER privilege (`visibility: 'workspace'` — no created_by
+ * personalization, no admin bypass), the same precedent as `gatherSignals`,
+ * so results are shareable and never surface another user's private issues.
  *
  * Pass `focalKnownVisible: true` only after fetchFocal has already authorized
  * the entity, to avoid re-running the visibility check.
@@ -263,129 +303,77 @@ export async function fetchAssociations(
 
   const docType = resolveDocumentType(entityType);
 
-  // For an issue: fetch its parent project/sprint as ancestors, then sibling issues.
+  // For an issue: ancestors come from its belongs_to DTO; siblings from the
+  // parent project's issue list.
   if (docType === 'issue') {
-    const parentsResult = await pool.query<{ id: string; title: string; document_type: string; relation: string }>(
-      `SELECT p.id, p.title, p.document_type::text AS document_type, da.relationship_type::text AS relation
-         FROM document_associations da
-         JOIN documents p ON p.id = da.related_id
-         WHERE da.document_id = $1
-           AND da.relationship_type IN ('project', 'sprint', 'program', 'parent')
-           AND p.workspace_id = $2
-           AND p.archived_at IS NULL AND p.deleted_at IS NULL
-           AND p.visibility = 'workspace'`,
-      [entityId, ctx.workspaceId]
-    );
+    const issue = await orNull(() => withFleetClient(ctx, (client) => client.issues.get(entityId)));
+    if (!issue) return { ancestors: [], issues: [], weeks: [] };
 
-    // Find the parent project id to pull sibling issues.
-    const parentProjectRow = parentsResult.rows.find((r) => r.document_type === 'project');
+    const ancestors: AssociatedEntity[] = issue.belongs_to.map((bt) => ({
+      id: bt.id,
+      documentType: BELONGS_TO_DOC_TYPE[bt.type] ?? bt.type,
+      title: escapeContent(bt.title ?? ''),
+      relation: bt.type,
+      status: null,
+    }));
+
+    const parentProject = issue.belongs_to.find((bt) => bt.type === 'project');
     let siblingIssues: AssociatedEntity[] = [];
-    if (parentProjectRow) {
-      const siblingsResult = await pool.query<{ id: string; title: string; status: string | null }>(
-        `SELECT d.id, d.title, d.properties->>'state' AS status
-           FROM documents d
-           JOIN document_associations da ON da.document_id = d.id
-             AND da.related_id = $1 AND da.relationship_type = 'project'
-           WHERE d.workspace_id = $2 AND d.document_type = 'issue'
-             AND d.id != $3
-             AND d.archived_at IS NULL AND d.deleted_at IS NULL
-             AND d.visibility = 'workspace'
-           ORDER BY d.created_at ASC
-           LIMIT 20`,
-        [parentProjectRow.id, ctx.workspaceId, entityId]
-      );
-      siblingIssues = siblingsResult.rows.map((r) => ({
-        id: r.id,
-        documentType: 'issue',
-        title: escapeContent(r.title),
-        relation: 'project',
-        status: escapeContent(r.status) || null,
-      }));
+    if (parentProject) {
+      const siblings = await withFleetClient(ctx, (client) => listAllIssues(client, parentProject.id, 'project'));
+      siblingIssues = siblings
+        .filter((s) => s.id !== entityId)
+        .slice(0, 20)
+        .map((s) => issueToAssociated(s, 'project'));
     }
 
-    return {
-      ancestors: parentsResult.rows.map((r) => ({
-        id: r.id,
-        documentType: r.document_type,
-        title: escapeContent(r.title),
-        relation: r.relation,
-        status: null,
-      })),
-      issues: siblingIssues,
-      weeks: [],
-    };
+    return { ancestors, issues: siblingIssues, weeks: [] };
   }
 
   // For a project the issues/weeks link via relationship_type='project';
   // for a week (sprint) issues link via relationship_type='sprint'.
   const childRelation = docType === 'project' ? 'project' : 'sprint';
 
-  // Ancestors: walk parent relationships (project→program, week→project→program).
-  const ancestorsResult = await pool.query<{ id: string; title: string; document_type: string; relation: string }>(
-    `SELECT p.id, p.title, p.document_type::text AS document_type, da.relationship_type::text AS relation
-       FROM document_associations da
-       JOIN documents p ON p.id = da.related_id
-       WHERE da.document_id = $1
-         AND da.relationship_type IN ('project', 'program', 'parent')
-         AND p.workspace_id = $2
-         AND p.archived_at IS NULL AND p.deleted_at IS NULL
-         AND p.visibility = 'workspace'`,
-    [entityId, ctx.workspaceId]
-  );
+  return withFleetClient(ctx, async (client) => {
+    // Ancestors from the focal DTO's belongs_to — associations are the
+    // canonical hierarchy store (project→program, week→project/program), and
+    // the entries already carry the related title.
+    const focalDto =
+      docType === 'project'
+        ? await orNull(() => client.projects.get(entityId))
+        : await orNull(() => client.sprints.get(entityId));
+    const ancestors: AssociatedEntity[] = (focalDto?.belongs_to ?? [])
+      .filter((bt) => bt.type === 'program' || bt.type === 'project' || bt.type === 'parent')
+      .map((bt) => ({
+        id: bt.id,
+        documentType: BELONGS_TO_DOC_TYPE[bt.type] ?? bt.type,
+        title: escapeContent(bt.title ?? ''),
+        relation: bt.type,
+        status: null,
+      }));
 
-  // Issues associated with the focal entity (workspace-visible, member privilege).
-  const issuesResult = await pool.query<{ id: string; title: string; status: string | null }>(
-    `SELECT d.id, d.title, d.properties->>'state' AS status
-       FROM documents d
-       JOIN document_associations da ON da.document_id = d.id
-         AND da.related_id = $1 AND da.relationship_type = $2
-       WHERE d.workspace_id = $3 AND d.document_type = 'issue'
-         AND d.archived_at IS NULL AND d.deleted_at IS NULL
-         AND d.visibility = 'workspace'
-       ORDER BY d.created_at ASC`,
-    [entityId, childRelation, ctx.workspaceId]
-  );
-
-  // Weeks (sprints) only make sense for a focal project.
-  let weeks: AssociatedEntity[] = [];
-  if (docType === 'project') {
-    const weeksResult = await pool.query<{ id: string; title: string; status: string | null }>(
-      `SELECT d.id, d.title, d.properties->>'status' AS status
-         FROM documents d
-         JOIN document_associations da ON da.document_id = d.id
-           AND da.related_id = $1 AND da.relationship_type = 'project'
-         WHERE d.workspace_id = $2 AND d.document_type = 'sprint'
-           AND d.archived_at IS NULL AND d.deleted_at IS NULL
-           AND d.visibility = 'workspace'
-         ORDER BY (d.properties->>'sprint_number')::int NULLS LAST, d.created_at ASC`,
-      [entityId, ctx.workspaceId]
+    // Issues associated with the focal entity (workspace-visible, member privilege).
+    const issues = (await listAllIssues(client, entityId, childRelation)).map((issue) =>
+      issueToAssociated(issue, childRelation)
     );
-    weeks = weeksResult.rows.map((r) => ({
-      id: r.id,
-      documentType: 'sprint',
-      title: escapeContent(r.title),
-      relation: 'week',
-      status: escapeContent(r.status) || null,
-    }));
-  }
 
-  return {
-    ancestors: ancestorsResult.rows.map((r) => ({
-      id: r.id,
-      documentType: r.document_type,
-      title: escapeContent(r.title),
-      relation: r.relation,
-      status: null,
-    })),
-    issues: issuesResult.rows.map((r) => ({
-      id: r.id,
-      documentType: 'issue',
-      title: escapeContent(r.title),
-      relation: childRelation,
-      status: escapeContent(r.status) || null,
-    })),
-    weeks,
-  };
+    // Weeks (sprints) only make sense for a focal project.
+    let weeks: AssociatedEntity[] = [];
+    if (docType === 'project') {
+      const sprints = await listAllSprints(client, entityId);
+      weeks = sprints
+        .sort((a, b) => (a.sprint_number ?? 0) - (b.sprint_number ?? 0))
+        .map((sprint) => ({
+          id: sprint.id,
+          documentType: 'sprint',
+          title: escapeContent(sprint.name),
+          relation: 'week',
+          status: escapeContent(sprint.status) || null,
+        }));
+    }
+
+    return { ancestors, issues, weeks };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -393,46 +381,44 @@ export async function fetchAssociations(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch the workspace people (person documents) and their roles. People/roles
- * are workspace-scoped membership facts, not focal-content; we list the
- * workspace's person docs joined to membership roles. Names are escaped.
+ * Fetch the workspace people (person documents) and their roles via the
+ * public people list (the DTO carries `user_id` + `workspace_role`).
+ * People/roles are workspace-scoped membership facts, not focal-content.
+ * Names are escaped.
  */
 export async function fetchPeople(ctx: FleetContext): Promise<PersonRef[]> {
-  const result = await pool.query<{ id: string; user_id: string | null; name: string; role: string | null }>(
-    `SELECT d.id,
-            d.properties->>'user_id' AS user_id,
-            d.title AS name,
-            wm.role::text AS role
-       FROM documents d
-       LEFT JOIN workspace_memberships wm
-         ON wm.workspace_id = d.workspace_id
-        AND wm.user_id = (d.properties->>'user_id')::uuid
-       WHERE d.workspace_id = $1 AND d.document_type = 'person'
-         AND d.archived_at IS NULL AND d.deleted_at IS NULL
-         AND d.visibility = 'workspace'
-       ORDER BY d.title ASC`,
-    [ctx.workspaceId]
-  );
-  return result.rows.map((r) => ({
-    id: r.id,
-    userId: r.user_id ?? null,
-    name: escapeContent(r.name),
-    role: r.role ?? null,
-  }));
+  return withFleetClient(ctx, async (client) => {
+    const people: PersonRef[] = [];
+    for await (const person of client.people.iterate({ visibility: 'workspace', limit: 100 })) {
+      people.push({
+        id: person.id,
+        userId: person.user_id ?? null,
+        name: escapeContent(person.name),
+        role: person.workspace_role ?? null,
+      });
+    }
+    return people.sort((a, b) => a.name.localeCompare(b.name));
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Recent activity (standups + comments + status changes)
 // ---------------------------------------------------------------------------
 
+/** Fields whose history rows surface as `status_change` activity. */
+const STATUS_HISTORY_FIELDS = ['state', 'status', 'plan_validated'] as const;
+
 /**
- * Fetch recent activity around the focal entity in BATCHED queries:
+ * Fetch recent activity around the focal entity:
  *  - standups: for a week, the sprint's standups; for a project, standups
- *    across the project's sprints.
+ *    across the project's sprints (top items hydrated via GET for body text —
+ *    list DTOs intentionally omit content).
  *  - comments: comments on the focal document itself.
- *  - status_change: recent `state`/`status` field changes from document_history
- *    for the focal entity and (for a project) its issues.
+ *  - status_change: recent `state`/`status`/`plan_validated` history entries
+ *    for the focal entity and (for a project) its issues, via the
+ *    cross-document history endpoint (one call per field).
  *
+ * Author labels resolve through the people directory (user_id → person name).
  * All free text is escaped before return.
  */
 export async function fetchRecentActivity(
@@ -444,107 +430,100 @@ export async function fetchRecentActivity(
   const limit = opts.limit ?? 10;
   const docType = resolveDocumentType(entityType);
 
-  // Resolve the set of sprint ids whose standups are relevant.
-  // Issues have no associated standups — skip the lookup for them.
-  let sprintIds: string[];
-  if (docType === 'sprint') {
-    sprintIds = [entityId];
-  } else if (docType === 'project') {
-    const sprintsResult = await pool.query<{ id: string }>(
-      `SELECT d.id FROM documents d
-         JOIN document_associations da ON da.document_id = d.id
-           AND da.related_id = $1 AND da.relationship_type = 'project'
-         WHERE d.workspace_id = $2 AND d.document_type = 'sprint'
-           AND d.archived_at IS NULL AND d.deleted_at IS NULL`,
-      [entityId, ctx.workspaceId]
-    );
-    sprintIds = sprintsResult.rows.map((r) => r.id);
-  } else {
-    sprintIds = [];
-  }
-
-  // Standups across those sprints (single batched query via = ANY).
-  const standups: ActivityItem[] = [];
-  if (sprintIds.length > 0) {
-    const standupsResult = await pool.query<{ id: string; title: string; content: unknown; author: string | null; created_at: string }>(
-      `SELECT d.id, d.title, d.content, u.name AS author, d.created_at
-         FROM documents d
-         JOIN document_associations da ON da.document_id = d.id AND da.relationship_type = 'sprint'
-         LEFT JOIN users u ON (d.properties->>'author_id')::uuid = u.id
-         WHERE da.related_id = ANY($1) AND d.document_type = 'standup'
-           AND d.workspace_id = $2
-           AND d.archived_at IS NULL AND d.deleted_at IS NULL
-           AND d.visibility = 'workspace'
-         ORDER BY d.created_at DESC
-         LIMIT $3`,
-      [sprintIds, ctx.workspaceId, limit]
-    );
-    for (const r of standupsResult.rows) {
-      const text = extractText(r.content).trim() || r.title;
-      standups.push({
-        kind: 'standup',
-        id: r.id,
-        text: escapeContent(text),
-        author: escapeContent(r.author) || null,
-        at: toIso(r.created_at),
-      });
+  return withFleetClient(ctx, async (client) => {
+    // Author-name resolution (user id → person name).
+    const nameByUserId = new Map<string, string>();
+    for await (const person of client.people.iterate({ visibility: 'workspace', limit: 100 })) {
+      if (person.user_id) nameByUserId.set(person.user_id, person.name);
     }
-  }
+    const authorName = (userId: string | null | undefined): string | null => {
+      if (!userId) return null;
+      const name = nameByUserId.get(userId);
+      return name ? escapeContent(name) || null : null;
+    };
 
-  // Comments on the focal document itself.
-  const commentsResult = await pool.query<{ id: string; content: string; author: string | null; created_at: string }>(
-    `SELECT c.id, c.content, u.name AS author, c.created_at
-       FROM comments c
-       LEFT JOIN users u ON c.author_id = u.id
-       WHERE c.document_id = $1 AND c.workspace_id = $2
-       ORDER BY c.created_at DESC
-       LIMIT $3`,
-    [entityId, ctx.workspaceId, limit]
-  );
-  const comments: ActivityItem[] = commentsResult.rows.map((r) => ({
-    kind: 'comment' as const,
-    id: r.id,
-    text: escapeContent(r.content),
-    author: escapeContent(r.author) || null,
-    at: toIso(r.created_at),
-  }));
+    // Resolve the set of sprint ids whose standups are relevant.
+    // Issues have no associated standups — skip the lookup for them.
+    let sprintIds: string[];
+    if (docType === 'sprint') {
+      sprintIds = [entityId];
+    } else if (docType === 'project') {
+      sprintIds = (await listAllSprints(client, entityId)).map((s) => s.id);
+    } else {
+      sprintIds = [];
+    }
 
-  // Status changes: the focal entity + (for a project) its issues.
-  // Collect candidate ids in one cheap query, then one history query via = ANY.
-  let historyDocIds = [entityId];
-  if (docType === 'project') {
-    const issueIdsResult = await pool.query<{ id: string }>(
-      `SELECT d.id FROM documents d
-         JOIN document_associations da ON da.document_id = d.id
-           AND da.related_id = $1 AND da.relationship_type = 'project'
-         WHERE d.workspace_id = $2 AND d.document_type = 'issue'
-           AND d.visibility = 'workspace'`,
-      [entityId, ctx.workspaceId]
+    // Standups across those sprints: list per sprint, merge newest-first, then
+    // hydrate only the top `limit` via GET (the list DTO has no content).
+    const standups: ActivityItem[] = [];
+    if (sprintIds.length > 0) {
+      const perSprint = await Promise.all(
+        sprintIds.map((sprintId) =>
+          client.standups.list({ belongs_to: sprintId, belongs_to_type: 'sprint', visibility: 'workspace', limit: Math.min(limit, 100) })
+        )
+      );
+      const candidates = perSprint
+        .flatMap((page) => page.data)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, limit);
+      const hydrated = await Promise.all(candidates.map((s) => orNull(() => client.standups.get(s.id))));
+      for (const standup of hydrated) {
+        if (!standup) continue; // vanished between list and get
+        const text = extractText(standup.content).trim() || standup.title;
+        standups.push({
+          kind: 'standup',
+          id: standup.id,
+          text: escapeContent(text),
+          author: authorName(standup.author_id),
+          at: toIso(standup.created_at),
+        });
+      }
+    }
+
+    // Comments on the focal document itself (oldest-first from v1; we want the
+    // newest `limit`). The comment DTO carries the author directly.
+    const commentList = await orNull(() => client.documents.comments.list(entityId));
+    const comments: ActivityItem[] = (commentList?.data ?? [])
+      .slice()
+      .reverse()
+      .slice(0, limit)
+      .map((comment) => ({
+        kind: 'comment' as const,
+        id: comment.id,
+        text: escapeContent(comment.content),
+        author: escapeContent(comment.author.name ?? '') || null,
+        at: toIso(comment.created_at),
+      }));
+
+    // Status changes: the focal entity + (for a project) its issues, via the
+    // cross-document history endpoint (repeatable ids, capped at 100).
+    let historyDocIds = [entityId];
+    if (docType === 'project') {
+      const issues = await listAllIssues(client, entityId, 'project');
+      historyDocIds = [entityId, ...issues.map((issue) => issue.id)].slice(0, 100);
+    }
+    const perField = await Promise.all(
+      STATUS_HISTORY_FIELDS.map((field) =>
+        client.documentHistory.list({ document_id: historyDocIds, field, limit: Math.min(limit, 100) })
+      )
     );
-    historyDocIds = [entityId, ...issueIdsResult.rows.map((r) => r.id)];
-  }
-  const statusResult = await pool.query<{ id: number; field: string; old_value: string | null; new_value: string | null; author: string | null; created_at: string }>(
-    `SELECT dh.id, dh.field, dh.old_value, dh.new_value, u.name AS author, dh.created_at
-       FROM document_history dh
-       LEFT JOIN users u ON dh.changed_by = u.id
-       WHERE dh.document_id = ANY($1)
-         AND dh.field IN ('state', 'status', 'plan_validated')
-       ORDER BY dh.created_at DESC
-       LIMIT $2`,
-    [historyDocIds, limit]
-  );
-  const statusChanges: ActivityItem[] = statusResult.rows.map((r) => ({
-    kind: 'status_change' as const,
-    id: String(r.id),
-    text: `${escapeContent(r.field)}: ${escapeContent(r.old_value) || '∅'} → ${escapeContent(r.new_value) || '∅'}`,
-    author: escapeContent(r.author) || null,
-    at: toIso(r.created_at),
-  }));
+    const statusChanges: ActivityItem[] = perField
+      .flatMap((page) => page.data)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit)
+      .map((entry) => ({
+        kind: 'status_change' as const,
+        id: String(entry.id),
+        text: `${escapeContent(entry.field)}: ${escapeContent(entry.old_value) || '∅'} → ${escapeContent(entry.new_value) || '∅'}`,
+        author: authorName(entry.changed_by),
+        at: toIso(entry.created_at),
+      }));
 
-  // Merge, newest first, capped at `limit`.
-  return [...standups, ...comments, ...statusChanges]
-    .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
-    .slice(0, limit);
+    // Merge, newest first, capped at `limit`.
+    return [...standups, ...comments, ...statusChanges]
+      .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+      .slice(0, limit);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -564,10 +543,12 @@ const EMPTY_ASSOCIATIONS: AssociationsResult = { ancestors: [], issues: [], week
  * Resolve the focal entity ONCE (authorizing visibility), then fan out the
  * dependent reads in parallel reusing that authorization (`focalKnownVisible`).
  * This is the single consolidated entry point the fetch node calls — it never
- * re-resolves the focal entity per associated read, satisfying R3.
+ * re-resolves the focal entity per associated read, satisfying R3. (The first
+ * call also warms the per-(user, workspace) token cache, so the fan-out
+ * reuses one minted token.)
  *
  * When the focal entity is not visible, returns a denied/empty context WITHOUT
- * issuing the dependent queries — so a denied user gets nothing, never another
+ * issuing the dependent requests — so a denied user gets nothing, never another
  * user's data.
  */
 export async function assembleEntityContext(

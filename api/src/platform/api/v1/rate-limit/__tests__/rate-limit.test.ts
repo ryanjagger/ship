@@ -112,9 +112,9 @@ describe('rate-limit service · stricter-of-two buckets', () => {
     const config = { appLimit: 1, tokenLimit: 100, windowSeconds: 60 };
 
     try {
-      const first = await consumeRateLimit(appId, tokenId, config);
+      const first = await consumeRateLimit({ appId, tokenId }, config);
       expect(first.allowed).toBe(true);
-      const second = await consumeRateLimit(appId, tokenId, config);
+      const second = await consumeRateLimit({ appId, tokenId }, config);
       expect(second.allowed).toBe(false);
       // The limiting bucket is the app bucket, and Retry-After is positive.
       expect(second.limiting.key).toBe(`app:${appId}`);
@@ -126,6 +126,40 @@ describe('rate-limit service · stricter-of-two buckets', () => {
       await pool.query('DELETE FROM oauth_apps WHERE id = $1', [appId]);
       await pool.query('DELETE FROM workspaces WHERE id = $1', [workspaceId]);
       await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+    }
+  });
+
+  it('keys the app bucket per workspace for system apps — one busy workspace cannot starve another', async () => {
+    // The service only needs ids as bucket keys; no real rows required.
+    const appId = randomUUID();
+    const wsA = randomUUID();
+    const wsB = randomUUID();
+    const tokenA = randomUUID();
+    const tokenB = randomUUID();
+    const config = { appLimit: 1, tokenLimit: 100, windowSeconds: 60 };
+
+    try {
+      const first = await consumeRateLimit({ appId, tokenId: tokenA, isSystemApp: true, workspaceId: wsA }, config);
+      expect(first.allowed).toBe(true);
+
+      // Workspace A's app bucket is exhausted...
+      const denied = await consumeRateLimit({ appId, tokenId: tokenA, isSystemApp: true, workspaceId: wsA }, config);
+      expect(denied.allowed).toBe(false);
+      expect(denied.limiting.key).toBe(`app:${appId}:ws:${wsA}`);
+
+      // ...but the SAME app in workspace B still has a full budget.
+      const otherWs = await consumeRateLimit({ appId, tokenId: tokenB, isSystemApp: true, workspaceId: wsB }, config);
+      expect(otherWs.allowed).toBe(true);
+
+      // Non-system apps keep the shared app-wide bucket key.
+      const nonSystem = await consumeRateLimit({ appId, tokenId: tokenB, workspaceId: wsB }, config);
+      expect(nonSystem.app.key).toBe(`app:${appId}`);
+    } finally {
+      await pool.query(`DELETE FROM public_api_rate_limit_buckets WHERE bucket_key LIKE $1 OR bucket_key IN ($2, $3)`, [
+        `app:${appId}%`,
+        `token:${tokenA}`,
+        `token:${tokenB}`,
+      ]);
     }
   });
 });

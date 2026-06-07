@@ -58,7 +58,16 @@ describe('Platform API · OpenAPI 3.1 spec', () => {
       '/audit',
     ];
     expect(Object.keys(doc.paths).sort()).toEqual(
-      ['/documents', '/documents/{id}', '/me', ...typedPaths, ...webhookPaths, ...developerAdminPaths].sort()
+      [
+        '/documents',
+        '/documents/{id}',
+        '/documents/{id}/comments',
+        '/document-history',
+        '/me',
+        ...typedPaths,
+        ...webhookPaths,
+        ...developerAdminPaths,
+      ].sort()
     );
     expect(doc.paths['/documents']).toHaveProperty('get');
     expect(doc.paths['/documents']).toHaveProperty('post');

@@ -30,6 +30,8 @@ import {
   ReplayResponseSchema,
 } from '../schemas/webhook.js';
 import { ScopeListSchema } from '../schemas/scope.js';
+import { CommentSchema, CommentListSchema, CreateCommentSchema } from '../schemas/comment.js';
+import { DocumentHistoryQuerySchema, DocumentHistoryListSchema } from '../schemas/document-history.js';
 import { OAuthAppListSchema, CreateOAuthAppSchema, CreatedOAuthAppSchema } from '../schemas/app.js';
 import { ConnectionListSchema, RevokeConnectionResponseSchema } from '../schemas/connection.js';
 import { AuditQuerySchema, AuditLogListSchema } from '../schemas/audit.js';
@@ -202,6 +204,11 @@ function buildRegistry(): OpenAPIRegistry {
         401: errorResponse('Unauthorized'),
         403: errorResponse(`Insufficient scope (${resource.writeScope} or documents:write)`),
         404: errorResponse(`${resource.name} not found`),
+        // Issues only: closing a parent with open sub-issues without
+        // confirm_orphan_children → 409 conflict.
+        ...(resource.documentType === 'issue'
+          ? { 409: errorResponse('Closing a parent with incomplete sub-issues requires confirm_orphan_children') }
+          : {}),
       },
     });
 
@@ -221,6 +228,65 @@ function buildRegistry(): OpenAPIRegistry {
       },
     });
   }
+
+  // ── Comments + document history ─────────────────────────────────────────
+  const Comment = registry.register('Comment', CommentSchema);
+  const CommentList = registry.register('CommentList', CommentListSchema);
+  const CreateComment = registry.register('CreateComment', CreateCommentSchema);
+  const DocumentHistoryList = registry.register('DocumentHistoryList', DocumentHistoryListSchema);
+  const documentIdParam = z.object({ id: z.string().uuid() });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/documents/{id}/comments',
+    tags: ['comments'],
+    summary: "List a document's comments",
+    description:
+      'Requires scope `comments:read` or broad superscope `documents:read`. 404 when the document is not visible to the token\'s user.',
+    security: [{ bearerAuth: [] }],
+    request: { params: documentIdParam },
+    responses: {
+      200: { description: "The document's comments, oldest first", content: { 'application/json': { schema: CommentList } } },
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (comments:read or documents:read)'),
+      404: errorResponse('Document not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/documents/{id}/comments',
+    tags: ['comments'],
+    summary: 'Post a comment on a document',
+    description:
+      'Requires scope `comments:write` or broad superscope `documents:write`. Omit `comment_id` to start a fresh thread; pass `parent_id` to reply.',
+    security: [{ bearerAuth: [] }],
+    request: { params: documentIdParam, body: { content: { 'application/json': { schema: CreateComment } } } },
+    responses: {
+      201: { description: 'The created comment', content: { 'application/json': { schema: Comment } } },
+      400: errorResponse('Invalid comment'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (comments:write or documents:write)'),
+      404: errorResponse('Document or parent comment not found'),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/document-history',
+    tags: ['document-history'],
+    summary: 'List field-change history across documents',
+    description:
+      'Requires scope `documents:read`. `document_id` repeats up to 100× so a multi-document activity feed is one request. Rows for documents the user cannot see are silently omitted (never a 404).',
+    security: [{ bearerAuth: [] }],
+    request: { query: DocumentHistoryQuerySchema },
+    responses: {
+      200: { description: 'Matching history entries, newest first', content: { 'application/json': { schema: DocumentHistoryList } } },
+      400: errorResponse('Invalid query parameters'),
+      401: errorResponse('Unauthorized'),
+      403: errorResponse('Insufficient scope (documents:read)'),
+    },
+  });
 
   // ── Webhooks ────────────────────────────────────────────────────────────
   const WebhookSubscription = registry.register('WebhookSubscription', WebhookSubscriptionSchema);

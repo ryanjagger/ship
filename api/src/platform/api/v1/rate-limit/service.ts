@@ -123,19 +123,31 @@ async function persistBucket(
   );
 }
 
+export interface RateLimitSubject {
+  appId: string;
+  tokenId: string;
+  /** System apps (CLI, Developer Portal, Fleet) are shared across every
+   *  workspace, so their app bucket is keyed per workspace — one busy
+   *  workspace exhausting the budget must not starve the others. */
+  isSystemApp?: boolean;
+  workspaceId?: string;
+}
+
 /**
  * Refill + consume both buckets atomically and return the decision. When
  * allowed, one token is removed from each; when denied, neither is consumed.
  */
 export async function consumeRateLimit(
-  appId: string,
-  tokenId: string,
+  subject: RateLimitSubject,
   config: RateLimitConfig = rateLimitConfig()
 ): Promise<RateLimitDecision> {
   const appRate = config.appLimit / config.windowSeconds;
   const tokenRate = config.tokenLimit / config.windowSeconds;
-  const appKey = `app:${appId}`;
-  const tokenKey = `token:${tokenId}`;
+  const appKey =
+    subject.isSystemApp && subject.workspaceId
+      ? `app:${subject.appId}:ws:${subject.workspaceId}`
+      : `app:${subject.appId}`;
+  const tokenKey = `token:${subject.tokenId}`;
 
   const client = await pool.connect();
   try {

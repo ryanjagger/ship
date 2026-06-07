@@ -4,6 +4,8 @@ import { requestIdMiddleware } from './request-id.js';
 import { notFoundHandler, errorHandler } from './error-middleware.js';
 import { meRouter } from './routes/me.js';
 import { documentsRouter } from './routes/documents.js';
+import { documentCommentsRouter } from './routes/comments.js';
+import { documentHistoryRouter } from './routes/document-history.js';
 import { typedDocumentRouters } from './routes/typed-documents.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { webhookDeliveriesRouter } from './routes/webhook-deliveries.js';
@@ -57,6 +59,11 @@ v1Router.use('/scopes', scopesRouter);
 for (const resource of typedDocumentRouters) {
   v1Router.use(`/${resource.path}`, resource.router);
 }
+// Cross-document field history (one query for an N-document activity feed).
+v1Router.use('/document-history', documentHistoryRouter);
+// Document comments handle `/documents/:id/comments`; the generic documents
+// router (`/:id`) doesn't match the extra segment, so order is cosmetic.
+v1Router.use('/documents', documentCommentsRouter);
 v1Router.use('/documents', documentsRouter);
 
 // ── Terminators — keep LAST ─────────────────────────────────────────────────

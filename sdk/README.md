@@ -105,10 +105,17 @@ try {
     case 'rate_limit': console.log(`retry after ${e.retryAfter}s`); break;
     case 'not_found': break;
     case 'validation': console.log(e.details); break;
+    case 'conflict': /* 409 — e.g. confirm_orphan_children required */ break;
     case 'server': break;
   }
 }
 ```
+
+> **0.2.0 release note:** a new `conflict` member (HTTP 409) was added to the
+> `ShipSDKError` union. Exhaustive `switch (error.kind)` statements written
+> against 0.1.x will no longer compile until they handle (or default) the new
+> kind. Issue PATCH returns it when closing a parent with open sub-issues
+> without `confirm_orphan_children: true`.
 
 ## Rate limits
 

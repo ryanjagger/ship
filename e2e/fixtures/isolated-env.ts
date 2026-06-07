@@ -360,6 +360,25 @@ async function seedMinimalTestData(pool: Pool): Promise<void> {
      ON CONFLICT (client_id) DO NOTHING`
   );
 
+  // System OAuth client for the Fleet agent. Provisioned by migration 062 in real
+  // environments; mirrored here for the same reason as the CLI client above. Fleet
+  // chat/plan-review/sweep mint short-lived tokens for this app in-process and use
+  // them against /api/v1 — without this row every Fleet domain read/write 500s at mint.
+  await pool.query(
+    `INSERT INTO oauth_apps (client_id, client_secret_hash, name, redirect_uris, owner_user_id, requested_scopes, client_type, allow_device_flow, is_system)
+     VALUES ('client_ship_fleet_agent', NULL, 'Fleet Agent', ARRAY[]::text[], NULL, ARRAY['projects:read', 'projects:write', 'issues:read', 'issues:write', 'sprints:read', 'programs:read', 'people:read', 'standups:read', 'comments:read', 'comments:write', 'documents:read'], 'public', false, true)
+     ON CONFLICT (client_id) DO NOTHING`
+  );
+
+  // Sweep service user (migration 062). Non-login (NULL password_hash); no
+  // workspace memberships — is_super_admin only neutralizes the membership
+  // check when validating Fleet's minted tokens.
+  await pool.query(
+    `INSERT INTO users (email, password_hash, name, is_super_admin)
+     VALUES ('fleet@ship.system', NULL, 'Fleet', true)
+     ON CONFLICT (email) DO NOTHING`
+  );
+
   // Hash the test password
   const passwordHash = await bcrypt.hash('admin123', 10);
 

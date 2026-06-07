@@ -85,26 +85,30 @@ const BELONGS_TO_TARGET_TYPES: Record<BelongsToInput['type'], string> = {
   parent: 'issue',
 };
 
+// Shared by issue/project/sprint DTOs: the document's outgoing associations.
+// Associations are the canonical link store (the legacy properties program_id /
+// project_id are not reliably written), so agents resolving hierarchy through
+// the public API need this on every associated type.
+const BELONGS_TO_COLUMN = `(SELECT COALESCE(
+    jsonb_agg(
+      jsonb_strip_nulls(jsonb_build_object(
+        'id', da.related_id,
+        'type', da.relationship_type,
+        'title', related.title,
+        'color', related.properties->>'color'
+      ))
+      ORDER BY da.relationship_type, da.created_at
+    ),
+    '[]'::jsonb
+  )
+  FROM document_associations da
+  LEFT JOIN documents related ON related.id = da.related_id AND related.workspace_id = d.workspace_id
+  WHERE da.document_id = d.id
+    AND da.relationship_type IN ('program', 'project', 'sprint', 'parent')) AS belongs_to`;
+
 function computedColumns(resource: TypedDocumentResource): string[] {
   if (resource.documentType === 'issue') {
-    return [
-      `(SELECT COALESCE(
-          jsonb_agg(
-            jsonb_strip_nulls(jsonb_build_object(
-              'id', da.related_id,
-              'type', da.relationship_type,
-              'title', related.title,
-              'color', related.properties->>'color'
-            ))
-            ORDER BY da.relationship_type, da.created_at
-          ),
-          '[]'::jsonb
-        )
-        FROM document_associations da
-        LEFT JOIN documents related ON related.id = da.related_id AND related.workspace_id = d.workspace_id
-        WHERE da.document_id = d.id
-          AND da.relationship_type IN ('program', 'project', 'sprint', 'parent')) AS belongs_to`,
-    ];
+    return [BELONGS_TO_COLUMN];
   }
 
   if (resource.documentType === 'program') {
@@ -120,6 +124,7 @@ function computedColumns(resource: TypedDocumentResource): string[] {
 
   if (resource.documentType === 'project') {
     return [
+      BELONGS_TO_COLUMN,
       `(SELECT COUNT(*) FROM documents i
         JOIN document_associations da ON da.document_id = i.id AND da.related_id = d.id AND da.relationship_type = 'project'
         WHERE i.workspace_id = d.workspace_id AND i.document_type = 'issue' AND i.archived_at IS NULL AND i.deleted_at IS NULL) AS issue_count`,
@@ -159,8 +164,18 @@ function computedColumns(resource: TypedDocumentResource): string[] {
     ];
   }
 
+  if (resource.documentType === 'person') {
+    return [
+      `(SELECT m.role FROM workspace_memberships m
+        WHERE m.workspace_id = d.workspace_id
+          AND (d.properties->>'user_id') ~ '^[0-9a-fA-F-]{36}$'
+          AND m.user_id = (d.properties->>'user_id')::uuid) AS workspace_role`,
+    ];
+  }
+
   if (resource.documentType === 'sprint') {
     return [
+      BELONGS_TO_COLUMN,
       `(SELECT COUNT(*) FROM documents i
         JOIN document_associations ida ON ida.document_id = i.id AND ida.related_id = d.id AND ida.relationship_type = 'sprint'
         WHERE i.workspace_id = d.workspace_id AND i.document_type = 'issue' AND i.archived_at IS NULL AND i.deleted_at IS NULL) AS issue_count`,
@@ -207,17 +222,29 @@ export async function loadTypedDocument(
   db: Queryable,
   ctx: TypedDocumentContext,
   resource: TypedDocumentResource,
-  id: string
+  id: string,
+  opts: {
+    /**
+     * Skip the visibility predicate. ONLY for post-write reloads where the
+     * write core already enforced authorization on the pre-image: a PATCH
+     * that sets `visibility: 'private'` on another user's document would
+     * otherwise commit and then have its response reload filtered out (500
+     * after a successful mutation). Never use on a plain read path.
+     */
+    skipVisibilityCheck?: boolean;
+  } = {}
 ): Promise<TypedDocumentRow | null> {
+  const visibility = opts.skipVisibilityCheck ? '' : ` AND (d.visibility = 'workspace' OR d.created_by = $4)`;
+  const params: unknown[] = [id, ctx.workspaceId, resource.documentType];
+  if (!opts.skipVisibilityCheck) params.push(ctx.userId);
   const result = await db.query<TypedDocumentRow>(
     `SELECT ${selectTypedDocumentColumns(resource, { detail: true })} FROM documents d
      WHERE d.id = $1
        AND d.workspace_id = $2
        AND d.archived_at IS NULL
        AND d.deleted_at IS NULL
-       AND d.document_type::text = $3
-       AND (d.visibility = 'workspace' OR d.created_by = $4)`,
-    [id, ctx.workspaceId, resource.documentType, ctx.userId]
+       AND d.document_type::text = $3${visibility}`,
+    params
   );
   return result.rows[0] ?? null;
 }
@@ -237,7 +264,10 @@ export function hasTypedDocumentUpdates(input: DocumentUpdateInput): boolean {
 // Write helpers
 // ---------------------------------------------------------------------------
 
-async function validateBelongsTo(
+/** Exported for the v1 issue write path, which re-platforms onto the
+ *  issues-service cores but must keep the 400-on-invalid-belongs_to contract
+ *  (the cores themselves rely on FK constraints, which would surface as 500s). */
+export async function validateBelongsTo(
   client: PoolClient,
   workspaceId: string,
   associations: BelongsToInput[] | undefined

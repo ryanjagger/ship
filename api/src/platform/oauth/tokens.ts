@@ -99,6 +99,10 @@ export interface ValidatedAccessToken {
   userId: string;
   workspaceId: string;
   scopes: string[];
+  /** True for platform-managed system clients (CLI, Developer Portal, Fleet).
+   *  Drives the workspace-keyed rate-limit bucket so one busy workspace can't
+   *  starve a shared first-party app's budget in every other workspace. */
+  isSystemApp: boolean;
 }
 
 export type AccessTokenLookup =
@@ -109,6 +113,7 @@ interface AccessTokenRow {
   id: string;
   app_id: string;
   client_id: string;
+  is_system: boolean;
   user_id: string;
   workspace_id: string;
   scopes: string[];
@@ -134,7 +139,7 @@ const TOKEN_USE_REFRESH_THRESHOLD_MS = 60 * 1000;
  */
 export async function validateAccessToken(token: string): Promise<AccessTokenLookup> {
   const result = await pool.query<AccessTokenRow>(
-    `SELECT t.id, t.app_id, a.client_id, t.user_id, t.workspace_id, t.scopes, t.expires_at, t.last_used_at,
+    `SELECT t.id, t.app_id, a.client_id, a.is_system, t.user_id, t.workspace_id, t.scopes, t.expires_at, t.last_used_at,
             u.is_super_admin,
             (m.user_id IS NOT NULL) AS has_membership
        FROM access_tokens t
@@ -165,6 +170,7 @@ export async function validateAccessToken(token: string): Promise<AccessTokenLoo
       userId: row.user_id,
       workspaceId: row.workspace_id,
       scopes: row.scopes,
+      isSystemApp: row.is_system,
     },
   };
 }
