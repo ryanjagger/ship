@@ -16,10 +16,11 @@ developer portal — invokes **no LLM at all**. There is no platform-layer AI fe
 in the system is on **user-initiated agent turns**, and the invariant is **one LLM call
 per agent turn**.
 
-The architectural payoff of Epic 7 is that the agent runs through the **public API like
-any other client** (OAuth app → SDK → `/api/v1` → same domain services). This changes
-the agent's *access shape* — same scopes, same rate limits, same audit trail as an
-external developer — **without changing its cost shape**. Therefore:
+The architectural payoff of Epic 7 (shipped in PR #96) is that the agent runs through
+the **public API like any other client** (`client_ship_fleet_agent` → SDK → loopback
+HTTP → `/api/v1` → same domain services). This changed the agent's *access shape* —
+same scopes, same rate limits, same audit trail as an external developer — **without
+changing its cost shape**. Therefore:
 
 > **Cost scales with agent activity, not with platform traffic.**
 
@@ -27,10 +28,12 @@ A workspace that sends a million API calls and a million webhook deliveries but 
 invokes the agent has **zero LLM cost**. The platform's own cost is ordinary compute,
 database, and egress — not tokens.
 
-> **Note:** Epic 7 (the agent rewire) is **not yet implemented** — the agent currently
-> uses direct service calls (`api/src/routes/claude.ts`). The cost projections below
-> are unaffected by this, because the rewire is designed to preserve token volume; the
-> before/after measurement in the next section is a *planned* verification.
+> **Note:** Epic 7 (the agent rewire) is **implemented** — every Fleet domain
+> read/write now travels `/api/v1` through the SDK (`api/src/services/fleetgraph/`,
+> PR #96), a full cutover with no fallback to direct service calls. The rewire moved
+> only the *transport*: agent machinery (LLM calls, checkpoints, caches) stayed
+> internal, so the one-call-per-turn invariant — and token volume — is preserved by
+> construction. The cost projections below are unchanged by the rewire.
 
 ---
 
@@ -38,9 +41,9 @@ database, and egress — not tokens.
 
 | Cost item | What to measure | Notes |
 | --- | --- | --- |
-| **LLM spend during the Epic 7 rewire** | Per-day Sonnet-class spend while migrating direct service calls to SDK calls | The rewire must **not** change token volume. Verify with a before/after measurement: token count per agent turn on the legacy path vs. the SDK path. Expected delta ≈ 0. *(Planned — Epic 7 not yet built.)* |
-| **CI minutes for the TTFE drill** | Wall-clock of the full `install → login → subscribe → trigger → receive → verify` loop per PR | Local drill measured **794 ms** total (`drill/results/ttfe.json`), dominated by the real SDK tarball install (~749 ms). CI budget ≈ +1–2 min/PR. *(Now wired into CI — the `ttfe-drill` job in `pr-tests.yml` runs `pnpm drill ttfe` on every PR.)* |
-| **OAuth Playwright launches** | Browser-launch compute for the auth-code flow | Ship is its own IdP (no external auth server to stub), so the flow drives Ship's own consent screen against a containerized Postgres — a few seconds/PR. *(Not yet in CI.)* |
+| **LLM spend during the Epic 7 rewire** | Per-day Sonnet-class spend while migrating direct service calls to SDK calls | The rewire must **not** change token volume. *(Shipped — PR #96.)* The cutover swapped the transport only (direct service calls → SDK over loopback HTTP); the LLM call sites were untouched, so token count per agent turn is unchanged by construction. Verification on the PR: api 1078/1078 tests, full E2E 873 passed / 0 failed. |
+| **CI minutes for the TTFE drill** | Wall-clock of the full `install → login → subscribe → trigger → receive → verify` loop per PR | Drill measures **853 ms** total (`drill/results/ttfe.json`), dominated by the real SDK 0.2.0 tarball install (~752 ms). CI budget ≈ +1–2 min/PR. *(Wired into CI — the `ttfe-drill` job in `pr-tests.yml` runs `pnpm drill ttfe` on every PR.)* |
+| **OAuth Playwright launches** | Browser-launch compute for the auth-code flow | Ship is its own IdP (no external auth server to stub), so the flow drives Ship's own consent screen against a containerized Postgres — a few seconds/PR. The specs exist and pass (`e2e/oauth-pkce.spec.ts`, `e2e/device-flow.spec.ts`); *not yet a job in the PR CI workflow.* |
 | **OpenAPI generation + validation** | Time to generate the 3.1 spec from Zod and validate it | Small, in-process; runs inside the existing `pnpm run test` (`openapi/__tests__/spec.test.ts`). Sub-second. |
 | **Dev-portal storage & egress** | Delivery-log + audit-log row growth at demo volume | Each delivery = 1 `webhook_deliveries` row + 1 `webhook_delivery_attempts` row/attempt; each API call = 1 `public_api_audit_logs` row. Negligible at demo scale; see retention assumption below. |
 
@@ -112,9 +115,11 @@ invariant, there is exactly one LLM call per turn — no hidden platform-side ca
 **Definition:** delivery-log rows × retention days × bytes/row, plus audit-log rows ×
 retention days × bytes/row.
 
-**Grounding & known gap:** there is currently **no automated retention / cleanup job**
-for `webhook_deliveries`, `webhook_delivery_attempts`, or `public_api_audit_logs` — the
-tables grow unbounded. For the demo this is immaterial; for production it must be bounded.
+**Grounding & known gap:** the audit log now has a retention helper —
+`pruneAuditLogs(days = 90)` in `api/src/platform/api/v1/audit/service.ts` — but it is
+**not yet wired to a scheduler**, and there is **no retention / cleanup path at all**
+for `webhook_deliveries` / `webhook_delivery_attempts` — those tables grow unbounded.
+For the demo this is immaterial; for production it must be bounded.
 
 **Recommended windows and why:**
 - **Webhook delivery log: 30 days.** Long enough to debug a failing integration, retry
@@ -127,8 +132,9 @@ tables grow unbounded. For the demo this is immaterial; for production it must b
   delivery log. At ~20M API calls/day and ~0.5 KB/row, 90 days ≈ **~900 GB** at the top
   tier — kept longer because each row is smaller and the forensic value is higher.
 
-Both windows are recommendations; implementing the cleanup job (a scheduled
-delete-older-than) is the action item that turns these assumptions into enforced ceilings.
+The 90-day audit window matches the `pruneAuditLogs()` default; scheduling that prune
+and adding the equivalent delete-older-than for the delivery tables is the action item
+that turns these assumptions into enforced ceilings.
 
 ---
 
