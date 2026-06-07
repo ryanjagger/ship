@@ -341,6 +341,8 @@ const ProjectSchema = z.object({
   updated_at: DateTime,
   archived_at: DateTime.nullable(),
   converted_from_id: Uuid.nullable(),
+  /** Outgoing associations (canonical hierarchy links; e.g. the program). */
+  belongs_to: z.array(BelongsToSchema),
 });
 const CreateProjectSchema = BaseCreateSchema.omit({ parent_id: true }).extend({
   impact: z.number().int().min(1).max(5).nullable().optional(),
@@ -403,6 +405,8 @@ const SprintSchema = z.object({
   retro_id: Uuid.nullable(),
   created_at: DateTime,
   updated_at: DateTime,
+  /** Outgoing associations (canonical hierarchy links; e.g. project/program). */
+  belongs_to: z.array(BelongsToSchema),
 });
 const CreateSprintSchema = BaseCreateSchema.omit({ parent_id: true }).extend({
   sprint_number: z.number().int().positive(),
@@ -727,6 +731,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
         updated_at: iso(row.updated_at),
         archived_at: isoNullable(row.archived_at),
         converted_from_id: row.converted_from_id ?? null,
+        belongs_to: belongsTo(row.belongs_to),
       };
     },
     toCreate: (input) => writeFromKnownFields(input as Record<string, unknown>, projectKeys),
@@ -774,6 +779,7 @@ export const TYPED_DOCUMENT_RESOURCES = [
         retro_id: row.retro_id ?? null,
         created_at: iso(row.created_at),
         updated_at: iso(row.updated_at),
+        belongs_to: belongsTo(row.belongs_to),
       };
     },
     toCreate: (input) => {

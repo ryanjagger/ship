@@ -1634,6 +1634,37 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "belongs_to": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "program",
+                    "project",
+                    "sprint",
+                    "parent"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "type"
+              ]
+            }
           }
         },
         "required": [
@@ -1669,7 +1700,8 @@
           "created_at",
           "updated_at",
           "archived_at",
-          "converted_from_id"
+          "converted_from_id",
+          "belongs_to"
         ]
       },
       "ProjectListResponse": {
@@ -1868,6 +1900,37 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "belongs_to": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "program",
+                          "project",
+                          "sprint",
+                          "parent"
+                        ]
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "color": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "type"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -1903,7 +1966,8 @@
                 "created_at",
                 "updated_at",
                 "archived_at",
-                "converted_from_id"
+                "converted_from_id",
+                "belongs_to"
               ]
             }
           },
@@ -2306,6 +2370,37 @@
           },
           "updated_at": {
             "type": "string"
+          },
+          "belongs_to": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "program",
+                    "project",
+                    "sprint",
+                    "parent"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "type"
+              ]
+            }
           }
         },
         "required": [
@@ -2336,7 +2431,8 @@
           "retro_outcome",
           "retro_id",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "belongs_to"
         ]
       },
       "SprintListResponse": {
@@ -2509,6 +2605,37 @@
                 },
                 "updated_at": {
                   "type": "string"
+                },
+                "belongs_to": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "program",
+                          "project",
+                          "sprint",
+                          "parent"
+                        ]
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "color": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "type"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -2539,7 +2666,8 @@
                 "retro_outcome",
                 "retro_id",
                 "created_at",
-                "updated_at"
+                "updated_at",
+                "belongs_to"
               ]
             }
           },

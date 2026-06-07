@@ -5617,6 +5617,14 @@ export interface components {
             archived_at: string | null;
             /** Format: uuid */
             converted_from_id: string | null;
+            belongs_to: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                type: "program" | "project" | "sprint" | "parent";
+                title?: string;
+                color?: string;
+            }[];
         };
         ProjectListResponse: {
             data: {
@@ -5662,6 +5670,14 @@ export interface components {
                 archived_at: string | null;
                 /** Format: uuid */
                 converted_from_id: string | null;
+                belongs_to: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "program" | "project" | "sprint" | "parent";
+                    title?: string;
+                    color?: string;
+                }[];
             }[];
             next_cursor: string | null;
         };
@@ -5758,6 +5774,14 @@ export interface components {
             retro_id: string | null;
             created_at: string;
             updated_at: string;
+            belongs_to: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                type: "program" | "project" | "sprint" | "parent";
+                title?: string;
+                color?: string;
+            }[];
         };
         SprintListResponse: {
             data: {
@@ -5804,6 +5828,14 @@ export interface components {
                 retro_id: string | null;
                 created_at: string;
                 updated_at: string;
+                belongs_to: {
+                    /** Format: uuid */
+                    id: string;
+                    /** @enum {string} */
+                    type: "program" | "project" | "sprint" | "parent";
+                    title?: string;
+                    color?: string;
+                }[];
             }[];
             next_cursor: string | null;
         };

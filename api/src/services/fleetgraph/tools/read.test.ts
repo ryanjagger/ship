@@ -1,6 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import crypto from 'crypto';
 import { pool } from '../../../db/client.js';
+import { createApp } from '../../../app.js';
+import { supertestFetch } from '../../../test-utils/supertest-fetch.js';
+import { seedFleetAgentApp, resetFleetApiClient } from '../../../test-utils/fleet-fixture.js';
+import { configureFleetApiClient } from '../api-client.js';
 import {
   fetchFocal,
   fetchAssociations,
@@ -14,12 +18,23 @@ import {
 import { fetchNode } from '../nodes/fetch.js';
 
 /**
- * U5 read-tool tests — real DB (ship_dev). Mirrors the fixture/visibility setup
- * in api/src/routes/fleet.test.ts: two workspaces, an owner and a cross-workspace
- * "other" user, real documents + associations, then exercises the read layer.
+ * U5 read-tool tests — real DB + the real /api/v1 stack. Mirrors the
+ * fixture/visibility setup in api/src/routes/fleet.test.ts: two workspaces, an
+ * owner and a cross-workspace "other" user, real documents + associations,
+ * then exercises the read layer THROUGH the Fleet API client (issue #95). The
+ * fetch adapter records every HTTP request so the R3 bounded-traversal tests
+ * count public API calls instead of SQL statements.
  */
 
 const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+const app = createApp();
+const requestLog: string[] = [];
+const baseFetch = supertestFetch(app);
+const countingFetch: typeof fetch = (input, init) => {
+  requestLog.push(`${init?.method ?? 'GET'} ${typeof input === 'string' ? input : String(input)}`);
+  return baseFetch(input, init);
+};
 
 let workspaceId: string;
 let otherWorkspaceId: string;
@@ -68,6 +83,10 @@ async function associate(documentId: string, relatedId: string, relationship: st
 }
 
 beforeAll(async () => {
+  await seedFleetAgentApp();
+  resetFleetApiClient();
+  configureFleetApiClient({ baseUrl: '', fetch: countingFetch });
+
   workspaceId = (await pool.query(`INSERT INTO workspaces (name) VALUES ($1) RETURNING id`, [`FG Read ${runId}`])).rows[0].id;
   otherWorkspaceId = (await pool.query(`INSERT INTO workspaces (name) VALUES ($1) RETURNING id`, [`FG Read Other ${runId}`])).rows[0].id;
 
@@ -146,6 +165,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  resetFleetApiClient();
   await pool.query(`DELETE FROM document_history WHERE changed_by = $1`, [userId]);
   await pool.query(`DELETE FROM comments WHERE workspace_id IN ($1,$2)`, [workspaceId, otherWorkspaceId]);
   await pool.query(`DELETE FROM document_associations WHERE document_id IN (SELECT id FROM documents WHERE workspace_id IN ($1,$2))`, [workspaceId, otherWorkspaceId]);
@@ -224,22 +244,88 @@ describe('R7: read tools return focal entity + associations for a visible projec
   });
 });
 
-describe('R3: consolidated traversal does not issue per-entity duplicate queries', () => {
+describe('EntityContext golden snapshot (prompt-context shape stability)', () => {
+  it('assembleEntityContext returns the exact context shape for the fixture project', async () => {
+    const out = await assembleEntityContext(projectId, 'project', ownerCtx);
+
+    expect(out.focal).toEqual({
+      id: projectId,
+      entityType: 'project',
+      documentType: 'project',
+      title: 'Reduce activation time',
+      body: 'Project narrative body.',
+      properties: {
+        plan: 'Cut activation from 6 to 3 min',
+        status: 'active',
+        targetDate: '2026-09-30',
+        planValidated: null,
+        state: null,
+        priority: null,
+        assigneeId: null,
+        successCriteria: ['Median activation under 3 min', 'No regressions'],
+        monetaryImpactExpected: '30000',
+        monetaryImpactActual: '25k saved',
+      },
+    });
+
+    expect(out.associations.ancestors).toEqual([
+      { id: programId, documentType: 'program', title: 'Program Alpha', relation: 'program', status: null },
+    ]);
+    // Workspace-visible issues only — the owner's own PRIVATE issue is excluded
+    // (shareable-context invariant: visibility='workspace').
+    expect(out.associations.issues).toEqual([
+      { id: issueId, documentType: 'issue', title: 'Build onboarding flow', relation: 'project', status: 'in_progress' },
+    ]);
+    expect(out.associations.weeks).toEqual([
+      { id: sprintId, documentType: 'sprint', title: 'Week 1', relation: 'week', status: 'active' },
+    ]);
+
+    expect(out.people).toEqual([
+      { id: expect.any(String), userId, name: 'Owner User', role: 'member' },
+    ]);
+
+    expect(out.recentActivity).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'standup',
+          id: expect.any(String),
+          text: 'Made progress on onboarding.',
+          author: 'Owner User',
+          at: expect.any(String),
+        },
+        {
+          kind: 'comment',
+          id: expect.any(String),
+          text: 'A comment on the project.',
+          author: 'Owner User',
+          at: expect.any(String),
+        },
+        {
+          kind: 'status_change',
+          id: expect.any(String),
+          text: 'state: todo → in_progress',
+          author: 'Owner User',
+          at: expect.any(String),
+        },
+      ])
+    );
+    expect(out.recentActivity.length).toBe(3);
+  });
+});
+
+describe('R3: consolidated traversal does not issue per-entity duplicate requests', () => {
   it('resolves the focal entity exactly once across a full fetch', async () => {
-    const querySpy = vi.spyOn(pool, 'query');
-    querySpy.mockClear();
+    requestLog.length = 0;
     await assembleEntityContext(projectId, 'project', ownerCtx);
 
-    const calls = querySpy.mock.calls.map((c) => String(c[0]));
-    // The focal SELECT (document_type = $3 + visibility filter on `documents`)
-    // must run exactly once — NOT re-run per associated issue/week.
-    const focalSelects = calls.filter((sql) => /FROM documents\s+WHERE id = \$1/.test(sql));
-    expect(focalSelects.length).toBe(1);
+    // The focal document GET must run exactly once — NOT re-run per
+    // associated read (fetchAssociations reuses the authorization).
+    const focalGets = requestLog.filter((r) => r === `GET /api/v1/documents/${projectId}`);
+    expect(focalGets.length).toBe(1);
 
     // The consolidated traversal is bounded: a small fixed number of batched
-    // queries, not O(issues). With ~5 issues it must stay well under 12.
-    expect(calls.length).toBeLessThanOrEqual(12);
-    querySpy.mockRestore();
+    // public API calls, not O(issues). With this fixture it must stay under 20.
+    expect(requestLog.length).toBeLessThanOrEqual(20);
   });
 });
 
@@ -249,16 +335,14 @@ describe('visibility: a user who cannot see the entity gets empty/denied — no 
   });
 
   it('assembleEntityContext denies cross-workspace without fetching dependents', async () => {
-    const querySpy = vi.spyOn(pool, 'query');
-    querySpy.mockClear();
+    requestLog.length = 0;
     const out = await assembleEntityContext(projectId, 'project', otherCtx);
     expect(out.focal).toBeNull();
     expect(out.associations.issues).toEqual([]);
     expect(out.people).toEqual([]);
     expect(out.recentActivity).toEqual([]);
     // Only the focal visibility check ran; no dependent reads leaked.
-    expect(querySpy.mock.calls.length).toBe(1);
-    querySpy.mockRestore();
+    expect(requestLog).toEqual([`GET /api/v1/documents/${projectId}`]);
   });
 
   it('fetchNode reports fetchDenied for a non-visible entity', async () => {

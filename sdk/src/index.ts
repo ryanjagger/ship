@@ -355,6 +355,8 @@ export interface ShipProject extends BaseResource {
   missing_fields: string[];
   archived_at: string | null;
   converted_from_id: string | null;
+  /** Outgoing associations (canonical hierarchy links; e.g. the program). */
+  belongs_to: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent'; title?: string; color?: string }>;
 }
 
 export interface ShipSprint extends BaseResource {
@@ -383,6 +385,8 @@ export interface ShipSprint extends BaseResource {
   has_retro: boolean;
   retro_outcome: string | null;
   retro_id: string | null;
+  /** Outgoing associations (canonical hierarchy links; e.g. project/program). */
+  belongs_to: Array<{ id: string; type: 'program' | 'project' | 'sprint' | 'parent'; title?: string; color?: string }>;
 }
 
 export interface ShipPerson extends BaseResource {

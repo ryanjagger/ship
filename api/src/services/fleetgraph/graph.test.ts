@@ -12,6 +12,9 @@ vi.mock('../fleet-ai.js', async (importOriginal) => {
 import { AIMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { pool } from '../../db/client.js';
+import { createApp } from '../../app.js';
+import { setupFleetClientForTests, resetFleetApiClient } from '../../test-utils/fleet-fixture.js';
+import { getFleetServiceUserId } from './service-user.js';
 import { ConversationDocCheckpointSaver } from './checkpointer.js';
 import { compileGraph } from './graph.js';
 import {
@@ -92,6 +95,9 @@ const PROACTIVE_AI = {
 };
 
 beforeAll(async () => {
+  // The fetch node's read tools travel /api/v1 through the Fleet client.
+  await setupFleetClientForTests(createApp());
+
   const ws = await pool.query<{ id: string }>(
     `INSERT INTO workspaces (name) VALUES ('U7 Graph WS') RETURNING id`
   );
@@ -135,6 +141,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  resetFleetApiClient();
   if (workspaceId) await pool.query(`DELETE FROM workspaces WHERE id = $1`, [workspaceId]);
 });
 
@@ -764,7 +771,12 @@ describe('chat turn (R4, R5)', () => {
 // ── drift (sweep-triggered, graph-routed verdict) ────────────────────────────
 
 describe('runDriftReasoning', () => {
-  const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+  // The real fleet@ship.system service user (the zero-UUID sentinel is gone:
+  // v1 tokens FK users, so service-principal runs mint for a real row).
+  let SYSTEM_USER_ID: string;
+  beforeAll(async () => {
+    SYSTEM_USER_ID = await getFleetServiceUserId();
+  });
   const SWEEP_RUN_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
   const signals: DriftSignal[] = [
