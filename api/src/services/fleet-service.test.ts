@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ShipApiError } from '@ryanjagger/ship-sdk';
 
-// Mock the DB pool and the AI provider so no real DB rows or model calls fire.
+// Mock the DB pool (the properties.fleet cache WRITE stays internal), the AI
+// provider, and the Fleet API client — gatherSignals reads travel /api/v1
+// through withFleetClient (issue #95), so the tests drive a fake ShipClient.
 vi.mock('../db/client.js', () => ({ pool: { query: vi.fn() } }));
 vi.mock('./fleet-ai.js', () => ({
   isFleetAiAvailable: vi.fn(),
@@ -12,6 +15,21 @@ vi.mock('./fleet-ai.js', () => ({
 vi.mock('./fleetgraph/index.js', () => ({
   runPlanReview: vi.fn(),
   runRetroRecommendation: vi.fn(),
+}));
+
+const { mockDocumentsGet, mockIssuesIterate, mockSprintsIterate } = vi.hoisted(() => ({
+  mockDocumentsGet: vi.fn(),
+  mockIssuesIterate: vi.fn(),
+  mockSprintsIterate: vi.fn(),
+}));
+vi.mock('./fleetgraph/api-client.js', () => ({
+  withFleetClient: vi.fn(async (_ctx: unknown, fn: (client: unknown) => Promise<unknown>) =>
+    fn({
+      documents: { get: mockDocumentsGet },
+      issues: { iterate: mockIssuesIterate },
+      sprints: { iterate: mockSprintsIterate },
+    })
+  ),
 }));
 
 import { pool } from '../db/client.js';
@@ -68,7 +86,7 @@ beforeEach(() => {
   mockRunRetro.mockResolvedValue(retroRecResult());
 });
 
-// ---- helpers for getReview caching tests ----
+// ---- helpers ----
 const CTX = { workspaceId: 'w1', userId: 'u1', isAdmin: false };
 
 function projRow(fleet: unknown) {
@@ -79,6 +97,33 @@ function projRow(fleet: unknown) {
     properties: { plan: 'Reduce X by 20% by end of Q3', success_criteria: ['a'], fleet },
   };
 }
+
+function asyncIter<T>(items: T[]): AsyncGenerator<T, void, unknown> {
+  return (async function* () {
+    for (const item of items) yield item;
+  })();
+}
+
+/**
+ * Seed one gatherSignals pass on the fake ShipClient: the focal document GET
+ * (404 when project is null), the workspace-visible issues, and the weeks.
+ */
+function seedSignals(opts: {
+  project: ReturnType<typeof projRow> | Record<string, unknown> | null;
+  issues?: Array<{ state: string | null; title: string }>;
+  weeks?: number;
+}): void {
+  if (!opts.project) {
+    mockDocumentsGet.mockRejectedValueOnce(
+      new ShipApiError(404, { code: 'not_found', message: 'Document not found', request_id: 'r' })
+    );
+  } else {
+    mockDocumentsGet.mockResolvedValueOnce({ document_type: 'project', ...opts.project });
+  }
+  mockIssuesIterate.mockReturnValueOnce(asyncIter(opts.issues ?? []));
+  mockSprintsIterate.mockReturnValueOnce(asyncIter(Array.from({ length: opts.weeks ?? 0 }, (_, i) => ({ id: `s${i}` }))));
+}
+
 function findUpdateCall() {
   return mockQuery.mock.calls.find((c) => String(c[0]).includes('jsonb_set'));
 }
@@ -90,26 +135,29 @@ function findUpdateCall() {
 // coercion regression moved to the read layer (read.test.ts).
 
 describe('gatherSignals', () => {
-  it('returns null when the project is not visible', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] } as never);
+  it('returns null when the project is not visible (v1 404)', async () => {
+    seedSignals({ project: null });
     const result = await gatherSignals('p1', { workspaceId: 'w1', userId: 'u1', isAdmin: false });
     expect(result).toBeNull();
   });
 
-  it('buckets issues by state and applies the least-privilege visibility filter', async () => {
-    mockQuery
-      .mockResolvedValueOnce({
-        rows: [{ id: 'p1', title: 'Proj', content: { type: 'doc', content: [] }, properties: { plan: 'x', success_criteria: ['a'] } }],
-      } as never)
-      .mockResolvedValueOnce({
-        rows: [
-          { state: 'done', title: 'I1' },
-          { state: 'cancelled', title: 'I2' },
-          { state: 'in_progress', title: 'I3' },
-          { state: null, title: 'I4' },
-        ],
-      } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 2 }] } as never);
+  it('returns null when the id resolves to a non-project document', async () => {
+    mockDocumentsGet.mockResolvedValueOnce({ document_type: 'issue', id: 'p1', title: 'Not a project', properties: {} });
+    const result = await gatherSignals('p1', CTX);
+    expect(result).toBeNull();
+  });
+
+  it('buckets issues by state and gathers at least-privilege (workspace-only) visibility', async () => {
+    seedSignals({
+      project: { id: 'p1', title: 'Proj', content: { type: 'doc', content: [] }, properties: { plan: 'x', success_criteria: ['a'] } },
+      issues: [
+        { state: 'done', title: 'I1' },
+        { state: 'cancelled', title: 'I2' },
+        { state: 'in_progress', title: 'I3' },
+        { state: null, title: 'I4' },
+      ],
+      weeks: 2,
+    });
 
     // Requester is an admin, but issue gathering must stay at member privilege.
     const result = await gatherSignals('p1', { workspaceId: 'w1', userId: 'u1', isAdmin: true });
@@ -119,31 +167,69 @@ describe('gatherSignals', () => {
     expect(result!.issues.active).toEqual(['I3', 'I4']);
     expect(result!.weeksCount).toBe(2);
 
-    // Project query (admin) may include the admin bypass...
-    const projectSql = String(mockQuery.mock.calls[0]![0]);
-    expect(projectSql).toContain("visibility = 'workspace'");
-    // ...but the issues query is viewer-INDEPENDENT: workspace-visible only,
-    // with no admin bypass and no created_by personalization (shared cache).
-    const issuesSql = String(mockQuery.mock.calls[1]![0]);
-    expect(issuesSql).toContain("d.visibility = 'workspace'");
-    expect(issuesSql).not.toContain('OR TRUE');
-    expect(issuesSql).not.toContain('created_by');
+    // The issues read is viewer-INDEPENDENT: explicitly workspace-visible only
+    // (the v1 visibility filter excludes even the caller's own private issues),
+    // so the shared per-project cache never absorbs private rows.
+    expect(mockIssuesIterate).toHaveBeenCalledWith(
+      expect.objectContaining({ belongs_to: 'p1', belongs_to_type: 'project', visibility: 'workspace' })
+    );
+    expect(mockSprintsIterate).toHaveBeenCalledWith(
+      expect.objectContaining({ belongs_to: 'p1', belongs_to_type: 'project', visibility: 'workspace' })
+    );
+  });
+
+  it('cache-hash inputs are transport-independent (stability across the v1 migration)', async () => {
+    // The same underlying data must produce identical FleetSignals regardless
+    // of transport, so planReviewHash/retroHash (computed over these fields)
+    // keep serving the pre-migration cache entries.
+    seedSignals({
+      project: {
+        id: 'p1',
+        title: 'Proj',
+        content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Retro narrative.' }] }] },
+        properties: {
+          plan: 'Reduce X by 20%',
+          success_criteria: ['a', 'b'],
+          monetary_impact_expected: '10k',
+          monetary_impact_actual: null,
+          plan_validated: null,
+          target_date: '2026-09-30',
+        },
+      },
+      issues: [
+        { state: 'done', title: 'I1' },
+        { state: 'in_progress', title: 'I2' },
+      ],
+      weeks: 1,
+    });
+    const signals = await gatherSignals('p1', CTX);
+    expect(signals).toEqual({
+      projectId: 'p1',
+      title: 'Proj',
+      plan: 'Reduce X by 20%',
+      successCriteria: ['a', 'b'],
+      monetaryImpactExpected: '10k',
+      monetaryImpactActual: null,
+      planValidated: null,
+      targetDate: '2026-09-30',
+      retroText: 'Retro narrative.',
+      issues: { done: ['I1'], cancelled: [], active: ['I2'] },
+      weeksCount: 1,
+      existingCache: null,
+    });
   });
 });
 
 describe('getReview caching', () => {
   it('returns null when project not visible', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] } as never);
+    seedSignals({ project: null });
     expect(await getReview('p1', CTX)).toBeNull();
   });
 
   it('over the review budget on a cache-miss GET → no graph call, unavailable result', async () => {
     mockAvailable.mockReturnValue(true);
     mockReviewLimit.mockReturnValue(false); // over budget
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never);
+    seedSignals({ project: projRow(null) });
     const r = await getReview('p1', CTX);
     expect(mockRunPlanReview).not.toHaveBeenCalled(); // plan-review graph not invoked
     expect(mockRunRetro).not.toHaveBeenCalled(); // retro graph not invoked either
@@ -154,11 +240,9 @@ describe('getReview caching', () => {
 
   it('no plan → no_plan review without invoking the graph (issue 1)', async () => {
     mockAvailable.mockReturnValue(true); // provider configured…
-    mockQuery
-      // project row with NO plan in properties
-      .mockResolvedValueOnce({ rows: [{ id: 'p1', title: 'P', content: { type: 'doc', content: [] }, properties: {} }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never) // issues
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never); // weeks
+    seedSignals({
+      project: { id: 'p1', title: 'P', content: { type: 'doc', content: [] }, properties: {} },
+    });
     const r = await getReview('p1', CTX);
     // …yet the graph is NOT invoked because there is nothing to review.
     expect(mockRunPlanReview).not.toHaveBeenCalled();
@@ -185,10 +269,9 @@ describe('getReview caching', () => {
         },
       },
     };
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'p1', title: 'P', content: { type: 'doc', content: [] }, properties: { fleet: staleFleet } }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never) // issues
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never); // weeks
+    seedSignals({
+      project: { id: 'p1', title: 'P', content: { type: 'doc', content: [] }, properties: { fleet: staleFleet } },
+    });
     const r = await getReview('p1', CTX);
     expect(mockRunPlanReview).not.toHaveBeenCalled();
     expect(r!.plan_review.status).toBe('no_plan');
@@ -201,12 +284,9 @@ describe('getReview caching', () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4)); // plan via graph
     mockRunRetro.mockResolvedValue(retroRecResult()); // retro via graph
-    // Call 1: no cache → 3 reads + 1 update
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    // Call 1: no cache → signal reads + 1 update
+    seedSignals({ project: projRow(null) });
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never); // cache write
 
     const r1 = await getReview('p1', CTX);
     expect(mockRunPlanReview).toHaveBeenCalledTimes(1); // R13: plan-review via graph
@@ -225,10 +305,7 @@ describe('getReview caching', () => {
     mockRunRetro.mockClear();
     mockRunPlanReview.mockClear();
     mockQuery.mockReset();
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never);
+    seedSignals({ project: projRow(blob) });
 
     const r2 = await getReview('p1', CTX);
     expect(mockRunPlanReview).not.toHaveBeenCalled();
@@ -241,11 +318,8 @@ describe('getReview caching', () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4));
     mockRunRetro.mockResolvedValue(retroRecResult());
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    seedSignals({ project: projRow(null) });
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never); // cache write
     const r1 = await getReview('p1', CTX);
     const blob = JSON.parse(String((findUpdateCall()![1] as unknown[])[0]));
     expect(r1).toBeTruthy();
@@ -255,11 +329,8 @@ describe('getReview caching', () => {
     mockRunPlanReview.mockClear();
     mockQuery.mockReset();
     mockRunRetro.mockResolvedValue(retroRecResult());
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
-      .mockResolvedValueOnce({ rows: [{ state: 'done', title: 'NewIssue' }] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    seedSignals({ project: projRow(blob), issues: [{ state: 'done', title: 'NewIssue' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never); // cache write
 
     const r2 = await getReview('p1', CTX);
     expect(mockRunPlanReview).not.toHaveBeenCalled(); // plan served from cache
@@ -272,11 +343,8 @@ describe('getReview caching', () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4));
     mockRunRetro.mockResolvedValue(retroRecResult());
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    seedSignals({ project: projRow(null) });
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never); // cache write
     await getReview('p1', CTX);
     const blob = JSON.parse(String((findUpdateCall()![1] as unknown[])[0]));
 
@@ -285,11 +353,8 @@ describe('getReview caching', () => {
     mockQuery.mockReset();
     mockRunPlanReview.mockResolvedValue(graphPlanReview(4));
     mockRunRetro.mockResolvedValue(retroRecResult());
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    seedSignals({ project: projRow(blob) });
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never); // cache write
 
     await getReview('p1', CTX, { force: true });
     expect(mockRunPlanReview).toHaveBeenCalledTimes(1); // plan re-run via graph despite cache
@@ -302,11 +367,8 @@ describe('getReview caching', () => {
     mockRunRetro.mockResolvedValue(retroRecResult());
     const withValidated = projRow(null);
     withValidated.properties = { ...withValidated.properties, plan_validated: true } as typeof withValidated.properties;
-    mockQuery
-      .mockResolvedValueOnce({ rows: [withValidated] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    seedSignals({ project: withValidated });
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never); // cache write
 
     await getReview('p1', CTX);
     const update = findUpdateCall();
@@ -321,10 +383,7 @@ describe('getReview caching', () => {
 
   it('AI unavailable (R18) → unavailable result, no graph call, no cache write', async () => {
     mockAvailable.mockReturnValue(false);
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never);
+    seedSignals({ project: projRow(null) });
 
     const r = await getReview('p1', CTX);
     expect(r!.plan_review.ai_available).toBe(false);
@@ -341,11 +400,8 @@ describe('getReview caching', () => {
     mockAvailable.mockReturnValue(true);
     mockRunPlanReview.mockResolvedValue(graphPlanReview(3));
     mockRunRetro.mockResolvedValue(retroRecResult());
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(null)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    seedSignals({ project: projRow(null) });
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never); // cache write
     await getReview('p1', CTX);
     const blob = JSON.parse(String((findUpdateCall()![1] as unknown[])[0]));
     expect(blob.plan_review).toBeTruthy();
@@ -353,11 +409,8 @@ describe('getReview caching', () => {
     // 2) force-refresh with AI now unavailable → stale entries must be cleared
     mockQuery.mockReset();
     mockAvailable.mockReturnValue(false);
-    mockQuery
-      .mockResolvedValueOnce({ rows: [projRow(blob)] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never)
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] } as never)
-      .mockResolvedValueOnce({ rows: [] } as never);
+    seedSignals({ project: projRow(blob) });
+    mockQuery.mockResolvedValueOnce({ rows: [] } as never); // cache write
 
     const r2 = await getReview('p1', CTX, { force: true });
     const update = findUpdateCall();
