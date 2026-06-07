@@ -22,6 +22,7 @@ vi.mock('../services/fleetgraph/index.js', () => ({ runPlanReview, runRetroRecom
 
 import { createApp } from '../app.js';
 import { pool } from '../db/client.js';
+import { setupFleetClientForTests, resetFleetApiClient } from '../test-utils/fleet-fixture.js';
 import { generateOpenAPIDocument } from '../openapi/registry.js';
 import '../openapi/schemas/index.js'; // ensure Fleet paths register
 
@@ -78,6 +79,9 @@ describe('Fleet plan-review API', () => {
   let projectId: string;
 
   beforeAll(async () => {
+    // retro/apply executes its proposal through the Fleet v1 client.
+    await setupFleetClientForTests(app);
+
     workspaceId = (await pool.query(`INSERT INTO workspaces (name) VALUES ($1) RETURNING id`, [workspaceName])).rows[0].id;
     userId = (await pool.query(
       `INSERT INTO users (email, password_hash, name) VALUES ($1, 'h', 'Test User') RETURNING id`,
@@ -116,6 +120,7 @@ describe('Fleet plan-review API', () => {
   });
 
   afterAll(async () => {
+    resetFleetApiClient();
     await pool.query('DELETE FROM sessions WHERE user_id IN ($1,$2)', [userId, otherUserId]);
     await pool.query('DELETE FROM documents WHERE workspace_id = $1', [workspaceId]);
     await pool.query('DELETE FROM workspace_memberships WHERE user_id IN ($1,$2)', [userId, otherUserId]);
@@ -233,7 +238,8 @@ describe('Fleet plan-review API', () => {
       .set('Cookie', sessionCookie)
       .set('x-csrf-token', csrfToken)
       .send({ plan_validated: true });
-    expect(res.status).toBe(201);
+    // v1 PATCH returns 200 + the project DTO (was 201 + the retro body).
+    expect(res.status).toBe(200);
     // The project document now carries the applied outcome.
     const check = await pool.query(`SELECT properties->>'plan_validated' as pv FROM documents WHERE id = $1`, [projectId]);
     expect(check.rows[0].pv).toBe('true');
