@@ -195,4 +195,49 @@ describe('Platform API · webhook subscriptions + deliveries', () => {
     expect(rows.rows.find((r) => r.replay_of_delivery_id === deliveryId)?.status).toBe('pending');
     expect(rows.rows.find((r) => r.replay_of_delivery_id === null)?.status).toBe('replayed');
   });
+
+  it('replaying a delivered delivery keeps the source delivered', async () => {
+    const sub = await request(app)
+      .post('/api/v1/webhooks')
+      .set(auth(manageToken))
+      .send({ url: 'https://example.com/hook', events: ['issue.created'] });
+    const subId = sub.body.id as string;
+
+    const issue = await request(app).post('/api/v1/issues').set(auth(manageToken)).send({ title: 'Delivered Issue' });
+    expect(issue.status).toBe(201);
+
+    const deliveries = await request(app)
+      .get('/api/v1/webhook-deliveries')
+      .query({ subscription_id: subId, event_type: 'issue.created' })
+      .set(auth(manageToken));
+    const deliveryId = deliveries.body.data[0].id as string;
+    const eventId = deliveries.body.data[0].event_id as string;
+
+    // Simulate a successful dispatch (the scheduler is disabled in tests).
+    await pool.query(
+      `UPDATE webhook_deliveries
+       SET status = 'delivered', attempt_count = 1, next_attempt_at = NULL,
+           last_response_status = 200, delivered_at = now()
+       WHERE id = $1`,
+      [deliveryId]
+    );
+
+    const replay = await request(app).post(`/api/v1/webhook-deliveries/${deliveryId}/replay`).set(auth(manageToken));
+    expect(replay.status).toBe(202);
+    expect(replay.body.replay_of_delivery_id).toBe(deliveryId);
+    expect(replay.body.delivery_id).not.toBe(deliveryId);
+
+    // Source keeps its 'delivered' audit record; the new linked row is pending
+    // and reuses the same event (→ same idempotency key).
+    const source = await pool.query<{ status: string }>(`SELECT status FROM webhook_deliveries WHERE id = $1`, [
+      deliveryId,
+    ]);
+    expect(source.rows[0]!.status).toBe('delivered');
+    const replayRow = await pool.query<{ status: string; event_id: string }>(
+      `SELECT status, event_id FROM webhook_deliveries WHERE replay_of_delivery_id = $1`,
+      [deliveryId]
+    );
+    expect(replayRow.rows[0]!.status).toBe('pending');
+    expect(replayRow.rows[0]!.event_id).toBe(eventId);
+  });
 });
