@@ -102,8 +102,8 @@ echo "EB Environment: $ENV_NAME"
 # The api/package.json build script copies SQL files automatically
 echo "Building..."
 cd "$PROJECT_ROOT"
-rm -rf shared/dist shared/tsconfig.tsbuildinfo api/dist api/tsconfig.tsbuildinfo
-pnpm build:shared && pnpm build:api
+rm -rf shared/dist shared/tsconfig.tsbuildinfo sdk/dist api/dist api/tsconfig.tsbuildinfo
+pnpm build:shared && pnpm build:sdk && pnpm build:api
 
 # Verify SQL files are present (fail fast if missing)
 if [ ! -f "api/dist/db/schema.sql" ]; then
@@ -185,6 +185,8 @@ zip -r "$BUNDLE" \
   api/package.json \
   shared/dist \
   shared/package.json \
+  sdk/dist \
+  sdk/package.json \
   -x "*.git*"
 
 # Add .ebextensions and .platform at root level (EB expects them at root, not under api/)
