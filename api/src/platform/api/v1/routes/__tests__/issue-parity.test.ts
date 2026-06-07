@@ -234,6 +234,27 @@ describe('Platform API · issue write parity (issues-service cores)', () => {
     expect(invisible.status).toBe(404);
   });
 
+  it("PATCH that makes another user's issue private still returns 200 + the DTO (no post-commit 500)", async () => {
+    // Codex P1 regression: the core authorizes against the PRE-image (a
+    // workspace-visible issue), commits visibility:'private', and the response
+    // reload must not re-apply the visibility predicate that now hides the
+    // row from the (non-creator) actor.
+    const issue = await pool.query<{ id: string }>(
+      `INSERT INTO documents (workspace_id, document_type, title, properties, visibility, created_by, ticket_number)
+       VALUES ($1, 'issue', 'Soon Private', '{"state": "backlog"}', 'workspace', $2, 9998) RETURNING id`,
+      [workspaceId, otherUserId]
+    );
+    const res = await request(app)
+      .patch(`/api/v1/issues/${issue.rows[0]!.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ visibility: 'private' });
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(issue.rows[0]!.id);
+
+    const check = await pool.query(`SELECT visibility FROM documents WHERE id = $1`, [issue.rows[0]!.id]);
+    expect(check.rows[0]!.visibility).toBe('private');
+  });
+
   it('POST and PATCH still 400 on invalid belongs_to targets', async () => {
     const created = await request(app)
       .post('/api/v1/issues')

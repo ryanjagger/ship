@@ -220,6 +220,26 @@ describe('Platform API · comments + document history', () => {
       expect(res.body.data.every((r: { document_id: string }) => r.document_id === issueA)).toBe(true);
     });
 
+    it('omits rows for ARCHIVED documents (same read posture as GET/list)', async () => {
+      // Codex P2 regression: archived documents are hidden by every other v1
+      // read; their history must not leak through this endpoint.
+      const archived = await pool.query<{ id: string }>(
+        `INSERT INTO documents (workspace_id, document_type, title, visibility, created_by, archived_at)
+         VALUES ($1, 'project', 'Archived Project', 'workspace', $2, now()) RETURNING id`,
+        [workspaceId, userId]
+      );
+      await pool.query(
+        `INSERT INTO document_history (document_id, field, old_value, new_value, changed_by)
+         VALUES ($1, 'state', 'active', 'archived', $2)`,
+        [archived.rows[0]!.id, userId]
+      );
+      const res = await request(app)
+        .get(`/api/v1/document-history?document_id=${issueA}&document_id=${archived.rows[0]!.id}`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((r: { document_id: string }) => r.document_id === issueA)).toBe(true);
+    });
+
     it('rejects more than 100 document_ids', async () => {
       const ids = Array.from({ length: 101 }, () => `document_id=${randomUUID()}`).join('&');
       const res = await request(app)

@@ -49,7 +49,10 @@ documentHistoryRouter.get(
 
     const { document_id: documentIds, field, limit } = parsed.data;
     const params: unknown[] = [platform.workspaceId, platform.userId, documentIds];
+    // Same read posture as every other v1 document read: archived and deleted
+    // documents are not visible, so their history must not leak here either.
     let where = `d.workspace_id = $1
+      AND d.archived_at IS NULL
       AND d.deleted_at IS NULL
       AND (d.visibility = 'workspace' OR d.created_by = $2)
       AND h.document_id = ANY($3::uuid[])`;

@@ -222,17 +222,29 @@ export async function loadTypedDocument(
   db: Queryable,
   ctx: TypedDocumentContext,
   resource: TypedDocumentResource,
-  id: string
+  id: string,
+  opts: {
+    /**
+     * Skip the visibility predicate. ONLY for post-write reloads where the
+     * write core already enforced authorization on the pre-image: a PATCH
+     * that sets `visibility: 'private'` on another user's document would
+     * otherwise commit and then have its response reload filtered out (500
+     * after a successful mutation). Never use on a plain read path.
+     */
+    skipVisibilityCheck?: boolean;
+  } = {}
 ): Promise<TypedDocumentRow | null> {
+  const visibility = opts.skipVisibilityCheck ? '' : ` AND (d.visibility = 'workspace' OR d.created_by = $4)`;
+  const params: unknown[] = [id, ctx.workspaceId, resource.documentType];
+  if (!opts.skipVisibilityCheck) params.push(ctx.userId);
   const result = await db.query<TypedDocumentRow>(
     `SELECT ${selectTypedDocumentColumns(resource, { detail: true })} FROM documents d
      WHERE d.id = $1
        AND d.workspace_id = $2
        AND d.archived_at IS NULL
        AND d.deleted_at IS NULL
-       AND d.document_type::text = $3
-       AND (d.visibility = 'workspace' OR d.created_by = $4)`,
-    [id, ctx.workspaceId, resource.documentType, ctx.userId]
+       AND d.document_type::text = $3${visibility}`,
+    params
   );
   return result.rows[0] ?? null;
 }

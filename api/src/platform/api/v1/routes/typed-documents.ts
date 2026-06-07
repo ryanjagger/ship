@@ -321,7 +321,11 @@ function createTypedDocumentRouter(resource: TypedDocumentResource): RouterType 
           return;
         }
         await runIssueSideEffects(outcome.sideEffects);
-        const row = await loadTypedDocument(pool, platform, resource, id.data);
+        // skipVisibilityCheck: the core already authorized this user against
+        // the PRE-image. A patch that sets visibility:'private' on another
+        // user's issue would otherwise commit and then have this reload
+        // filtered out — a 500 after a successful mutation.
+        const row = await loadTypedDocument(pool, platform, resource, id.data, { skipVisibilityCheck: true });
         if (!row) throw new Error('Updated Issue could not be reloaded');
         res.json(resource.toResponse(row));
       } catch (error) {
