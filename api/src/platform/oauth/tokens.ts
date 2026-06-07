@@ -48,9 +48,9 @@ export interface IssuedAccessToken {
   refreshTokenExpiresInSeconds?: number;
 }
 
-async function insertAccessToken(db: Queryable, input: IssueAccessTokenInput): Promise<string> {
+async function insertAccessToken(db: Queryable, input: IssueAccessTokenInput, opts?: { ttlMs?: number }): Promise<string> {
   const { token, hash, tokenPrefix } = generateAccessToken();
-  const expiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_MS);
+  const expiresAt = new Date(Date.now() + (opts?.ttlMs ?? ACCESS_TOKEN_TTL_MS));
   await db.query(
     `INSERT INTO access_tokens (token_hash, token_prefix, app_id, user_id, workspace_id, scopes, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -77,9 +77,10 @@ async function insertRefreshToken(
   return { id: row.id, token, expiresInSeconds: REFRESH_TOKEN_TTL_MS / 1000 };
 }
 
-export async function issueAccessToken(input: IssueAccessTokenInput): Promise<IssuedAccessToken> {
-  const accessToken = await insertAccessToken(pool, input);
-  const issued: IssuedAccessToken = { accessToken, expiresInSeconds: ACCESS_TOKEN_TTL_MS / 1000, scopes: input.scopes };
+export async function issueAccessToken(input: IssueAccessTokenInput, opts?: { ttlMs?: number }): Promise<IssuedAccessToken> {
+  const ttlMs = opts?.ttlMs ?? ACCESS_TOKEN_TTL_MS;
+  const accessToken = await insertAccessToken(pool, input, opts);
+  const issued: IssuedAccessToken = { accessToken, expiresInSeconds: ttlMs / 1000, scopes: input.scopes };
 
   if (input.scopes.includes(OFFLINE_ACCESS_SCOPE)) {
     const refresh = await insertRefreshToken(pool, input);

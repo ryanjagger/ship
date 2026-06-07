@@ -50,6 +50,26 @@ const SCOPES: ScopeDefinition[] = [
   { scope: 'weekly_reviews:read', description: 'Read weekly reviews.', exercised: true },
   { scope: 'weekly_reviews:write', description: 'Create, update, and delete weekly reviews.', exercised: true },
   { scope: 'webhooks:manage', description: 'Manage webhook subscriptions.', exercised: true },
+
+  // Developer-platform administration (used by the Developer Portal's first-party
+  // token exchange). Scope alone is not enough: the /api/v1 routes behind these
+  // also require the token's user to be a workspace admin at request time.
+  {
+    scope: 'apps:manage',
+    description:
+      "Manage the workspace's OAuth apps: registration, secret rotation, deletion, and each app's webhook subscriptions and delivery log.",
+    exercised: true,
+  },
+  {
+    scope: 'connections:manage',
+    description: "List and revoke connected apps' live tokens in the workspace.",
+    exercised: true,
+  },
+  {
+    scope: 'audit:read',
+    description: "Read the workspace's public API audit trail.",
+    exercised: true,
+  },
   {
     scope: 'offline_access',
     description: 'Issue a refresh token so an installed integration can keep access after the one-hour access token expires.',
